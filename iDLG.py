@@ -84,6 +84,12 @@ def main():
     timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
 
     ''' train iDLG and iDLG_masked '''
+
+    # Collect PSNR curves for all experiments so we can plot them in a single grid at the end.
+    all_psnr_curves = []  # [{'iDLG': {'iters': [...], 'psnr': [...]}, 'iDLG_masked': {...}}, ...]
+
+    params = {"num-exp": num_exp, "lr": lr, "batchsize": num_dummy, "iters": Iteration}
+
     for idx_net in range(num_exp):
         net = LeNetCIFAR10(channel=channel, num_classes=num_classes)
         net.apply(weights_init)
@@ -233,7 +239,7 @@ def main():
 
         # Save after every 10 experiments
         if len(panel_gt_pil) == panel_block_size:
-            save_recon_panel(num_exp, panel_gt_pil, panel_idlg_pil, panel_masked_pil, save_path, panel_block_idx, dataset, mask_desc, timestamp_str)
+            save_recon_panel(params, panel_gt_pil, panel_idlg_pil, panel_masked_pil, save_path, panel_block_idx, dataset, mask_desc, timestamp_str)
             panel_block_idx += 1
             panel_gt_pil.clear()
             panel_idlg_pil.clear()
@@ -245,26 +251,49 @@ def main():
         print('psnr_iDLG:', psnr_iDLG[-1], 'psnr_iDLG_masked:', psnr_iDLG_masked[-1])
         print('gt_label:', gt_label.detach().cpu().data.numpy(), 'lab_iDLG:', label_iDLG, 'lab_iDLG_masked:', label_iDLG_masked)
 
-        # Plot PSNR curves for this experiment
-        plt.figure(figsize=(8, 5))
-        plt.plot(curves['iDLG']['iters'], curves['iDLG']['psnr'], label='iDLG')
-        plt.plot(curves['iDLG_masked']['iters'], curves['iDLG_masked']['psnr'], label='iDLG_masked')
-        plt.xlabel('Iteration')
-        plt.ylabel('PSNR (dB)')
-        plt.title(f'PSNR vs Iteration (exp {idx_net + 1}/{num_exp}, dataset={dataset})')
-        plt.legend()
-        plt.grid(True, alpha=0.3)
-        psnr_plot_path = os.path.join(save_path, f'psnr_curve_exp_{idx_net:03d}.png')
-        plt.savefig(psnr_plot_path, dpi=200, bbox_inches='tight')
-        plt.close()
+        # Store curves for the final grid plot.
+        all_psnr_curves.append({
+            'iDLG': {'iters': curves['iDLG']['iters'], 'psnr': curves['iDLG']['psnr']},
+            'iDLG_masked': {'iters': curves['iDLG_masked']['iters'], 'psnr': curves['iDLG_masked']['psnr']},
+        })
 
-        print('Saved PSNR plot to:', psnr_plot_path)
         print('----------------------\n\n')
 
     # Save any remaining experiments (<10) once at the end
     if len(panel_gt_pil) > 0:
-        save_recon_panel(num_exp, panel_gt_pil, panel_idlg_pil, panel_masked_pil,
+        save_recon_panel(params, panel_gt_pil, panel_idlg_pil, panel_masked_pil,
                         save_path, panel_block_idx, dataset, mask_desc, timestamp_str)
+
+    # ---- Plot ALL PSNR curves in a single grid figure ----
+    if len(all_psnr_curves) > 0:
+        ncols = int(math.ceil(math.sqrt(num_exp)))
+        nrows = int(math.ceil(num_exp / ncols))
+
+        fig, axes = plt.subplots(nrows, ncols, figsize=(4.2 * ncols, 3.2 * nrows), squeeze=False)
+        axes = axes.flatten()
+
+        for i, curves_i in enumerate(all_psnr_curves):
+            ax = axes[i]
+            ax.plot(curves_i['iDLG']['iters'], curves_i['iDLG']['psnr'], label='iDLG')
+            ax.plot(curves_i['iDLG_masked']['iters'], curves_i['iDLG_masked']['psnr'], label='iDLG_masked')
+            ax.set_title(f'exp {i + 1}/{num_exp}')
+            ax.set_xlabel('Iter')
+            ax.set_ylabel('PSNR (dB)')
+            ax.grid(True, alpha=0.3)
+            # Keep legends readable by not repeating them on every subplot.
+            if i == 0:
+                ax.legend(fontsize=9)
+
+        # Hide unused subplots (if num_exp is not a perfect grid fill).
+        for j in range(len(all_psnr_curves), len(axes)):
+            axes[j].axis('off')
+
+        fig.suptitle(f'PSNR vs Iteration (dataset={dataset})', y=1.02)
+        fig.tight_layout()
+        psnr_grid_path = os.path.join(save_path, 'psnr_curves_grid.png')
+        fig.savefig(psnr_grid_path, dpi=220, bbox_inches='tight')
+        plt.close(fig)
+        print('Saved PSNR grid plot to:', psnr_grid_path)
 
 if __name__ == '__main__':
     main()
