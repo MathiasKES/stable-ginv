@@ -12,12 +12,12 @@ import math
 from datetime import datetime
 
 from Figures import save_recon_panel, compute_psnr_from_mse
-from Network import LeNet, LeNetCIFAR10, LeNetCIFAR100, weights_init
+from Network import LeNet, LeNetCIFAR10, LeNetCIFAR100, weights_init, resnet20
 from Dataset import Dataset_from_Image, lfw_dataset
 
 def main():
     dataset = 'cifar10'
-    root_path = ''
+    root_path = '/work3/s234843/bachelor/'
     data_path = os.path.join(root_path, 'data').replace('\\', '/')
     save_path = os.path.join(root_path, 'results/iDLG_%s'%dataset).replace('\\', '/')
     
@@ -91,7 +91,8 @@ def main():
     params = {"num-exp": num_exp, "lr": lr, "batchsize": num_dummy, "iters": Iteration}
 
     for idx_net in range(num_exp):
-        net = LeNetCIFAR10(channel=channel, num_classes=num_classes)
+        # net = LeNetCIFAR10(channel=channel, num_classes=num_classes)
+        net = resnet20()
         net.apply(weights_init)
 
         print('running %d|%d experiment'%(idx_net, num_exp))
