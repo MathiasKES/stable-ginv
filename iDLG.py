@@ -28,6 +28,7 @@ def main():
 
     use_cuda = torch.cuda.is_available()
     device = 'cuda' if use_cuda else 'cpu'
+    print("Using:", device)
 
     tt = transforms.Compose([transforms.ToTensor()])
     tp = transforms.Compose([transforms.ToPILImage()])
@@ -36,10 +37,9 @@ def main():
     print(dataset, 'data_path:', data_path)
     print(dataset, 'save_path:', save_path)
 
-    if not os.path.exists('results'):
-        os.mkdir('results')
-    if not os.path.exists(save_path):
-        os.mkdir(save_path)
+
+    os.makedirs(save_path, exist_ok=True)
+    os.makedirs(data_path, exist_ok=True)
 
     ''' load data '''
     if dataset == 'MNIST':
@@ -87,10 +87,15 @@ def main():
     for idx_net in range(num_exp):
         # net = LeNetCIFAR10(channel=channel, num_classes=num_classes)
         net = resnet20()
+        for name, module in net.named_modules():
+            print(name, "->", module.__class__.__name__)
+
         net.apply(weights_init)
+        
 
         print('running %d|%d experiment'%(idx_net, num_exp))
         net = net.to(device)
+        net.eval()
         idx_shuffle = np.random.permutation(len(dst))
 
         curves = {
@@ -128,7 +133,7 @@ def main():
 
             # generate dummy data and label
             dummy_data = torch.randn(gt_data.size()).to(device).requires_grad_(True)
-            optimizer = torch.optim.LBFGS([dummy_data, ], lr=lr,)
+            optimizer = torch.optim.LBFGS([dummy_data, ], lr=lr, max_iter=1)
 
             # predict the ground-truth label
             label_pred = torch.argmin(torch.sum(original_dy_dx[-2], dim=-1), dim=-1).detach().reshape((1,)).requires_grad_(False)
