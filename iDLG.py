@@ -17,14 +17,16 @@ from Dataset import Dataset_from_Image, lfw_dataset
 
 def main():
     dataset = 'cifar10'
+    timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
     root_path = '/work3/s234843/bachelor/'
     data_path = os.path.join(root_path, 'data').replace('\\', '/')
-    save_path = os.path.join(root_path, 'results/iDLG_%s'%dataset).replace('\\', '/')
+    save_path = os.path.join(root_path, f'results/iDLG_{dataset}_{timestamp_str}').replace('\\', '/')
+    
     
     lr = 0.5
     num_dummy = 1
     Iteration = 300
-    num_exp = 10
+    num_exp = 5
 
     use_cuda = torch.cuda.is_available()
     device = 'cuda' if use_cuda else 'cpu'
@@ -37,7 +39,7 @@ def main():
     print(dataset, 'data_path:', data_path)
     print(dataset, 'save_path:', save_path)
 
-
+    print(save_path)
     os.makedirs(save_path, exist_ok=True)
     os.makedirs(data_path, exist_ok=True)
 
@@ -81,7 +83,6 @@ def main():
     panel_idlg_pil = []
     panel_masked_pil = []
     mask_desc = "keep_params_0-3"  # update this when you change masking
-    timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
 
     ''' train iDLG and iDLG_masked '''
 
@@ -93,8 +94,8 @@ def main():
     for idx_net in range(num_exp):
         # net = LeNetCIFAR10(channel=channel, num_classes=num_classes)
         net = resnet20()
-        for name, module in net.named_modules():
-            print(name, "->", module.__class__.__name__)
+        # for name, module in net.named_modules():
+        #     print(name, "->", module.__class__.__name__)
 
         net.apply(weights_init)
         
@@ -102,6 +103,10 @@ def main():
         print('running %d|%d experiment'%(idx_net, num_exp))
         net = net.to(device)
         net.eval()
+
+        # Names in the exact same order as net.parameters()
+        param_names = [name for name, _ in net.named_parameters()]
+
         idx_shuffle = np.random.permutation(len(dst))
 
         curves = {
@@ -170,17 +175,24 @@ def main():
                         L = len(original_dy_dx)
                         # First layer params: index 0 (weight) and 1 (bias)
                         # Last layer params: index L-2 (weight) and L-1 (bias)
-                        keep_param_indices = {0,1,2,3}
+
+                        mask_prefixes = ("layer2.",)  # you can add more prefixes here
+
+                        ### CHANGE THIS ###
                         for p_idx, (gx, gy) in enumerate(zip(dummy_dy_dx, original_dy_dx)):
-                            if p_idx not in keep_param_indices:
+                            pname = param_names[p_idx]
+
+                            # Keep only parameters whose names start with one of the prefixes
+                            if pname.startswith(mask_prefixes):
                                 continue
-                            grad_diff += ((gx - gy) ** 2).sum()
+
+                            grad_diff = grad_diff + ((gx - gy) ** 2).sum()
 
                     grad_diff.backward()
                     return grad_diff
                 
                 loss_tensor = optimizer.step(closure)
-                current_loss = float(loss_tensor)
+                current_loss = loss_tensor.detach().item()
 
                 with torch.no_grad():
                     dummy_data.clamp_(0, 1)
