@@ -12,7 +12,7 @@ import math
 from datetime import datetime
 
 from Figures import save_recon_panel, compute_psnr_from_mse
-from Network import LeNet, LeNetCIFAR10, LeNetCIFAR100, weights_init
+from Network import LeNet, LeNetCIFAR10, LeNetCIFAR100, weights_init, resnet20
 from Dataset import Dataset_from_Image, lfw_dataset
 
 def main():
@@ -85,7 +85,8 @@ def main():
 
     ''' train iDLG and iDLG_masked '''
     for idx_net in range(num_exp):
-        net = LeNetCIFAR10(channel=channel, num_classes=num_classes)
+        #net = LeNetCIFAR10(channel=channel, num_classes=num_classes)
+        net = resnet20()
         net.apply(weights_init)
 
         print('running %d|%d experiment'%(idx_net, num_exp))
