@@ -11,12 +11,12 @@ import PIL.Image as Image
 import math
 from datetime import datetime
 
-from Figures import save_recon_panel, compute_psnr_from_mse
+from Misc_functions import save_recon_panel, compute_psnr_from_mse
 from Network import LeNet, LeNetCIFAR10, LeNetCIFAR100, weights_init, resnet20
 from Dataset import Dataset_from_Image, lfw_dataset
 
 def main():
-    dataset = 'cifar10'
+    dataset = 'MNIST'
     timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
     root_path = '/work3/s234843/bachelor/'
     data_path = os.path.join(root_path, 'data').replace('\\', '/')

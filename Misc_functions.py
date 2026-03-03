@@ -1,6 +1,37 @@
 import matplotlib.pyplot as plt
 import os
 import math
+from Network import LeNet, LeNet_bigger, MediumCNN, weights_init
+
+def build_network(name: str, channel: int, num_classes: int, input_size):
+    if name == "LeNet":
+        return LeNet(channel=channel, num_classes=num_classes, input_size=input_size)
+    if name == "LeNet_bigger":
+        return LeNet_bigger(channel=channel, num_classes=num_classes, input_size=input_size)
+    if name == "MediumCNN":
+        return MediumCNN(channel=channel, num_classes=num_classes, input_size=input_size)
+    raise ValueError(f"Unknown NETWORK_NAME: {name}")
+
+def get_keep_ids(mask_mode: str):
+    if mask_mode == "all":
+        return set(range(8))
+    if mask_mode == "conv12":
+        return {0, 1, 2, 3}
+    if mask_mode == "conv123":
+        return {0, 1, 2, 3, 4, 5}
+    if mask_mode == "fc_only":
+        return {6, 7}
+    if mask_mode == "no_fc":
+        return {0, 1, 2, 3, 4, 5}
+    if mask_mode == "conv1_fc":
+        return {0, 1, 6, 7}
+    if mask_mode == "conv12_fc":
+        return {0, 1, 2, 3, 6, 7}
+    if mask_mode == "conv13_fc":
+        return {0, 1, 4, 5, 6, 7}
+    if mask_mode == "conv2_fc":
+        return {2, 3, 6, 7}
+    raise ValueError(f"Unknown MASK_MODE: {mask_mode}")
 
 def compute_psnr_from_mse(mse: float, max_val: float = 1.0, eps: float = 1e-12) -> float:
     """Compute PSNR in dB from a scalar MSE. Assumes images are in [0, max_val]."""
