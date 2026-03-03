@@ -19,7 +19,7 @@ MASK_MODE = "conv12_fc"  # "all", "conv12", "conv123", "fc_only", "no_fc", "conv
 lr = 1
 num_dummy = 1
 Iteration = 300
-num_exp = 50
+num_exp = 100
 NETWORK_NAME = "LeNet"  # options: "LeNet", "LeNet_bigger", "MediumCNN"
 # --------------------------------------------------
 
@@ -32,7 +32,7 @@ def main():
     save_path = os.path.join(root_path, f'results/iDLG_{dataset}').replace('\\', '/')
 
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
-
+    print("Device: ",device)
     tt = transforms.Compose([transforms.ToTensor()])
     tp = transforms.Compose([transforms.ToPILImage()])
 
