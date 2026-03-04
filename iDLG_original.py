@@ -10,7 +10,7 @@ import pickle
 import PIL.Image as Image
 
 # https://test.pypi.org/project/mlserverpy/
-# pip install -i https://test.pypi.org/simple/ mlserverpy
+# pip install -i https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ mlserverpy
 import mlserverpy
 
 
@@ -230,9 +230,8 @@ def main():
                 losses.append(current_loss)
                 mses.append(current_mse)
 
-                # Stream live metrics to the server every iteration
-                client.log_metric(method=method, metric="loss", value=current_loss, step=1)
-                client.log_metric(method=method, metric="mse",  value=current_mse,  step=1)
+                client.log_metric(method=method, metric=f"loss exp={idx_net}", value=current_loss, step=iters)
+                client.log_metric(method=method, metric=f"mse exp={idx_net}",  value=current_mse,  step=iters)
 
                 if iters % int(Iteration / 30) == 0:
                     current_time = str(time.strftime("[%Y-%m-%d %H:%M:%S]", time.localtime()))
@@ -240,26 +239,26 @@ def main():
                     history.append([tp(dummy_data[imidx].cpu()) for imidx in range(num_dummy)])
                     history_iters.append(iters)
 
-                    for imidx in range(num_dummy):
-                        fig = plt.figure(figsize=(12, 8))
-                        plt.subplot(3, 10, 1)
-                        plt.imshow(tp(gt_data[imidx].cpu()))
-                        plt.axis('off')
-                        for i in range(min(len(history), 29)):
-                            plt.subplot(3, 10, i + 2)
-                            plt.imshow(history[i][imidx])
-                            plt.title('iter=%d' % history_iters[i])
-                            plt.axis('off')
+                converged = current_loss < 0.000001
+                if converged:
+                    break
 
-                        fname = '%s_on_%s_%05d_iter%04d.png' % (method, imidx_list, imidx_list[imidx], iters)
+            # ── Save and post only the final plot ──────────────────────────────────────
+            for imidx in range(num_dummy):
+                fig = plt.figure(figsize=(12, 8))
+                plt.subplot(3, 10, 1)
+                plt.imshow(tp(gt_data[imidx].cpu()))
+                plt.axis('off')
+                for i in range(min(len(history), 29)):
+                    plt.subplot(3, 10, i + 2)
+                    plt.imshow(history[i][imidx])
+                    plt.title('iter=%d' % history_iters[i])
+                    plt.axis('off')
 
-                        # Save locally and upload to server
-                        plt.savefig('%s/%s' % (save_path, fname))
-                        client.post_image(figure=fig, filename=fname)
-                        plt.close(fig)
-
-                    if current_loss < 0.000001: # converge
-                        break
+                fname = '%s_on_%s_%05d_final.png' % (method, imidx_list, imidx_list[imidx])
+                plt.savefig('%s/%s' % (save_path, fname))
+                client.post_image(figure=fig, filename=fname)
+                plt.close(fig)
 
             # Upload the final loss/mse curves for this method as a summary plot
             fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4))
@@ -270,20 +269,20 @@ def main():
             plt.close(fig)
 
             # Upload final scalar metrics for this method
-            client.log_scalar(method=method, key="final_loss", value=losses[-1])
-            client.log_scalar(method=method, key="final_mse",  value=mses[-1])
+            client.log_scalar(method=method, key=f"final_loss exp={idx_net}", value=losses[-1])
+            client.log_scalar(method=method, key=f"final_mse exp={idx_net}",  value=mses[-1])
 
             if method == 'DLG':
                 loss_DLG  = losses
                 mse_DLG   = mses
                 label_DLG = torch.argmax(dummy_label, dim=-1).detach().item()
-                client.log_scalar(method=method, key="predicted_label", value=label_DLG)
+                client.log_scalar(method=method, key=f"predicted_label exp={idx_net}", value=label_DLG)
 
             elif method == 'iDLG':
                 loss_iDLG  = losses
                 mse_iDLG   = mses
                 label_iDLG = label_pred.item()
-                client.log_scalar(method=method, key="predicted_label", value=label_iDLG)
+                client.log_scalar(method=method, key=f"predicted_label exp={idx_net}", value=label_iDLG)
 
         gt_label_val = int(gt_label.detach().cpu().numpy()[0])
 
@@ -294,8 +293,8 @@ def main():
         print('----------------------\n\n')
 
         # Log ground-truth label and a per-experiment summary to the server
-        client.log_scalar(method="DLG",  key="gt_label", value=gt_label_val)
-        client.log_scalar(method="iDLG", key="gt_label", value=gt_label_val)
+        client.log_scalar(method="DLG",  key=f"gt_label exp={idx_net}", value=gt_label_val)
+        client.log_scalar(method="iDLG", key=f"gt_label exp={idx_net}", value=gt_label_val)
 
         log_line = (
             "Exp %02d | gt=%d | "
@@ -306,7 +305,7 @@ def main():
             loss_DLG[-1],  mse_DLG[-1],  label_DLG,
             loss_iDLG[-1], mse_iDLG[-1], label_iDLG,
         )
-        client.post_log(text=log_line, filename="run.log")
+        client.post_log(text=log_line, filename=f"run exp{idx_net}.log")
 
     # Final flush to make sure nothing is left in the buffer
     client.flush()
