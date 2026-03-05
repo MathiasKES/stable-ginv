@@ -138,5 +138,8 @@ def save_recon_panel(params: dict, panel_gt_pil, panel_idlg_pil, panel_masked_pi
     out_path = os.path.join(save_dir, f"{'_'.join(f'{key}{val}' for key, val in params.items())}_{mask_desc}_{timestamp_str}.png")
     plt.savefig(out_path, dpi=250, bbox_inches='tight')
     plt.close(fig)
-    os.chmod(out_path, 0o770) # Ensure correct permissions
+    try:
+        os.chmod(out_path, 0o770) # Ensure correct permissions
+    except Exception as e:
+        print(f"Warning: failed to set permissions for {out_path}: {e}")
     print("Saved 10-exp reconstruction panel to:", out_path)
