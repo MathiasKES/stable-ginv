@@ -23,12 +23,12 @@ GRADSIZE_METRIC = "l2"  # "l2", "mean_abs", "sum_abs"
 lr = 1
 num_dummy = 1
 Iteration = 300
-num_exp = 50
-NETWORK_NAME = "LeNet"  # options: "LeNet", "LeNet_bigger", "MediumCNN"
+num_exp = 10
+NETWORK_NAME = "LeNet_bigger"  # options: "LeNet", "LeNet_bigger", "MediumCNN"
 # --------------------------------------------------
 
 def main():
-    dataset = 'MNIST'
+    dataset = 'cifar100'
     timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
 
     root_path = '.'
@@ -181,7 +181,7 @@ def main():
                 losses.append(current_loss)
                 mses.append(torch.mean((dummy_data - gt_data) ** 2).item())
 
-                if iters % 50 == 0:
+                if iters % 100 == 0:
                     current_time = str(time.strftime("[%Y-%m-%d %H:%M:%S]", time.localtime()))
                     print(current_time, iters, f'loss = {current_loss:.8f}, mse = {mses[-1]:.8f}')
 
@@ -260,18 +260,16 @@ def main():
         "timestamp": timestamp_str,
         "dataset": dataset,
         "network": NETWORK_NAME,
-        "mask_mode": MASK_MODE,
-        "grad_topfrac": GRADSIZE_TOPFRAC,
+        
         "lr": lr,
         "iteration": Iteration,
-        "num_exp": num_exp,
-        "num_dummy": num_dummy,}
+        "num_exp": num_exp,}
 
     rows = [
         {"method": "iDLG", **common, "med_final_loss": med_final_loss_idlg, "avg_final_loss": avg_final_loss_idlg, "med_final_mse": med_final_mse_idlg, "avg_final_mse": avg_final_mse_idlg, "avg_psnr": avg_psnr_idlg},
-        {"method": "iDLG_masked", **common, "med_final_loss": med_final_loss_masked, "avg_final_loss": avg_final_loss_masked, "med_final_mse": med_final_mse_masked, "avg_final_mse": avg_final_mse_masked, "avg_psnr": avg_psnr_masked},]
+        {"method": "iDLG_masked", **common, "mask_mode": MASK_MODE, "grad_topfrac": GRADSIZE_TOPFRAC, "med_final_loss": med_final_loss_masked, "avg_final_loss": avg_final_loss_masked, "med_final_mse": med_final_mse_masked, "avg_final_mse": avg_final_mse_masked, "avg_psnr": avg_psnr_masked},]
     
-    fieldnames = ["method"] + [k for k in common.keys()] + ["med_final_loss", "avg_final_loss", "med_final_mse", "avg_final_mse", "avg_psnr"]
+    fieldnames = ["method"] + [k for k in common.keys()] + ["mask_mode", "grad_topfrac", "med_final_loss", "avg_final_loss", "med_final_mse", "avg_final_mse", "avg_psnr"]
 
     with open(csv_path, "a", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
@@ -281,7 +279,7 @@ def main():
 
     print("\n=== Average PSNR over all experiments ===")
     print(f"\nSaved CSV rows to: {csv_path}")
-    print(f"top fraction of gradients sizes kept: {GRADSIZE_TOPFRAC}%")
+    print(f"top fraction of gradients sizes kept: {GRADSIZE_TOPFRAC*100}%")
     print(f"Avg final loss iDLG: {avg_final_loss_idlg:.6f} | masked: {avg_final_loss_masked:.6f}")
     print(f"Avg final mse  iDLG: {avg_final_mse_idlg:.8f} | masked: {avg_final_mse_masked:.8f}")
     print(f"Median final loss iDLG: {med_final_loss_idlg:.6f} | masked: {med_final_loss_masked:.6f}")
