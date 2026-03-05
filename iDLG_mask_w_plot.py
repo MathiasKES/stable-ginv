@@ -45,8 +45,11 @@ def main():
     tt = transforms.Compose([transforms.ToTensor()])
     tp = transforms.Compose([transforms.ToPILImage()])
 
-    os.makedirs(data_path, mode=0o770, exist_ok=True)
-    os.makedirs(save_path, mode=0o770, exist_ok=True)
+    try:
+        os.makedirs(data_path, mode=0o770, exist_ok=True)
+        os.makedirs(save_path, mode=0o770, exist_ok=True)
+    except Exception as e:
+        print(f"Warning: failed to set permissions for directories: {e}")
 
     print(dataset, 'root_path:', root_path)
     print(dataset, 'data_path:', data_path)
@@ -72,7 +75,11 @@ def main():
         shape_img = (32, 32)
         num_classes = 5749
         channel = 3
-        lfw_path = os.path.join(root_path, '../data/lfw')
+        lfw_path = os.path.join(data_path, 'lfw')
+        try:
+            os.makedirs(lfw_path, mode=0o770, exist_ok=True)
+        except Exception as e:
+            print(f"Warning: failed to set permissions for {lfw_path}: {e}")
         dst = lfw_dataset(lfw_path, shape_img)
     else:
         raise ValueError('unknown dataset')
@@ -223,6 +230,11 @@ def main():
         if not file_exists:
             writer.writeheader()
         writer.writerows(rows)
+    
+    try:
+        os.chmod(csv_path, 0o770) # Ensure correct permissions
+    except Exception as e:
+        print(f"Warning: failed to set permissions for {csv_path}: {e}")
 
     print("\n=== Average PSNR over all experiments ===")
     print(f"\nSaved CSV rows to: {csv_path}")
