@@ -68,7 +68,8 @@ def main():
         shape_img = (32, 32)
         num_classes = 5749
         channel = 3
-        lfw_path = os.path.join(root_path, '../data/lfw')
+        lfw_path = os.path.join(data_path, 'lfw')
+        os.makedirs(lfw_path, mode=0o770, exist_ok=True)
         dst = lfw_dataset(lfw_path, shape_img)
     else:
         raise ValueError('unknown dataset')
