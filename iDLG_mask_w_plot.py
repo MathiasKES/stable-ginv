@@ -209,6 +209,8 @@ def main():
         if not file_exists:
             writer.writeheader()
         writer.writerows(rows)
+    
+    os.chmod(csv_path, 0o770) # Ensure correct permissions
 
     print("\n=== Average PSNR over all experiments ===")
     print(f"\nSaved CSV rows to: {csv_path}")
