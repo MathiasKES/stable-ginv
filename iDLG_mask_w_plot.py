@@ -10,16 +10,20 @@ import PIL.Image as Image
 from datetime import datetime
 import csv
 
-from Misc_functions import save_recon_panel, get_keep_ids, compute_psnr_from_mse, build_network
+from Misc_functions import save_recon_panel, get_keep_ids, compute_psnr_from_mse, build_network, get_keep_ids_by_gradsize
 from Dataset import Dataset_from_Image, lfw_dataset
 from Network import LeNet, LeNet_bigger, MediumCNN, weights_init
 
-# -------- Masking config (edit these only) --------
-MASK_MODE = "conv12_fc"  # "all", "conv12", "conv123", "fc_only", "no_fc", "conv1_fc", "conv12_fc"
+# -------- Masking config --------
+MASK_MODE = "gradsize_topfrac"  # "gradsize_topk", "gradsize_topfrac", "gradsize_threshold", or "conv12_fc"  # "all", "conv12", "conv123", "fc_only", "no_fc", "conv1_fc", "conv12_fc"
+GRADSIZE_TOPK = 10
+GRADSIZE_TOPFRAC = 0.9
+GRADSIZE_THRESHOLD = None
+GRADSIZE_METRIC = "l2"  # "l2", "mean_abs", "sum_abs"
 lr = 1
 num_dummy = 1
 Iteration = 300
-num_exp = 100
+num_exp = 50
 NETWORK_NAME = "LeNet"  # options: "LeNet", "LeNet_bigger", "MediumCNN"
 # --------------------------------------------------
 
@@ -83,7 +87,6 @@ def main():
     final_mse_masked_all = []
 
     mask_desc = MASK_MODE  # auto label the saved panel
-
     params = {"num-exp": num_exp, "lr": lr, "batchsize": num_dummy, "iters": Iteration}
 
     # -------- train iDLG and iDLG_masked --------
@@ -133,8 +136,23 @@ def main():
             label_pred = torch.argmin(torch.sum(original_dy_dx[-2], dim=-1), dim=-1).detach().reshape((1,))
 
             # choose which gradient tensors are "shared"
-            keep_ids = get_keep_ids("all" if method == "iDLG" else MASK_MODE)
-
+            #keep_ids = get_keep_ids("all" if method == "iDLG" else MASK_MODE)
+            if method == "iDLG":
+                keep_ids = get_keep_ids("all")
+            else:
+                if MASK_MODE == "gradsize_topk":
+                    keep_ids, ranked = get_keep_ids_by_gradsize(
+                        original_dy_dx, mode="topk", topk=GRADSIZE_TOPK, metric=GRADSIZE_METRIC)
+                elif MASK_MODE == "gradsize_topfrac":
+                    keep_ids, ranked = get_keep_ids_by_gradsize(
+                        original_dy_dx, mode="topfrac", top_frac=GRADSIZE_TOPFRAC, metric=GRADSIZE_METRIC)
+                elif MASK_MODE == "gradsize_threshold":
+                    keep_ids, ranked = get_keep_ids_by_gradsize(
+                        original_dy_dx, mode="threshold", threshold=GRADSIZE_THRESHOLD, metric=GRADSIZE_METRIC)
+                else:
+                    # fallback to your existing hand-crafted layer masks
+                    keep_ids = get_keep_ids(MASK_MODE)
+                    ranked = None
             losses = []
             mses = []
 
@@ -144,10 +162,8 @@ def main():
                     optimizer.zero_grad()
                     pred = net(dummy_data)
                     dummy_loss = criterion(pred, label_pred)
-
                     dummy_dy_dx = torch.autograd.grad(dummy_loss, net.parameters(), create_graph=True)
-
-                    # More stable across masks: mean per tensor (then average across kept tensors)
+                    
                     grad_diff = 0.0
                     for i, (gx, gy) in enumerate(zip(dummy_dy_dx, original_dy_dx)):
                         if i not in keep_ids:
@@ -158,6 +174,7 @@ def main():
                 
                 optimizer.step(closure)
                 current_loss = optimizer.step(closure).item()
+
                 #with torch.no_grad():
                 #    dummy_data.clamp_(0, 1)
 
@@ -244,6 +261,7 @@ def main():
         "dataset": dataset,
         "network": NETWORK_NAME,
         "mask_mode": MASK_MODE,
+        "grad_topfrac": GRADSIZE_TOPFRAC,
         "lr": lr,
         "iteration": Iteration,
         "num_exp": num_exp,
@@ -263,6 +281,7 @@ def main():
 
     print("\n=== Average PSNR over all experiments ===")
     print(f"\nSaved CSV rows to: {csv_path}")
+    print(f"top fraction of gradients sizes kept: {GRADSIZE_TOPFRAC}%")
     print(f"Avg final loss iDLG: {avg_final_loss_idlg:.6f} | masked: {avg_final_loss_masked:.6f}")
     print(f"Avg final mse  iDLG: {avg_final_mse_idlg:.8f} | masked: {avg_final_mse_masked:.8f}")
     print(f"Median final loss iDLG: {med_final_loss_idlg:.6f} | masked: {med_final_loss_masked:.6f}")

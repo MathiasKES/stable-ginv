@@ -3,6 +3,61 @@ import os
 import math
 from Network import LeNet, LeNet_bigger, MediumCNN, weights_init
 
+def get_keep_ids_by_gradsize(original_dy_dx, mode="topk", topk=10, top_frac=None, threshold=None, metric="l2"):
+    """
+    original_dy_dx: list of gradient tensors (same ordering as net.parameters()).
+    mode:
+      - "topk": keep the top-k largest gradient tensors
+      - "topfrac": keep the top fraction (e.g. 0.3 means keep 30%)
+      - "threshold": keep tensors with size >= threshold
+    metric:
+      - "l2": L2 norm per tensor
+      - "mean_abs": mean absolute value per tensor
+      - "sum_abs": sum of absolute values per tensor
+    """
+    sizes = []
+    for i, g in enumerate(original_dy_dx):
+        if g is None:
+            sizes.append((i, float("-inf")))
+            continue
+
+        if metric == "l2":
+            s = g.detach().norm(p=2).item()
+        elif metric == "mean_abs":
+            s = g.detach().abs().mean().item()
+        elif metric == "sum_abs":
+            s = g.detach().abs().sum().item()
+        else:
+            raise ValueError(f"Unknown metric: {metric}")
+
+        sizes.append((i, s))
+
+    # sort descending by size
+    sizes_sorted = sorted(sizes, key=lambda x: x[1], reverse=True)
+
+    if mode == "topk":
+        k = min(topk, len(sizes_sorted))
+        keep = [i for i, _ in sizes_sorted[:k]]
+
+    elif mode == "topfrac":
+        if top_frac is None:
+            raise ValueError("top_frac must be set for mode='topfrac'")
+        k = max(1, int(round(top_frac * len(sizes_sorted))))
+        keep = [i for i, _ in sizes_sorted[:k]]
+
+    elif mode == "threshold":
+        if threshold is None:
+            raise ValueError("threshold must be set for mode='threshold'")
+        keep = [i for i, s in sizes_sorted if s >= threshold]
+        if len(keep) == 0:
+            # fallback: keep the single largest to avoid empty mask
+            keep = [sizes_sorted[0][0]]
+
+    else:
+        raise ValueError(f"Unknown mode: {mode}")
+
+    return sorted(keep), sizes_sorted  # keep_ids, plus ranked list for optional logging
+
 def build_network(name: str, channel: int, num_classes: int, input_size):
     if name == "LeNet":
         return LeNet(channel=channel, num_classes=num_classes, input_size=input_size)
