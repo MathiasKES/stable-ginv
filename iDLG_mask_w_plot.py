@@ -31,18 +31,22 @@ def main():
     timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
 
     root_path = '.'
-    data_path = '/work3/s234843/datasets' if os.path.exists('/work3/s234843/datasets') else os.path.join(root_path, '../data').replace('\\', '/')
-    save_path = '/work3/s234843/results' if os.path.exists('/work3/s234843/results') else os.path.join(root_path, 'results').replace('\\', '/')
+    if os.access('/work3/s234843/bachelor', os.R_OK | os.W_OK | os.X_OK):
+        data_path = '/work3/s234843/bachelor/datasets'
+        save_path = '/work3/s234843/bachelor/results'
+    else:
+        data_path = os.path.join(root_path, 'data').replace('\\', '/')
+        save_path = os.path.join(root_path, 'results').replace('\\', '/')
 
     tt = transforms.Compose([transforms.ToTensor()])
     tp = transforms.Compose([transforms.ToPILImage()])
 
+    os.makedirs(data_path, mode=0o770, exist_ok=True)
+    os.makedirs(save_path, mode=0o770, exist_ok=True)
+
     print(dataset, 'root_path:', root_path)
     print(dataset, 'data_path:', data_path)
     print(dataset, 'save_path:', save_path)
-
-    os.makedirs(data_path, exist_ok=True)
-    os.makedirs(save_path, exist_ok=True)
 
     # -------- load data --------
     if dataset == 'MNIST':
