@@ -16,19 +16,23 @@ def main():
     # -------- Masking config --------
     MASK_MODE = "gradsize_topfrac"  # "gradsize_topk", "gradsize_topfrac", "gradsize_threshold", or "conv12_fc"  # "all", "conv12", "conv123", "fc_only", "no_fc", "conv1_fc", "conv12_fc"
     GRADSIZE_TOPK = 10
-    GRADSIZE_TOPFRAC = 0.9
+    GRADSIZE_TOPFRAC = 0.7
     GRADSIZE_THRESHOLD = None
     GRADSIZE_METRIC = "l2"  # "l2", "mean_abs", "sum_abs"
     lr = 1
     num_dummy = 1
-    Iteration = 300
-    num_exp = 8
+    Iteration = 500
+    num_exp = 4
     NETWORK_NAME = "LeNet_bigger"  # options: "LeNet", "LeNet_bigger", "MediumCNN"
-
-    
-
     dataset = 'cifar100'
     timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    loss_tol = 1e-6
+    patience = 50
+    min_rel_improve = 1e-4
+    explode_factor = 50.0
+    warmup = 100
+    max_nan = 1
 
     root_path = '.'
     if os.access('/work3/s234843/bachelor', os.R_OK | os.W_OK | os.X_OK):
@@ -105,6 +109,14 @@ def main():
         'GRADSIZE_THRESHOLD': GRADSIZE_THRESHOLD,
         'GRADSIZE_METRIC': GRADSIZE_METRIC,
         'NETWORK_NAME': NETWORK_NAME,
+        'EarlyStop': {
+            'loss_tol': loss_tol,
+            'patience': patience,
+            'min_rel_improve': min_rel_improve,
+            'explode_factor': explode_factor,
+            'warmup': warmup,
+            'max_nan': max_nan,
+        }
     }
 
     # -------- Run experiments in parallel --------
@@ -154,7 +166,10 @@ def main():
             panel_gt_pil.clear()
             panel_idlg_pil.clear()
             panel_masked_pil.clear()
-
+        es_r = result.get("early_stop_reason", {})
+        es_i = result.get("early_stop_iter", {})
+        print(f"early_stop iDLG: {es_r.get('iDLG')} @ {es_i.get('iDLG')}")
+        print(f"early_stop masked: {es_r.get('iDLG_masked')} @ {es_i.get('iDLG_masked')}")
         print('imidx_list:', result['imidx_list'])
         print('loss_iDLG:', result['loss_iDLG'], 'loss_iDLG_masked:', result['loss_iDLG_masked'])
         print('mse_iDLG:', result['mse_iDLG'], 'mse_iDLG_masked:', result['mse_iDLG_masked'])

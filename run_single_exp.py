@@ -35,6 +35,8 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
     tp = transforms.Compose([transforms.ToPILImage()])
 
     final_recon = {}
+    early_stop_reason_dict = {}
+    early_stop_iter_dict = {}
 
     for method in ['iDLG', 'iDLG_masked']:
         print(f'[GPU {device_id}] {method}, Try to generate {num_dummy} images')
@@ -90,6 +92,21 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
         
         losses = []
         mses = []
+        # ---- EarlyStop config from main (with fallbacks) ----
+        es = config.get("EarlyStop", {})
+        best_loss = float("inf")
+        no_improve = 0
+
+        patience = int(es.get("patience", 50))
+        min_rel_improve = float(es.get("min_rel_improve", 1e-4))
+        explode_factor = float(es.get("explode_factor", 500.0))
+        warmup = int(es.get("warmup", 100))
+        loss_tol = float(es.get("loss_tol", 1e-6))
+        max_nan = int(es.get("max_nan", 1))
+
+        nan_count = 0
+        early_stop_reason = None
+        early_stop_iter = None
 
         for iters in range(Iteration):
             def closure():
@@ -109,14 +126,57 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
             optimizer.step(closure)
             current_loss = optimizer.step(closure).item()
 
+            # ---- EARLY STOPPING (configurable from main) ----
+            if not np.isfinite(current_loss):
+                nan_count += 1
+                early_stop_reason = "nan_or_inf"
+                early_stop_iter = iters
+                print(f"[GPU {device_id}] Early stop ({method}): NaN/Inf at iter {iters}")
+                if nan_count >= max_nan:
+                    break
+            else:
+                # update best / plateau counter using RELATIVE improvement
+                if best_loss == float("inf"):
+                    best_loss = current_loss
+                    no_improve = 0
+                else:
+                    rel_improve = (best_loss - current_loss) / max(abs(best_loss), 1e-12)
+                    if rel_improve > min_rel_improve:
+                        best_loss = current_loss
+                        no_improve = 0
+                    elif iters >= warmup:
+                        no_improve += 1
+
+            # convergence
+            if iters >= warmup and current_loss < loss_tol:
+                early_stop_reason = "loss_tol"
+                early_stop_iter = iters
+                print(f"[GPU {device_id}] Early stop ({method}): loss_tol reached at iter {iters} (loss={current_loss:.3e})")
+                break
+
+            # explosion check
+            if iters >= warmup and best_loss < float("inf") and current_loss > explode_factor * best_loss:
+                early_stop_reason = "explosion"
+                early_stop_iter = iters
+                print(f"[GPU {device_id}] Early stop ({method}): exploded at iter {iters} (loss={current_loss:.3e}, best={best_loss:.3e})")
+                break
+
+            # plateau check
+            if iters >= warmup and no_improve >= patience:
+                early_stop_reason = "plateau"
+                early_stop_iter = iters
+                print(f"[GPU {device_id}] Early stop ({method}): plateau at iter {iters} (best={best_loss:.3e})")
+                break
+            # ---- END EARLY STOPPING ----
+
             losses.append(current_loss)
             mses.append(torch.mean((dummy_data - gt_data) ** 2).item())
 
             if iters % 100 == 0:
                 print(f'[GPU {device_id}] iters {iters}, loss = {current_loss:.8f}, mse = {mses[-1]:.8f}')
 
-            if current_loss < 1e-6:
-                break
+            # if current_loss < loss_tol:
+            #     break
 
         final_recon[method] = dummy_data.detach().clone()
 
@@ -128,6 +188,9 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
             loss_iDLG_masked = losses
             label_iDLG_masked = label_pred.item()
             mse_iDLG_masked = mses
+    
+        early_stop_reason_dict[method] = early_stop_reason
+        early_stop_iter_dict[method] = early_stop_iter
 
     # Prepare results to send back
     result = {
@@ -144,6 +207,8 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
         'label_iDLG_masked': label_iDLG_masked,
         'gt_label': gt_label.detach().cpu().numpy(),
         'imidx_list': imidx_list,
+        'early_stop_reason': early_stop_reason_dict,
+        'early_stop_iter': early_stop_iter_dict,
     }
     
     result_queue.put(result)
