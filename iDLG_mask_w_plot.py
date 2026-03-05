@@ -1,42 +1,39 @@
-import time
 import os
 import numpy as np
-import matplotlib.pyplot as plt
 import torch
-import torch.nn as nn
-from torch.utils.data import Dataset
 from torchvision import datasets, transforms
-import PIL.Image as Image
 from datetime import datetime
 import csv
+import os
+import torch.multiprocessing as mp
 
-from Misc_functions import save_recon_panel, get_keep_ids, compute_psnr_from_mse, build_network, get_keep_ids_by_gradsize
-from Dataset import Dataset_from_Image, lfw_dataset
-from Network import LeNet, LeNet_bigger, MediumCNN, weights_init
+from Misc_functions import save_recon_panel
+from Dataset import lfw_dataset
+from run_single_exp import run_single_experiment
 
-# -------- Masking config --------
-MASK_MODE = "gradsize_topfrac"  # "gradsize_topk", "gradsize_topfrac", "gradsize_threshold", or "conv12_fc"  # "all", "conv12", "conv123", "fc_only", "no_fc", "conv1_fc", "conv12_fc"
-GRADSIZE_TOPK = 10
-GRADSIZE_TOPFRAC = 0.9
-GRADSIZE_THRESHOLD = None
-GRADSIZE_METRIC = "l2"  # "l2", "mean_abs", "sum_abs"
-lr = 1
-num_dummy = 1
-Iteration = 300
-num_exp = 10
-NETWORK_NAME = "LeNet_bigger"  # options: "LeNet", "LeNet_bigger", "MediumCNN"
-# --------------------------------------------------
 
 def main():
+    # -------- Masking config --------
+    MASK_MODE = "gradsize_topfrac"  # "gradsize_topk", "gradsize_topfrac", "gradsize_threshold", or "conv12_fc"  # "all", "conv12", "conv123", "fc_only", "no_fc", "conv1_fc", "conv12_fc"
+    GRADSIZE_TOPK = 10
+    GRADSIZE_TOPFRAC = 0.9
+    GRADSIZE_THRESHOLD = None
+    GRADSIZE_METRIC = "l2"  # "l2", "mean_abs", "sum_abs"
+    lr = 1
+    num_dummy = 1
+    Iteration = 300
+    num_exp = 8
+    NETWORK_NAME = "LeNet_bigger"  # options: "LeNet", "LeNet_bigger", "MediumCNN"
+
+    
+
     dataset = 'cifar100'
     timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
 
     root_path = '.'
-    data_path = os.path.join(root_path, '../data').replace('\\', '/')
-    save_path = os.path.join(root_path, f'results/iDLG_{dataset}').replace('\\', '/')
+    data_path = '/work3/s234843/datasets' if os.path.exists('/work3/s234843/datasets') else os.path.join(root_path, '../data').replace('\\', '/')
+    save_path = '/work3/s234843/results' if os.path.exists('/work3/s234843/results') else os.path.join(root_path, 'results').replace('\\', '/')
 
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    print("Device: ",device)
     tt = transforms.Compose([transforms.ToTensor()])
     tp = transforms.Compose([transforms.ToPILImage()])
 
@@ -44,7 +41,7 @@ def main():
     print(dataset, 'data_path:', data_path)
     print(dataset, 'save_path:', save_path)
 
-    os.makedirs('results', exist_ok=True)
+    os.makedirs(data_path, exist_ok=True)
     os.makedirs(save_path, exist_ok=True)
 
     # -------- load data --------
@@ -72,6 +69,7 @@ def main():
     else:
         raise ValueError('unknown dataset')
 
+
     # -------- panel buffers --------
     panel_block_size = num_exp
     panel_block_idx = 0
@@ -86,134 +84,59 @@ def main():
     final_loss_masked_all = []
     final_mse_masked_all = []
 
-    mask_desc = MASK_MODE  # auto label the saved panel
+    mask_desc = MASK_MODE
     params = {"num-exp": num_exp, "lr": lr, "batchsize": num_dummy, "iters": Iteration}
 
-    # -------- train iDLG and iDLG_masked --------
+    # Prepare config to pass to workers
+    config = {
+        'channel': channel,
+        'num_classes': num_classes,
+        'shape_img': shape_img,
+        'lr': lr,
+        'num_dummy': num_dummy,
+        'Iteration': Iteration,
+        'MASK_MODE': MASK_MODE,
+        'GRADSIZE_TOPK': GRADSIZE_TOPK,
+        'GRADSIZE_TOPFRAC': GRADSIZE_TOPFRAC,
+        'GRADSIZE_THRESHOLD': GRADSIZE_THRESHOLD,
+        'GRADSIZE_METRIC': GRADSIZE_METRIC,
+        'NETWORK_NAME': NETWORK_NAME,
+    }
+
+    # -------- Run experiments in parallel --------
+    num_gpus = torch.cuda.device_count()
+    print(f"Using {num_gpus} GPUs")
+
+    mp.set_start_method('spawn', force=True)
+    mp.set_sharing_strategy('file_system')
+
+    result_queue = mp.SimpleQueue()
+    processes = []
+
+    # Spawn all experiments
     for idx_net in range(num_exp):
-        net =  build_network(NETWORK_NAME, channel=channel, num_classes=num_classes, input_size=shape_img)
-        net.apply(weights_init)
-        net = net.to(device)
+        device_id = idx_net % num_gpus
+        p = mp.Process(target=run_single_experiment, 
+                       args=(idx_net, device_id, dst, dataset, config, result_queue))
+        p.start()
+        processes.append(p)
 
-        print('running %d|%d experiment' % (idx_net, num_exp))
-        idx_shuffle = np.random.permutation(len(dst))
-
-        final_recon = {}
-
-        for method in ['iDLG', 'iDLG_masked']:
-            print('%s, Try to generate %d images' % (method, num_dummy))
-
-            criterion = nn.CrossEntropyLoss().to(device)
-            imidx_list = []
-
-            # ---- build GT batch (size = num_dummy) ----
-            for imidx in range(num_dummy):
-                idx = idx_shuffle[imidx]
-                imidx_list.append(idx)
-
-                tmp_datum = tt(dst[idx][0]).float().to(device)
-                tmp_datum = tmp_datum.view(1, *tmp_datum.size())
-                tmp_label = torch.tensor([dst[idx][1]], dtype=torch.long, device=device).view(1,)
-
-                if imidx == 0:
-                    gt_data = tmp_datum
-                    gt_label = tmp_label
-                else:
-                    gt_data = torch.cat((gt_data, tmp_datum), dim=0)
-                    gt_label = torch.cat((gt_label, tmp_label), dim=0)
-
-            # ---- compute original gradients ----
-            out = net(gt_data)
-            y = criterion(out, gt_label)
-            dy_dx = torch.autograd.grad(y, net.parameters())
-            original_dy_dx = [g.detach().clone() for g in dy_dx]
-
-            # ---- dummy init ----
-            dummy_data = torch.randn(gt_data.size(), device=device, requires_grad=True)
-            optimizer = torch.optim.LBFGS([dummy_data], lr=lr)
-
-            # iDLG label inference (uses fc.weight grad)
-            label_pred = torch.argmin(torch.sum(original_dy_dx[-2], dim=-1), dim=-1).detach().reshape((1,))
-
-            # choose which gradient tensors are "shared"
-            #keep_ids = get_keep_ids("all" if method == "iDLG" else MASK_MODE)
-            if method == "iDLG":
-                keep_ids = get_keep_ids("all")
-            else:
-                if MASK_MODE == "gradsize_topk":
-                    keep_ids, ranked = get_keep_ids_by_gradsize(
-                        original_dy_dx, mode="topk", topk=GRADSIZE_TOPK, metric=GRADSIZE_METRIC)
-                elif MASK_MODE == "gradsize_topfrac":
-                    keep_ids, ranked = get_keep_ids_by_gradsize(
-                        original_dy_dx, mode="topfrac", top_frac=GRADSIZE_TOPFRAC, metric=GRADSIZE_METRIC)
-                elif MASK_MODE == "gradsize_threshold":
-                    keep_ids, ranked = get_keep_ids_by_gradsize(
-                        original_dy_dx, mode="threshold", threshold=GRADSIZE_THRESHOLD, metric=GRADSIZE_METRIC)
-                else:
-                    # fallback to your existing hand-crafted layer masks
-                    keep_ids = get_keep_ids(MASK_MODE)
-                    ranked = None
-            losses = []
-            mses = []
-
-            for iters in range(Iteration):
-
-                def closure():
-                    optimizer.zero_grad()
-                    pred = net(dummy_data)
-                    dummy_loss = criterion(pred, label_pred)
-                    dummy_dy_dx = torch.autograd.grad(dummy_loss, net.parameters(), create_graph=True)
-                    
-                    grad_diff = 0.0
-                    for i, (gx, gy) in enumerate(zip(dummy_dy_dx, original_dy_dx)):
-                        if i not in keep_ids:
-                            continue
-                        grad_diff = grad_diff + ((gx - gy) ** 2).sum()
-                    grad_diff.backward()
-                    return grad_diff
-                
-                optimizer.step(closure)
-                current_loss = optimizer.step(closure).item()
-
-                #with torch.no_grad():
-                #    dummy_data.clamp_(0, 1)
-
-                losses.append(current_loss)
-                mses.append(torch.mean((dummy_data - gt_data) ** 2).item())
-
-                if iters % 100 == 0:
-                    current_time = str(time.strftime("[%Y-%m-%d %H:%M:%S]", time.localtime()))
-                    print(current_time, iters, f'loss = {current_loss:.8f}, mse = {mses[-1]:.8f}')
-
-                if current_loss < 1e-6:
-                    break
-
-            # final iterate (last LBFGS update) for this method
-            final_recon[method] = dummy_data.detach().clone()
-
-            if method == 'iDLG':
-                loss_iDLG = losses
-                label_iDLG = label_pred.item()
-                mse_iDLG = mses
-            else:
-                loss_iDLG_masked = losses
-                label_iDLG_masked = label_pred.item()
-                mse_iDLG_masked = mses
-
-        # --- PSNR for this experiment (use final MSE) ---
-        psnr_idlg_all.append(compute_psnr_from_mse(mse_iDLG[-1], max_val=1.0))
-        psnr_masked_all.append(compute_psnr_from_mse(mse_iDLG_masked[-1], max_val=1.0))
+    # Collect results as they complete
+    for _ in range(num_exp):
+        result = result_queue.get()
         
-        final_loss_idlg_all.append(float(loss_iDLG[-1]))
-        final_mse_idlg_all.append(float(mse_iDLG[-1]))
-        final_loss_masked_all.append(float(loss_iDLG_masked[-1]))
-        final_mse_masked_all.append(float(mse_iDLG_masked[-1]))
+        idx_net = result['idx_net']
+        psnr_idlg_all.append(result['psnr_idlg'])
+        psnr_masked_all.append(result['psnr_masked'])
+        final_loss_idlg_all.append(result['loss_iDLG'])
+        final_mse_idlg_all.append(result['mse_iDLG'])
+        final_loss_masked_all.append(result['loss_iDLG_masked'])
+        final_mse_masked_all.append(result['mse_iDLG_masked'])
 
-
-        # ---- accumulate recon panel (final iterates) ----
-        gt_pil = tp(gt_data[0].detach().cpu())
-        idlg_pil = tp(final_recon['iDLG'][0].detach().cpu())
-        masked_pil = tp(final_recon['iDLG_masked'][0].detach().cpu())
+        # ---- accumulate recon panel ----
+        gt_pil = tp(torch.from_numpy(result['gt_data'])[0])
+        idlg_pil = tp(torch.from_numpy(result['final_recon']['iDLG'])[0])
+        masked_pil = tp(torch.from_numpy(result['final_recon']['iDLG_masked'])[0])
 
         panel_gt_pil.append(gt_pil)
         panel_idlg_pil.append(idlg_pil)
@@ -228,18 +151,23 @@ def main():
             panel_idlg_pil.clear()
             panel_masked_pil.clear()
 
-        print('imidx_list:', imidx_list)
-        print('loss_iDLG:', loss_iDLG[-1], 'loss_iDLG_masked:', loss_iDLG_masked[-1])
-        print('mse_iDLG:', mse_iDLG[-1], 'mse_iDLG_masked:', mse_iDLG_masked[-1])
-        print('gt_label:', gt_label.detach().cpu().numpy(),
-              'lab_iDLG:', label_iDLG, 'lab_iDLG_masked:', label_iDLG_masked)
+        print('imidx_list:', result['imidx_list'])
+        print('loss_iDLG:', result['loss_iDLG'], 'loss_iDLG_masked:', result['loss_iDLG_masked'])
+        print('mse_iDLG:', result['mse_iDLG'], 'mse_iDLG_masked:', result['mse_iDLG_masked'])
+        print('gt_label:', result['gt_label'],
+              'lab_iDLG:', result['label_iDLG'], 'lab_iDLG_masked:', result['label_iDLG_masked'])
         print('----------------------\n\n')
 
-    # save any remaining (< block_size) at end
+    # Wait for all processes to finish
+    for p in processes:
+        p.join()
+
+    # save any remaining
     if len(panel_gt_pil) > 0:
         save_recon_panel(params, panel_gt_pil, panel_idlg_pil, panel_masked_pil,
                          save_path, panel_block_idx, dataset, mask_desc, timestamp_str)
     
+    # -------- Compute statistics --------
     avg_psnr_idlg = float(np.mean(psnr_idlg_all)) if len(psnr_idlg_all) else float("nan")
     avg_psnr_masked = float(np.mean(psnr_masked_all)) if len(psnr_masked_all) else float("nan")
     
