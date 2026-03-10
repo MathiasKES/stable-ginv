@@ -8,6 +8,7 @@ from Network import weights_init
 
 def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_queue):
     """Runs a single experiment on an assigned GPU"""
+    torch.cuda.set_device(device_id)
     device = f'cuda:{device_id}'
     
     # Unpack config
@@ -113,7 +114,7 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
         for iters in range(Iteration):
             def closure():
                 optimizer.zero_grad()
-                pred = net(dummy_data)
+                pred = net(torch.sigmoid(dummy_data))
                 dummy_loss = criterion(pred, label_pred)
                 dummy_dy_dx = torch.autograd.grad(dummy_loss, net.parameters(), create_graph=True)
                 
@@ -125,7 +126,7 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
                 grad_diff.backward()
                 return grad_diff
             
-            optimizer.step(closure)
+            #optimizer.step(closure)
             current_loss = optimizer.step(closure).item()
 
             # ---- EARLY STOPPING (configurable from main) ----
@@ -172,7 +173,7 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
             # ---- END EARLY STOPPING ----
 
             losses.append(current_loss)
-            mses.append(torch.mean((dummy_data - gt_data) ** 2).item())
+            mses.append(torch.mean((torch.sigmoid(dummy_data) - gt_data) ** 2).item())
 
             if iters % 100 == 0:
                 print(f'[GPU {device_id}] iters {iters}, loss = {current_loss:.8f}, mse = {mses[-1]:.8f}')
@@ -180,7 +181,7 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
             # if current_loss < loss_tol:
             #     break
 
-        final_recon[method] = dummy_data.detach().clone()
+        final_recon[method] = torch.sigmoid(dummy_data).detach().clone()
 
         if method == 'iDLG':
             loss_iDLG = losses
@@ -197,6 +198,7 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
     # Prepare results to send back
     result = {
         'idx_net': idx_net,
+        'device_id': device_id,
         'gt_data': gt_data.detach().cpu().numpy(),
         'final_recon': {k: v.detach().cpu().numpy() for k, v in final_recon.items()},
         'psnr_idlg': compute_psnr_from_mse(mse_iDLG[-1], max_val=1.0),

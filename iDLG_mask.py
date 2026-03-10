@@ -16,18 +16,18 @@ from run_single_exp import run_single_experiment
 def main():
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("--mask_mode", type=str, default="gradsize_topk")
-    parser.add_argument("--gradsize_topk", type=int, default=10)
-    parser.add_argument("--gradsize_topfrac", type=float, default=0.6)
+    parser.add_argument("--mask_mode", type=str, default="gradsize_topfrac") # "gradsize_topk", "gradsize_topfrac", "gradsize_threshold", or "resnet_l1_fc", "conv12_fc"  # "all", "conv12", "conv123", "fc_only", "no_fc", "conv1_fc", "conv12_fc"
+    parser.add_argument("--gradsize_topk", type=int, default=20)
+    parser.add_argument("--gradsize_topfrac", type=float, default=0.5)
     parser.add_argument("--gradsize_threshold", type=float, default=None)
     parser.add_argument("--gradsize_metric", type=str, default="l2")
 
-    parser.add_argument("--lr", type=float, default=1.0)
+    parser.add_argument("--lr", type=float, default=1)
     parser.add_argument("--num_dummy", type=int, default=1)
     parser.add_argument("--iteration", type=int, default=1000)
-    parser.add_argument("--num_exp", type=int, default=32)
+    parser.add_argument("--num_exp", type=int, default=16)
 
-    parser.add_argument("--network", type=str, default="LeNet_bigger")
+    parser.add_argument("--network", type=str, default="MediumCNN")
     parser.add_argument("--dataset", type=str, default="cifar100")
     parser.add_argument("--run_id", type=int, default=0)
 
@@ -162,26 +162,36 @@ def main():
     # -------- Run experiments in parallel --------
     num_gpus = torch.cuda.device_count()
     print(f"Using {num_gpus} GPUs")
-
+    if num_gpus == 0:
+        raise RuntimeError("No CUDA GPUs available.")
+    
     mp.set_start_method('spawn', force=True)
     mp.set_sharing_strategy('file_system')
 
     result_queue = mp.SimpleQueue()
-    processes = []
+    active_processes = {}
+    next_exp = 0
+    completed = 0
 
-    # Spawn all experiments
-    for idx_net in range(num_exp):
-        device_id = idx_net % num_gpus
-        p = mp.Process(target=run_single_experiment, 
-                       args=(idx_net, device_id, dst, dataset, config, result_queue))
+    # Start one experiment per GPU initially
+    for device_id in range(min(num_gpus, num_exp)):
+        p = mp.Process(
+            target=run_single_experiment,
+            args=(next_exp, device_id, dst, dataset, config, result_queue)
+        )
         p.start()
-        processes.append(p)
+        active_processes[device_id] = p
+        print(f"Launching experiment {next_exp} on GPU {device_id}", flush=True)
+        next_exp += 1
 
-    # Collect results as they complete
-    for _ in range(num_exp):
+    # Keep launching a new experiment whenever one finishes
+    while completed < num_exp:
         result = result_queue.get()
-        
+        completed += 1
+
         idx_net = result['idx_net']
+        finished_device = result['device_id']
+
         psnr_idlg_all.append(result['psnr_idlg'])
         psnr_masked_all.append(result['psnr_masked'])
         final_loss_idlg_all.append(result['loss_iDLG'])
@@ -198,14 +208,16 @@ def main():
         panel_idlg_pil.append(idlg_pil)
         panel_masked_pil.append(masked_pil)
 
-        # save after every block_size experiments
         if len(panel_gt_pil) == panel_block_size:
-            save_recon_panel(params, panel_gt_pil, panel_idlg_pil, panel_masked_pil,
-                             save_path, panel_block_idx, dataset, mask_desc, timestamp_str)
+            save_recon_panel(
+                params, panel_gt_pil, panel_idlg_pil, panel_masked_pil,
+                save_path, panel_block_idx, dataset, mask_desc, timestamp_str
+            )
             panel_block_idx += 1
             panel_gt_pil.clear()
             panel_idlg_pil.clear()
             panel_masked_pil.clear()
+
         es_r = result.get("early_stop_reason", {})
         es_i = result.get("early_stop_iter", {})
         print(f"early_stop iDLG: {es_r.get('iDLG')} @ {es_i.get('iDLG')}")
@@ -214,13 +226,26 @@ def main():
         print('loss_iDLG:', result['loss_iDLG'], 'loss_iDLG_masked:', result['loss_iDLG_masked'])
         print('mse_iDLG:', result['mse_iDLG'], 'mse_iDLG_masked:', result['mse_iDLG_masked'])
         print('gt_label:', result['gt_label'],
-              'lab_iDLG:', result['label_iDLG'], 'lab_iDLG_masked:', result['label_iDLG_masked'])
+            'lab_iDLG:', result['label_iDLG'], 'lab_iDLG_masked:', result['label_iDLG_masked'])
         print('----------------------\n\n')
 
-    # Wait for all processes to finish
-    for p in processes:
-        p.join()
+        # Clean up the finished process on that GPU
+        active_processes[finished_device].join()
 
+        # Start the next experiment immediately on the freed GPU
+        if next_exp < num_exp:
+            p = mp.Process(
+                target=run_single_experiment,
+                args=(next_exp, finished_device, dst, dataset, config, result_queue)
+            )
+            p.start()
+            active_processes[finished_device] = p
+            print(f"Launching experiment {next_exp} on GPU {finished_device}", flush=True)
+            next_exp += 1
+
+    # Final cleanup
+    for p in active_processes.values():
+        p.join()
     # save any remaining
     if len(panel_gt_pil) > 0:
         save_recon_panel(params, panel_gt_pil, panel_idlg_pil, panel_masked_pil,
