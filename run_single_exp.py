@@ -86,6 +86,8 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
             elif MASK_MODE == "gradsize_threshold":
                 keep_ids, ranked = get_keep_ids_by_gradsize(
                     original_dy_dx, mode="threshold", threshold=GRADSIZE_THRESHOLD, metric=GRADSIZE_METRIC)
+            elif MASK_MODE == "resnet_l1_fc":
+                keep_ids = get_keep_ids(mask_mode="prefix", net=net, prefixes=("layer1", "linear"))
             else:
                 keep_ids = get_keep_ids(MASK_MODE)
                 ranked = None

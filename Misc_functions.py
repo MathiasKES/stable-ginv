@@ -1,7 +1,7 @@
 import matplotlib.pyplot as plt
 import os
 import math
-from Network import LeNet, LeNet_bigger, MediumCNN, weights_init
+from Network import LeNet, LeNet_bigger, MediumCNN, weights_init, resnet20
 
 def get_keep_ids_by_gradsize(original_dy_dx, mode="topk", topk=10, top_frac=None, threshold=None, metric="l2"):
     """
@@ -65,11 +65,40 @@ def build_network(name: str, channel: int, num_classes: int, input_size):
         return LeNet_bigger(channel=channel, num_classes=num_classes, input_size=input_size)
     if name == "MediumCNN":
         return MediumCNN(channel=channel, num_classes=num_classes, input_size=input_size)
+    if name.lower() == "resnet20":
+        return resnet20(channel=channel, num_classes=num_classes)
     raise ValueError(f"Unknown NETWORK_NAME: {name}")
 
-def get_keep_ids(mask_mode: str):
+def get_keep_ids(mask_mode: str, net=None, prefixes=None):
+    """
+    Returns a set of parameter indices to keep.
+
+    - If prefixes is provided: uses net.named_parameters() and keeps any parameter whose
+      name starts with one of the prefixes.
+    - Otherwise uses your legacy index-based masks (works for LeNet/MediumCNN etc.).
+
+    Example:
+      keep_ids = get_keep_ids(mask_mode="prefix", net=net, prefixes=("conv1","layer1","linear"))
+    """
+
+    # --- prefix-based mode (model-agnostic) ---
+    if prefixes is not None:
+        if net is None:
+            raise ValueError("prefix-based keep_ids requires 'net'")
+        keep = set()
+        for idx, (name, _) in enumerate(net.named_parameters()):
+            if any(name.startswith(p) for p in prefixes):
+                keep.add(idx)
+        if len(keep) == 0:
+            raise ValueError(f"No parameters matched prefixes={prefixes}")
+        return keep
+
+    # --- legacy modes (index-based, assumes your small CNNs) ---
     if mask_mode == "all":
-        return set(range(8))
+        if net is None:
+            return set(range(8))  # legacy behavior
+        return set(range(len(list(net.parameters()))))  # works for any net if provided
+
     if mask_mode == "conv12":
         return {0, 1, 2, 3}
     if mask_mode == "conv123":
@@ -86,6 +115,7 @@ def get_keep_ids(mask_mode: str):
         return {0, 1, 4, 5, 6, 7}
     if mask_mode == "conv2_fc":
         return {2, 3, 6, 7}
+
     raise ValueError(f"Unknown MASK_MODE: {mask_mode}")
 
 def compute_psnr_from_mse(mse: float, max_val: float = 1.0, eps: float = 1e-12) -> float:
