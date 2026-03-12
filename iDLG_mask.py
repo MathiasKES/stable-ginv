@@ -16,7 +16,8 @@ from run_single_exp import run_single_experiment
 def main():
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("--mask_mode", type=str, default="gradsize_topfrac") # "gradsize_topk", "gradsize_topfrac", "gradsize_threshold", or "resnet_l1_fc", "conv12_fc"  # "all", "conv12", "conv123", "fc_only", "no_fc", "conv1_fc", "conv12_fc"
+    parser.add_argument("--mask_mode", type=str, default="gradsize_topfrac") # "gradsize_topk", "gradsize_topfrac", "gradsize_threshold", "prefix" or "resnet_l1_fc", "conv12_fc"  # "all", "conv12", "conv123", "fc_only", "no_fc", "conv1_fc", "conv12_fc"
+    parser.add_argument("--prefixes", type=str, default="conv1,linear")
     parser.add_argument("--gradsize_topk", type=int, default=20)
     parser.add_argument("--gradsize_topfrac", type=float, default=0.5)
     parser.add_argument("--gradsize_threshold", type=float, default=None)
@@ -27,7 +28,7 @@ def main():
     parser.add_argument("--iteration", type=int, default=1000)
     parser.add_argument("--num_exp", type=int, default=16)
 
-    parser.add_argument("--network", type=str, default="MediumCNN")
+    parser.add_argument("--network", type=str, default="resnet20")
     parser.add_argument("--dataset", type=str, default="cifar100")
     parser.add_argument("--run_id", type=int, default=0)
 
@@ -35,6 +36,7 @@ def main():
 
     # -------- Masking config --------
     MASK_MODE = args.mask_mode
+    PREFIXES = tuple(p.strip() for p in args.prefixes.split(",") if p.strip())
     GRADSIZE_TOPK = args.gradsize_topk
     GRADSIZE_TOPFRAC = args.gradsize_topfrac
     GRADSIZE_THRESHOLD = args.gradsize_threshold
@@ -45,6 +47,7 @@ def main():
     num_exp = args.num_exp
     NETWORK_NAME = args.network
     dataset = args.dataset
+    run_id = args.run_id
 
     # -------- Masking config --------
     # MASK_MODE = "gradsize_topk"  # "gradsize_topk", "gradsize_topfrac", "gradsize_threshold", or "resnet_l1_fc", "conv12_fc"  # "all", "conv12", "conv123", "fc_only", "no_fc", "conv1_fc", "conv12_fc"
@@ -61,10 +64,10 @@ def main():
     timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
 
     loss_tol = 1e-6
-    patience = 50
-    min_rel_improve = 1e-4
+    patience = 200
+    min_rel_improve = 1e-6
     explode_factor = 50.0
-    warmup = 100
+    warmup = 200
     max_nan = 1
 
     root_path = '.'
@@ -143,12 +146,15 @@ def main():
         'lr': lr,
         'num_dummy': num_dummy,
         'Iteration': Iteration,
+        'run_id': args.run_id,
         'MASK_MODE': MASK_MODE,
+        'PREFIXES': PREFIXES,
         'GRADSIZE_TOPK': GRADSIZE_TOPK,
         'GRADSIZE_TOPFRAC': GRADSIZE_TOPFRAC,
         'GRADSIZE_THRESHOLD': GRADSIZE_THRESHOLD,
         'GRADSIZE_METRIC': GRADSIZE_METRIC,
         'NETWORK_NAME': NETWORK_NAME,
+        'run_id': run_id,
         'EarlyStop': {
             'loss_tol': loss_tol,
             'patience': patience,

@@ -19,15 +19,23 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
     num_dummy = config['num_dummy']
     Iteration = config['Iteration']
     MASK_MODE = config['MASK_MODE']
+    PREFIXES = config.get('PREFIXES', ())
     GRADSIZE_TOPK = config['GRADSIZE_TOPK']
     GRADSIZE_TOPFRAC = config['GRADSIZE_TOPFRAC']
     GRADSIZE_THRESHOLD = config['GRADSIZE_THRESHOLD']
     GRADSIZE_METRIC = config['GRADSIZE_METRIC']
     NETWORK_NAME = config['NETWORK_NAME']
     
+    seed = config.get("run_id", 0) + idx_net
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    np.random.seed(seed)
+
     net = build_network(NETWORK_NAME, channel=channel, num_classes=num_classes, input_size=shape_img)
-    net.apply(weights_init)
+    if NETWORK_NAME != "resnet20":
+        net.apply(weights_init)
     net = net.to(device)
+    net.eval()
 
     print(f'[GPU {device_id}] Running {idx_net} experiment')
     
@@ -87,6 +95,9 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
             elif MASK_MODE == "gradsize_threshold":
                 keep_ids, ranked = get_keep_ids_by_gradsize(
                     original_dy_dx, mode="threshold", threshold=GRADSIZE_THRESHOLD, metric=GRADSIZE_METRIC)
+            elif MASK_MODE == "prefix":
+                keep_ids = get_keep_ids(mask_mode="prefix", net=net, prefixes=PREFIXES)
+                ranked = None
             elif MASK_MODE == "resnet_l1_fc":
                 keep_ids = get_keep_ids(mask_mode="prefix", net=net, prefixes=("layer1", "linear"))
             else:
@@ -110,12 +121,16 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
         nan_count = 0
         early_stop_reason = None
         early_stop_iter = None
+        best_loss_value = float("inf")
+        best_dummy = None
+        best_mse_value = None
 
         for iters in range(Iteration):
             def closure():
                 optimizer.zero_grad()
                 pred = net(torch.sigmoid(dummy_data))
-                dummy_loss = criterion(pred, label_pred)
+                #dummy_loss = criterion(pred, label_pred)
+                dummy_loss = criterion(pred, gt_label)
                 dummy_dy_dx = torch.autograd.grad(dummy_loss, net.parameters(), create_graph=True)
                 
                 grad_diff = 0.0
@@ -128,6 +143,13 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
             
             #optimizer.step(closure)
             current_loss = optimizer.step(closure).item()
+            if np.isfinite(current_loss):
+                current_mse = torch.mean((torch.sigmoid(dummy_data) - gt_data) ** 2).item()
+                if current_loss < best_loss_value:
+                    best_loss_value = current_loss
+                    best_dummy = torch.sigmoid(dummy_data).detach().clone()
+                    best_mse_value = current_mse
+
 
             # ---- EARLY STOPPING (configurable from main) ----
             if not np.isfinite(current_loss):
@@ -173,15 +195,21 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
             # ---- END EARLY STOPPING ----
 
             losses.append(current_loss)
-            mses.append(torch.mean((torch.sigmoid(dummy_data) - gt_data) ** 2).item())
-
+            #mses.append(torch.mean((torch.sigmoid(dummy_data) - gt_data) ** 2).item())
+            current_mse = torch.mean((torch.sigmoid(dummy_data) - gt_data) ** 2).item()
+            mses.append(current_mse)
+            
             if iters % 100 == 0:
                 print(f'[GPU {device_id}] iters {iters}, loss = {current_loss:.8f}, mse = {mses[-1]:.8f}')
 
             # if current_loss < loss_tol:
             #     break
 
-        final_recon[method] = torch.sigmoid(dummy_data).detach().clone()
+        #final_recon[method] = torch.sigmoid(dummy_data).detach().clone()
+        if best_dummy is not None:
+            final_recon[method] = best_dummy
+        else:
+            final_recon[method] = torch.sigmoid(dummy_data).detach().clone()
 
         if method == 'iDLG':
             loss_iDLG = losses
