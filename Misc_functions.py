@@ -1,7 +1,7 @@
 import matplotlib.pyplot as plt
 import os
 import math
-from Network import LeNet, LeNet_bigger, MediumCNN, BiggerCNN, weights_init, resnet20, get_model
+from Network import LeNet, LeNet_bigger, MediumCNN, BiggerCNN, get_model
 
 def get_keep_ids_by_gradsize(original_dy_dx, mode="topk", topk=10, top_frac=None, threshold=None, metric="l2"):
     """
@@ -67,10 +67,8 @@ def build_network(name: str, channel: int, num_classes: int, input_size):
         return MediumCNN(channel=channel, num_classes=num_classes, input_size=input_size)
     if name == "BiggerCNN":
         return BiggerCNN(channel=channel, num_classes=num_classes, input_size=input_size)
-    if name.lower() == "resnet20":
-        return resnet20(channel=channel, num_classes=num_classes)
-    if name.lower() == "resnet18":
-        return get_model(channel=channel, num_classes=num_classes, input_size=input_size)
+    if name.lower().startswith("resnet"): # 18, 34, 50, 101, 152
+        return get_model(network=name.lower(), channel=channel, num_classes=num_classes, input_size=input_size)
     raise ValueError(f"Unknown NETWORK_NAME: {name}")
 
 def get_keep_ids(mask_mode: str, net=None, prefixes=None):
@@ -96,29 +94,6 @@ def get_keep_ids(mask_mode: str, net=None, prefixes=None):
         if len(keep) == 0:
             raise ValueError(f"No parameters matched prefixes={prefixes}")
         return keep
-
-    # --- legacy modes (index-based, assumes your small CNNs) ---
-    if mask_mode == "all":
-        if net is None:
-            return set(range(8))  # legacy behavior
-        return set(range(len(list(net.parameters()))))  # works for any net if provided
-
-    if mask_mode == "conv12":
-        return {0, 1, 2, 3}
-    if mask_mode == "conv123":
-        return {0, 1, 2, 3, 4, 5}
-    if mask_mode == "fc_only":
-        return {6, 7}
-    if mask_mode == "no_fc":
-        return {0, 1, 2, 3, 4, 5}
-    if mask_mode == "conv1_fc":
-        return {0, 1, 6, 7}
-    if mask_mode == "conv12_fc":
-        return {0, 1, 2, 3, 6, 7}
-    if mask_mode == "conv13_fc":
-        return {0, 1, 4, 5, 6, 7}
-    if mask_mode == "conv2_fc":
-        return {2, 3, 6, 7}
 
     raise ValueError(f"Unknown MASK_MODE: {mask_mode}")
 

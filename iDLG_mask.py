@@ -27,15 +27,9 @@ def main():
                                 "threshold, set via --gradsize_threshold.\n"
         "  'prefix'              - Keep all parameters whose layer name starts with one of the "
                                 "prefixes listed in --prefixes (e.g. 'conv1,linear').\n"
-        "  'resnet_l1_fc'        - ResNet-specific mask: keeps the first layer and the final "
-                                "fully-connected layer only.\n"
-        "  'conv12_fc'           - Keeps the first two convolutional layers and the final "
-                                "fully-connected layer.\n"
         "In all gradient-size modes, the metric used to measure gradient magnitude is controlled "
         "by --gradsize_metric."
     )) 
-    # "gradsize_topk", "gradsize_topfrac", "gradsize_threshold", "prefix" or "resnet_l1_fc", "conv12_fc"  
-    # "all", "conv12", "conv123", "fc_only", "no_fc", "conv1_fc", "conv12_fc", "conv13_fc", "conv2_fc"
 
     parser.add_argument("--prefixes", type=str, default="conv1,layer1,fc", help=(
         "Comma-separated list of layer-name prefixes used when --mask_mode is 'prefix'. "
@@ -156,7 +150,8 @@ def main():
 
     # -------- Masking config --------
     MASK_MODE = args.mask_mode
-    PREFIXES = tuple(p.strip() for p in args.prefixes.split(",") if p.strip())
+    PREFIXES_NAME = args.prefixes
+    PREFIXES = tuple(p.strip() for p in PREFIXES_NAME.split(",") if p.strip())
     GRADSIZE_TOPK = args.gradsize_topk
     GRADSIZE_TOPFRAC = args.gradsize_topfrac
     GRADSIZE_THRESHOLD = args.gradsize_threshold
@@ -410,7 +405,7 @@ def main():
 
         {   "method": "iDLG_masked",
             **common,
-            "mask_mode": MASK_MODE,
+            "mask_mode": MASK_MODE if MASK_MODE != 'prefix' else args.prefixes,
             "grad_param": grad_value,
             "med_final_loss": med_final_loss_masked,
             "avg_final_loss": avg_final_loss_masked,
