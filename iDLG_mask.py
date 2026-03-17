@@ -37,7 +37,7 @@ def main():
     # "gradsize_topk", "gradsize_topfrac", "gradsize_threshold", "prefix" or "resnet_l1_fc", "conv12_fc"  
     # "all", "conv12", "conv123", "fc_only", "no_fc", "conv1_fc", "conv12_fc", "conv13_fc", "conv2_fc"
 
-    parser.add_argument("--prefixes", type=str, default="conv1,linear1,fc", help=(
+    parser.add_argument("--prefixes", type=str, default="conv1,layer1,fc", help=(
         "Comma-separated list of layer-name prefixes used when --mask_mode is 'prefix'. "
         "Any parameter whose fully qualified name (e.g. 'conv1.weight', 'linear.bias') starts "
         "with one of these prefixes will be included in the gradient mask; all other parameters "

@@ -6,7 +6,8 @@ import torchvision
 import os 
 import sys
 sys.path.append(os.path.join(os.path.dirname(__file__), "invertinggradients"))
-import inversefed
+# import inversefed
+import consts
 
 from Misc_functions import get_keep_ids, compute_psnr_from_mse, build_network, get_keep_ids_by_gradsize
 from Network import weights_init
@@ -30,7 +31,6 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
     GRADSIZE_THRESHOLD = config['GRADSIZE_THRESHOLD']
     GRADSIZE_METRIC = config['GRADSIZE_METRIC']
     NETWORK_NAME = config['NETWORK_NAME']
-    USE_INVERSEFED_IDLG = config.get("USE_INVERSEFED_IDLG", False)
 
     seed = config.get("run_id", 0) + idx_net
     torch.manual_seed(seed)
@@ -44,125 +44,6 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
     net.eval()
 
     print(f'[GPU {device_id}] Running {idx_net} experiment')
-
-    if USE_INVERSEFED_IDLG:
-        setup = dict(device=torch.device(device), dtype=torch.float)
-
-        model = build_network(NETWORK_NAME, channel=channel, num_classes=num_classes, input_size=shape_img)
-        model = model.to(**setup)
-        model.eval()
-
-        tt = transforms.Compose([transforms.ToTensor()])
-        idx_shuffle = np.random.permutation(len(dst))
-        idx = idx_shuffle[0]
-        imidx_list = [idx]
-
-        img, label = dst[idx]
-        gt_data = tt(img).float().to(**setup).unsqueeze(0)
-        gt_label = torch.as_tensor((label,), device=setup['device'])
-
-        dm = torch.as_tensor(getattr(inversefed.consts, f'{dataset_name.lower()}_mean'), **setup)[:, None, None]
-        ds = torch.as_tensor(getattr(inversefed.consts, f'{dataset_name.lower()}_std'), **setup)[:, None, None]
-
-        criterion = nn.CrossEntropyLoss().to(setup['device'])
-        target_loss = criterion(model(gt_data), gt_label)
-        input_gradient = torch.autograd.grad(target_loss, model.parameters())
-        input_gradient = [grad.detach().clone() for grad in input_gradient]
-
-        final_recon = {}
-        early_stop_reason_dict = {}
-        early_stop_iter_dict = {}
-
-        for method in ['iDLG', 'iDLG_masked']:
-            if method == "iDLG":
-                keep_ids = list(range(len(input_gradient)))
-            else:
-                if MASK_MODE == "gradsize_topk":
-                    keep_ids, ranked = get_keep_ids_by_gradsize(
-                        input_gradient, mode="topk", topk=GRADSIZE_TOPK, metric=GRADSIZE_METRIC
-                    )
-                elif MASK_MODE == "gradsize_topfrac":
-                    keep_ids, ranked = get_keep_ids_by_gradsize(
-                        input_gradient, mode="topfrac", top_frac=GRADSIZE_TOPFRAC, metric=GRADSIZE_METRIC
-                    )
-                elif MASK_MODE == "gradsize_threshold":
-                    keep_ids, ranked = get_keep_ids_by_gradsize(
-                        input_gradient, mode="threshold", threshold=GRADSIZE_THRESHOLD, metric=GRADSIZE_METRIC
-                    )
-                elif MASK_MODE == "prefix":
-                    keep_ids = sorted(get_keep_ids(mask_mode="prefix", net=model, prefixes=PREFIXES))
-                else:
-                    keep_ids = sorted(get_keep_ids(MASK_MODE, net=model))
-
-            #print(f"[GPU {device_id}] {method} keep_ids = {keep_ids}", flush=True)
-
-            idlg_config = dict(
-                signed=False,
-                boxed=False,
-                cost_fn='l2',
-                indices=keep_ids,          # THIS IS THE IMPORTANT PART
-                weights='equal',
-                lr=lr,
-                optim='LBFGS',
-                restarts=1,
-                max_iterations=Iteration,
-                total_variation=0.0,
-                init='randn',
-                filter='none',
-                lr_decay=False,
-                scoring_choice='loss'
-            )
-
-            rec_machine = inversefed.GradientReconstructor(model, (dm, ds), idlg_config, num_images=1)
-            rec_machine.iDLG = True
-
-            output, stats = rec_machine.reconstruct(
-                input_gradient, None, img_shape=(channel, shape_img[0], shape_img[1])
-            )
-
-            output = output.detach()
-            mse_val = (output - gt_data).pow(2).mean().item()
-            psnr_val = float(inversefed.metrics.psnr(output, gt_data, factor=1 / ds))
-
-            final_recon[method] = output.detach().cpu().numpy()
-
-            if method == "iDLG":
-                psnr_idlg = psnr_val
-                loss_iDLG = float(stats['opt'])
-                mse_iDLG = float(mse_val)
-                label_iDLG = int(gt_label.item())
-            else:
-                psnr_masked = psnr_val
-                loss_iDLG_masked = float(stats['opt'])
-                mse_iDLG_masked = float(mse_val)
-                label_iDLG_masked = int(gt_label.item())
-
-            early_stop_reason_dict[method] = "inversefed_idlg"
-            early_stop_iter_dict[method] = None
-
-        result = {
-            'idx_net': idx_net,
-            'device_id': device_id,
-            'gt_data': gt_data.detach().cpu().numpy(),
-            'final_recon': final_recon,
-            'psnr_idlg': psnr_idlg,
-            'psnr_masked': psnr_masked,
-            'loss_iDLG': loss_iDLG,
-            'mse_iDLG': mse_iDLG,
-            'loss_iDLG_masked': loss_iDLG_masked,
-            'mse_iDLG_masked': mse_iDLG_masked,
-            'label_iDLG': label_iDLG,
-            'label_iDLG_masked': label_iDLG_masked,
-            'gt_label': gt_label.detach().cpu().numpy(),
-            'imidx_list': imidx_list,
-            'early_stop_reason': early_stop_reason_dict,
-            'early_stop_iter': early_stop_iter_dict,
-        }
-
-        print(f"[GPU {device_id}] putting result for experiment {idx_net}", flush=True)
-        result_queue.put(result)
-        print(f"[GPU {device_id}] finished put for experiment {idx_net}", flush=True)
-        return
     
     idx_shuffle = np.random.permutation(len(dst))
     tt = transforms.Compose([transforms.ToTensor()])
@@ -194,8 +75,12 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
                 gt_data = torch.cat((gt_data, tmp_datum), dim=0)
                 gt_label = torch.cat((gt_label, tmp_label), dim=0)
 
+        dm = torch.tensor(getattr(consts, f'{dataset_name.lower()}_mean'), device=device).view(1,3,1,1)
+        ds = torch.tensor(getattr(consts, f'{dataset_name.lower()}_std'), device=device).view(1,3,1,1)
+
         # ---- compute original gradients ----
-        out = net(gt_data)
+        gt_data_norm = (gt_data - dm) / ds # normalize gt data
+        out = net(gt_data_norm)
         y = criterion(out, gt_label)
         dy_dx = torch.autograd.grad(y, net.parameters())
         original_dy_dx = [g.detach().clone() for g in dy_dx]
@@ -253,8 +138,12 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
         for iters in range(Iteration):
             def closure():
                 optimizer.zero_grad()
-                pred = net(torch.sigmoid(dummy_data))
-                #dummy_loss = criterion(pred, label_pred)
+
+                x = torch.sigmoid(dummy_data)
+                x_norm = (x - dm) / ds # normalize before forward pass
+
+                pred = net(x_norm)
+
                 dummy_loss = criterion(pred, gt_label)
                 dummy_dy_dx = torch.autograd.grad(dummy_loss, net.parameters(), create_graph=True)
                 
