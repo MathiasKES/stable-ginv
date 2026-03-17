@@ -94,6 +94,11 @@ def get_keep_ids(mask_mode: str, net=None, prefixes=None):
         if len(keep) == 0:
             raise ValueError(f"No parameters matched prefixes={prefixes}")
         return keep
+    
+    if mask_mode == "all":
+        if net is None:
+            return set(range(8))  # legacy behavior
+        return set(range(len(list(net.parameters()))))  # works for any net if provided
 
     raise ValueError(f"Unknown MASK_MODE: {mask_mode}")
 
