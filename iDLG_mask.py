@@ -16,21 +16,142 @@ from run_single_exp import run_single_experiment
 def main():
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("--mask_mode", type=str, default="gradsize_topfrac") # "gradsize_topk", "gradsize_topfrac", "gradsize_threshold", "prefix" or "resnet_l1_fc", "conv12_fc"  # "all", "conv12", "conv123", "fc_only", "no_fc", "conv1_fc", "conv12_fc"
-    parser.add_argument("--prefixes", type=str, default="conv1,linear")
-    parser.add_argument("--gradsize_topk", type=int, default=20)
-    parser.add_argument("--gradsize_topfrac", type=float, default=0.5)
-    parser.add_argument("--gradsize_threshold", type=float, default=None)
-    parser.add_argument("--gradsize_metric", type=str, default="l2")
+    parser.add_argument("--mask_mode", type=str, default="gradsize_topfrac", help=(
+        "Determines which gradient parameters are used during the masked iDLG reconstruction. "
+        "Controls how the gradient mask is constructed before inverting gradients. "
+        "Options:\n"
+        "  'gradsize_topk'       - Keep only the top-K parameters ranked by gradient magnitude. "
+                                "The exact number K is set via --gradsize_topk.\n"
+        "  'gradsize_topfrac'    - Keep the top fraction of parameters by gradient magnitude. "
+                                "The fraction is set via --gradsize_topfrac (e.g. 0.5 = top 50%%).\n"
+        "  'gradsize_threshold'  - Keep only parameters whose gradient magnitude exceeds a fixed "
+                                "threshold, set via --gradsize_threshold.\n"
+        "  'prefix'              - Keep all parameters whose layer name starts with one of the "
+                                "prefixes listed in --prefixes (e.g. 'conv1,linear').\n"
+        "  'resnet_l1_fc'        - ResNet-specific mask: keeps the first layer and the final "
+                                "fully-connected layer only.\n"
+        "  'conv12_fc'           - Keeps the first two convolutional layers and the final "
+                                "fully-connected layer.\n"
+        "In all gradient-size modes, the metric used to measure gradient magnitude is controlled "
+        "by --gradsize_metric."
+    )) 
+    # "gradsize_topk", "gradsize_topfrac", "gradsize_threshold", "prefix" or "resnet_l1_fc", "conv12_fc"  
+    # "all", "conv12", "conv123", "fc_only", "no_fc", "conv1_fc", "conv12_fc", "conv13_fc", "conv2_fc"
 
-    parser.add_argument("--lr", type=float, default=1)
-    parser.add_argument("--num_dummy", type=int, default=1)
-    parser.add_argument("--iteration", type=int, default=1000)
-    parser.add_argument("--num_exp", type=int, default=16)
+    parser.add_argument("--prefixes", type=str, default="conv1,linear", help=(
+        "Comma-separated list of layer-name prefixes used when --mask_mode is 'prefix'. "
+        "Any parameter whose fully qualified name (e.g. 'conv1.weight', 'linear.bias') starts "
+        "with one of these prefixes will be included in the gradient mask; all other parameters "
+        "will be zeroed out before the gradient-inversion attack is run. "
+        "Example: 'conv1,linear' retains only the first convolutional layer and the linear head. "
+        "Has no effect when any other mask_mode is selected."
+    ))
+    
+    parser.add_argument("--gradsize_topk", type=int, default=20, help=(
+        "Number of parameters (layers or individual tensors, depending on granularity) to retain "
+        "when --mask_mode is 'gradsize_topk'. Parameters are ranked by their gradient magnitude "
+        "as measured by --gradsize_metric, and only the K largest are kept in the mask; the rest "
+        "are zeroed out. Larger values expose more of the gradient to the attacker, generally "
+        "improving reconstruction quality. Has no effect when any other mask_mode is selected."
+    ))
 
-    parser.add_argument("--network", type=str, default="resnet20")
-    parser.add_argument("--dataset", type=str, default="cifar100")
-    parser.add_argument("--run_id", type=int, default=0)
+    parser.add_argument("--gradsize_topfrac", type=float, default=0.5, help=(
+        "Fraction (between 0.0 and 1.0) of parameters to retain when --mask_mode is "
+        "'gradsize_topfrac'. Parameters are ranked by gradient magnitude as measured by "
+        "--gradsize_metric, and only the top fraction are kept; the rest are zeroed out. "
+        "For example, 0.5 keeps the 50%% of parameters with the largest gradient norms, "
+        "while 0.1 keeps only the top 10%%, making the attack more restricted. "
+        "Has no effect when any other mask_mode is selected."
+    ))
+
+    parser.add_argument("--gradsize_threshold", type=float, default=None, help=(
+        "Absolute magnitude threshold for gradient masking when --mask_mode is "
+        "'gradsize_threshold'. Any parameter whose gradient magnitude (as measured by "
+        "--gradsize_metric) is strictly below this value is zeroed out; all parameters at or "
+        "above the threshold are retained. If set to None (default), no threshold is applied. "
+        "Unlike topk/topfrac modes, this threshold is data-independent and may retain a variable "
+        "number of parameters across different inputs and models. "
+        "Has no effect when any other mask_mode is selected."
+    ))
+
+    parser.add_argument("--gradsize_metric", type=str, default="l2", help=(
+        "The metric used to compute the scalar 'size' (magnitude) of each parameter's gradient "
+        "tensor when ranking parameters in any 'gradsize_*' mask mode. Determines how a "
+        "multi-dimensional gradient tensor (e.g. a conv weight of shape [C_out, C_in, kH, kW]) "
+        "is reduced to a single comparable score. Options:\n"
+        "  'l2'        - Frobenius / L2 norm of the gradient tensor (sqrt of sum of squares). "
+                         "Sensitive to large individual values.\n"
+        "  'mean_abs'  - Mean of the absolute values of all elements. Robust to outliers and "
+                         "scales with the average gradient magnitude.\n"
+        "  'sum_abs'   - Sum of absolute values (L1 norm). Similar to mean_abs but also grows "
+                         "with the number of parameters in the tensor, favouring larger layers.\n"
+        "Has no effect when mask_mode is 'prefix', 'resnet_l1_fc', or 'conv12_fc'."
+    ))
+
+    parser.add_argument("--lr", type=float, default=1, help=(
+        "Learning rate for the gradient-inversion optimiser. Controls the step size used when "
+        "updating the dummy data during each iteration of the iDLG (and masked iDLG) "
+        "reconstruction loop. A higher learning rate can converge faster but may overshoot and "
+        "produce unstable or noisy reconstructions. A lower learning rate gives smoother "
+        "convergence at the cost of requiring more iterations. The default of 1.0 follows the "
+        "original iDLG paper setting; tune together with --iteration when experimenting."
+    ))
+
+    parser.add_argument("--num_dummy", type=int, default=1, help=(
+        "Number of dummy data samples to optimise simultaneously during each gradient-inversion "
+        "attempt. This should match the batch size that was used when the victim computed the "
+        "gradient being attacked. Setting this to 1 corresponds to the single-sample iDLG "
+        "setting. Increasing it simulates attacking a larger batch, which is a harder problem "
+        "and typically yields lower reconstruction quality per sample."
+    ))
+
+    parser.add_argument("--iteration", type=int, default=1000, help=(
+        "Maximum number of optimisation iterations to run for each gradient-inversion attack "
+        "(both the baseline iDLG and the masked iDLG variant). At each iteration the dummy "
+        "image is updated to minimise the distance between its gradient and the observed "
+        "gradient. Training may terminate earlier if the early-stopping criteria are met "
+        "(controlled by loss_tol, patience, min_rel_improve, explode_factor, and warmup "
+        "parameters hardcoded in main). Higher values allow more thorough optimisation at the "
+        "cost of longer runtime."
+    ))
+
+    parser.add_argument("--num_exp", type=int, default=16, help=(
+        "Total number of independent gradient-inversion experiments to run. Each experiment "
+        "samples a different image from the dataset, computes its gradient on a freshly "
+        "initialised network, and then attempts to reconstruct the original image via both "
+        "the baseline iDLG attack and the masked iDLG variant. Aggregate statistics (average "
+        "and median PSNR, loss, MSE) are computed across all experiments and written to the "
+        "CSV results file. Experiments are distributed across available GPUs in parallel."
+    ))
+
+    parser.add_argument("--network", type=str, default="resnet20", help=(
+        "Name of the neural-network architecture whose gradients will be attacked. The chosen "
+        "network is instantiated with random weights, a single forward/backward pass is "
+        "performed on a ground-truth sample to obtain the gradient, and that gradient is then "
+        "fed to the iDLG inversion attack. Supported options include: 'LeNet', 'LeNet_bigger', "
+        "'MediumCNN', and 'resnet20'. The architecture must be compatible with the image shape "
+        "and number of classes implied by --dataset. The architecture also affects which "
+        "mask modes are meaningful (e.g. 'resnet_l1_fc' is designed specifically for ResNet)."
+    ))
+
+    parser.add_argument("--dataset", type=str, default="cifar100", help=(
+        "Dataset to draw ground-truth images from. Determines image shape, number of channels, "
+        "and number of classes used throughout the experiment. Supported options:\n"
+        "  'MNIST'    - 28x28 greyscale, 10 classes.\n"
+        "  'cifar10'  - 32x32 RGB, 10 classes.\n"
+        "  'cifar100' - 32x32 RGB, 100 classes.\n"
+        "  'lfw'      - Labelled Faces in the Wild, resized to 32x32 RGB, 5749 identity classes.\n"
+        "The dataset is downloaded automatically to --data_path if not already present."
+    ))
+
+    parser.add_argument("--run_id", type=int, default=0, help=(
+        "Integer identifier for this particular run. Used as a seed offset or index when "
+        "selecting which images from the dataset are attacked across experiments, ensuring "
+        "that different run_ids sample non-overlapping (or differently-ordered) subsets of "
+        "the dataset. Useful for running multiple independent batches of experiments without "
+        "repeating the same images, and for reproducibility when comparing results across "
+        "configurations."
+    ))
 
     args = parser.parse_args()
 
@@ -258,18 +379,18 @@ def main():
                          save_path, panel_block_idx, dataset, mask_desc, timestamp_str)
     
     # -------- Compute statistics --------
-    avg_psnr_idlg = float(np.mean(psnr_idlg_all)) if len(psnr_idlg_all) else float("nan")
-    avg_psnr_masked = float(np.mean(psnr_masked_all)) if len(psnr_masked_all) else float("nan")
+    avg_psnr_idlg           = float(np.mean(psnr_idlg_all))             if len(psnr_idlg_all)       else float("nan")
+    avg_psnr_masked         = float(np.mean(psnr_masked_all))           if len(psnr_masked_all)     else float("nan")
     
-    avg_final_loss_idlg = float(np.mean(final_loss_idlg_all)) if final_loss_idlg_all else float("nan")
-    avg_final_mse_idlg  = float(np.mean(final_mse_idlg_all)) if final_mse_idlg_all else float("nan")
-    avg_final_loss_masked = float(np.mean(final_loss_masked_all)) if final_loss_masked_all else float("nan")
-    avg_final_mse_masked  = float(np.mean(final_mse_masked_all)) if final_mse_masked_all else float("nan")
+    avg_final_loss_idlg     = float(np.mean(final_loss_idlg_all))       if final_loss_idlg_all      else float("nan")
+    avg_final_mse_idlg      = float(np.mean(final_mse_idlg_all))        if final_mse_idlg_all       else float("nan")
+    avg_final_loss_masked   = float(np.mean(final_loss_masked_all))     if final_loss_masked_all    else float("nan")
+    avg_final_mse_masked    = float(np.mean(final_mse_masked_all))      if final_mse_masked_all     else float("nan")
 
-    med_final_loss_idlg = float(np.median(final_loss_idlg_all)) if final_loss_idlg_all else float("nan")
-    med_final_mse_idlg  = float(np.median(final_mse_idlg_all)) if final_mse_idlg_all else float("nan")
-    med_final_loss_masked = float(np.median(final_loss_masked_all)) if final_loss_masked_all else float("nan")
-    med_final_mse_masked  = float(np.median(final_mse_masked_all)) if final_mse_masked_all else float("nan")
+    med_final_loss_idlg     = float(np.median(final_loss_idlg_all))     if final_loss_idlg_all      else float("nan")
+    med_final_mse_idlg      = float(np.median(final_mse_idlg_all))      if final_mse_idlg_all       else float("nan")
+    med_final_loss_masked   = float(np.median(final_loss_masked_all))   if final_loss_masked_all    else float("nan")
+    med_final_mse_masked    = float(np.median(final_mse_masked_all))    if final_mse_masked_all     else float("nan")
 
     csv_path = os.path.join(save_path, "exp_results.csv")
     file_exists = os.path.isfile(csv_path)
