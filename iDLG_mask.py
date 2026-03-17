@@ -1,13 +1,12 @@
 import os
+import sys
 import numpy as np
 import torch
 from torchvision import datasets, transforms
 from datetime import datetime
 import csv
-import os
 import torch.multiprocessing as mp
 import argparse
-
 from Misc_functions import save_recon_panel
 from Dataset import lfw_dataset
 from run_single_exp import run_single_experiment
@@ -17,7 +16,7 @@ def main():
     parser = argparse.ArgumentParser()
 
     parser.add_argument("--mask_mode", type=str, default="gradsize_topfrac") # "gradsize_topk", "gradsize_topfrac", "gradsize_threshold", "prefix" or "resnet_l1_fc", "conv12_fc"  # "all", "conv12", "conv123", "fc_only", "no_fc", "conv1_fc", "conv12_fc"
-    parser.add_argument("--prefixes", type=str, default="conv1,linear")
+    parser.add_argument("--prefixes", type=str, default="conv1,layer1,fc")
     parser.add_argument("--gradsize_topk", type=int, default=20)
     parser.add_argument("--gradsize_topfrac", type=float, default=0.5)
     parser.add_argument("--gradsize_threshold", type=float, default=None)
@@ -48,19 +47,6 @@ def main():
     NETWORK_NAME = args.network
     dataset = args.dataset
     run_id = args.run_id
-
-    # -------- Masking config --------
-    # MASK_MODE = "gradsize_topk"  # "gradsize_topk", "gradsize_topfrac", "gradsize_threshold", or "resnet_l1_fc", "conv12_fc"  # "all", "conv12", "conv123", "fc_only", "no_fc", "conv1_fc", "conv12_fc"
-    # GRADSIZE_TOPK = 10
-    # GRADSIZE_TOPFRAC = 0.6
-    # GRADSIZE_THRESHOLD = None
-    # GRADSIZE_METRIC = "l2"  # "l2", "mean_abs", "sum_abs"
-    # lr = 1
-    # num_dummy = 1
-    # Iteration = 1000
-    # num_exp = 16
-    # NETWORK_NAME = "MediumCNN"  # options: "LeNet", "LeNet_bigger", "MediumCNN", "resnet20"
-    # dataset = 'cifar100'
     timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
 
     loss_tol = 1e-6
@@ -154,6 +140,7 @@ def main():
         'GRADSIZE_THRESHOLD': GRADSIZE_THRESHOLD,
         'GRADSIZE_METRIC': GRADSIZE_METRIC,
         'NETWORK_NAME': NETWORK_NAME,
+        'USE_INVERSEFED_IDLG': NETWORK_NAME.lower() == "resnet18",
         'run_id': run_id,
         'EarlyStop': {
             'loss_tol': loss_tol,

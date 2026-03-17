@@ -1,7 +1,7 @@
 import matplotlib.pyplot as plt
 import os
 import math
-from Network import LeNet, LeNet_bigger, MediumCNN, BiggerCNN, weights_init, resnet20
+from Network import LeNet, LeNet_bigger, MediumCNN, BiggerCNN, weights_init, resnet20, get_model
 
 def get_keep_ids_by_gradsize(original_dy_dx, mode="topk", topk=10, top_frac=None, threshold=None, metric="l2"):
     """
@@ -69,6 +69,8 @@ def build_network(name: str, channel: int, num_classes: int, input_size):
         return BiggerCNN(channel=channel, num_classes=num_classes, input_size=input_size)
     if name.lower() == "resnet20":
         return resnet20(channel=channel, num_classes=num_classes)
+    if name.lower() == "resnet18":
+        return get_model(channel=channel, num_classes=num_classes, input_size=input_size)
     raise ValueError(f"Unknown NETWORK_NAME: {name}")
 
 def get_keep_ids(mask_mode: str, net=None, prefixes=None):
