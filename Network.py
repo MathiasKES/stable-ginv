@@ -5,6 +5,16 @@ from torchvision.models import resnet18
 import torch.nn.functional as F
 import torchvision
 from torchvision.models.resnet import BasicBlock, Bottleneck
+from torchvision import models
+
+def get_model(channel=3, num_classes=10, input_size=(32,32)):
+    model = models.resnet18(weights=None)
+    if channel != 3:
+        model.conv1 = nn.Conv2d(
+            channel, 64, kernel_size=7, stride=2, padding=3, bias=False
+        )
+    model.fc = nn.Linear(model.fc.in_features, num_classes)
+    return model
 
 class LeNet(nn.Module):
     def __init__(self, channel=3, num_classes=10, input_size=(32,32)):
