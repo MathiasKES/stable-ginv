@@ -6,7 +6,6 @@ import torchvision
 import os 
 import sys
 sys.path.append(os.path.join(os.path.dirname(__file__), "invertinggradients"))
-# import inversefed
 import consts
 
 from Misc_functions import get_keep_ids, compute_psnr_from_mse, build_network, get_keep_ids_by_gradsize
@@ -18,19 +17,19 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
     device = f'cuda:{device_id}'
     
     # Unpack config
-    channel = config['channel']
-    num_classes = config['num_classes']
-    shape_img = config['shape_img']
-    lr = config['lr']
-    num_dummy = config['num_dummy']
-    Iteration = config['Iteration']
-    MASK_MODE = config['MASK_MODE']
-    PREFIXES = config.get('PREFIXES', ())
-    GRADSIZE_TOPK = config['GRADSIZE_TOPK']
-    GRADSIZE_TOPFRAC = config['GRADSIZE_TOPFRAC']
-    GRADSIZE_THRESHOLD = config['GRADSIZE_THRESHOLD']
-    GRADSIZE_METRIC = config['GRADSIZE_METRIC']
-    NETWORK_NAME = config['NETWORK_NAME']
+    channel: int = config['channel']
+    num_classes: int = config['num_classes']
+    shape_img: tuple[int] = config['shape_img']
+    lr: float = config['lr']
+    num_dummy: int = config['num_dummy']
+    Iteration: int = config['Iteration']
+    MASK_MODE: str = config['MASK_MODE']
+    PREFIXES: str = config.get('PREFIXES', ())
+    GRADSIZE_TOPK: int = config['GRADSIZE_TOPK']
+    GRADSIZE_TOPFRAC: float = config['GRADSIZE_TOPFRAC']
+    GRADSIZE_THRESHOLD: float = config['GRADSIZE_THRESHOLD']
+    GRADSIZE_METRIC: str = config['GRADSIZE_METRIC']
+    NETWORK_NAME: str = config['NETWORK_NAME']
 
     seed = config.get("run_id", 0) + idx_net
     torch.manual_seed(seed)
@@ -38,7 +37,7 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
     np.random.seed(seed)
 
     net = build_network(NETWORK_NAME, channel=channel, num_classes=num_classes, input_size=shape_img)
-    if NETWORK_NAME not in ["resnet20", "resnet18"]:
+    if not NETWORK_NAME.startswith("resnet"):
         net.apply(weights_init)
     net = net.to(device)
     net.eval()
