@@ -117,7 +117,7 @@ def main():
         "CSV results file. Experiments are distributed across available GPUs in parallel."
     ))
 
-    parser.add_argument("--network", type=str, default="resnet20", help=(
+    parser.add_argument("--network", type=str, default="resnet18", help=(
         "Name of the neural-network architecture whose gradients will be attacked. The chosen "
         "network is instantiated with random weights, a single forward/backward pass is "
         "performed on a ground-truth sample to obtain the gradient, and that gradient is then "
@@ -363,7 +363,9 @@ def main():
     # -------- Compute statistics --------
     avg_psnr_idlg           = float(np.mean(psnr_idlg_all))             if len(psnr_idlg_all)       else float("nan")
     avg_psnr_masked         = float(np.mean(psnr_masked_all))           if len(psnr_masked_all)     else float("nan")
-    
+    std_psnr_idlg           = float(np.std(psnr_idlg_all)) if len(psnr_idlg_all) else float("nan")
+    std_psnr_masked         = float(np.std(psnr_masked_all)) if len(psnr_masked_all) else float("nan")
+
     avg_final_loss_idlg     = float(np.mean(final_loss_idlg_all))       if final_loss_idlg_all      else float("nan")
     avg_final_mse_idlg      = float(np.mean(final_mse_idlg_all))        if final_mse_idlg_all       else float("nan")
     avg_final_loss_masked   = float(np.mean(final_loss_masked_all))     if final_loss_masked_all    else float("nan")
@@ -401,7 +403,8 @@ def main():
             "avg_final_loss": avg_final_loss_idlg,
             "med_final_mse": med_final_mse_idlg,
             "avg_final_mse": avg_final_mse_idlg,
-            "avg_psnr": avg_psnr_idlg},
+            "avg_psnr": avg_psnr_idlg,
+            "std_psnr": std_psnr_idlg},
 
         {   "method": "iDLG_masked",
             **common,
@@ -411,10 +414,11 @@ def main():
             "avg_final_loss": avg_final_loss_masked,
             "med_final_mse": med_final_mse_masked,
             "avg_final_mse": avg_final_mse_masked,
-            "avg_psnr": avg_psnr_masked}
+            "avg_psnr": avg_psnr_masked,
+            "std_psnr": std_psnr_masked}
     ]
 
-    fieldnames = ["method"] + [k for k in common.keys()] + ["mask_mode", "grad_param", "med_final_loss", "avg_final_loss", "med_final_mse", "avg_final_mse", "avg_psnr"]
+    fieldnames = ["method"] + [k for k in common.keys()] + ["mask_mode", "grad_param", "med_final_loss", "avg_final_loss", "med_final_mse", "avg_final_mse", "avg_psnr","std_psnr"]
 
     # rows = [
     #     {"method": "iDLG", **common, "med_final_loss": med_final_loss_idlg, "avg_final_loss": avg_final_loss_idlg, "med_final_mse": med_final_mse_idlg, "avg_final_mse": avg_final_mse_idlg, "avg_psnr": avg_psnr_idlg},
@@ -443,7 +447,6 @@ def main():
     print(f"Avg final mse  iDLG: {avg_final_mse_idlg:.8f} | masked: {avg_final_mse_masked:.8f}")
     print(f"Median final loss iDLG: {med_final_loss_idlg:.6f} | masked: {med_final_loss_masked:.6f}")
     print(f"Median final mse  iDLG: {med_final_mse_idlg:.8f} | masked: {med_final_mse_masked:.8f}")
-    print(f"Average PSNR iDLG: {avg_psnr_idlg:.4f} dB | masked: {avg_psnr_masked:.4f} dB")
-
+    print(f"Average PSNR iDLG: {avg_psnr_idlg:.4f} ± {std_psnr_idlg:.4f} dB | masked: {avg_psnr_masked:.4f} ± {std_psnr_masked:.4f} dB")
 if __name__ == '__main__':
     main()
