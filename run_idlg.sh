@@ -1,13 +1,13 @@
 #!/bin/bash
 #BSUB -J idlg_mask
-#BSUB -q gpua10
-#BSUB -n 8
-#BSUB -gpu "num=2:mode=shared"
+#BSUB -q gpuv100
+#BSUB -n 16
+#BSUB -gpu "num=4:mode=shared"
 #BSUB -R "span[hosts=1]"
 #BSUB -R "rusage[mem=8GB]"
 #BSUB -W 24:00
-#BSUB -oo gpuout/idlg/%J.out
-#BSUB -eo gpuout/idlg/%J.err
+#BSUB -oo /work3/s234843/bachelor/gpuout/idlg/%J.out
+#BSUB -eo /work3/s234843/bachelor/gpuout/idlg/%J.err
 
 module load cuda/12.8.1
 export CUDA_VISIBLE_DEVICES=0,1,2,3

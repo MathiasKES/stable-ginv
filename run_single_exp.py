@@ -5,8 +5,7 @@ from torchvision import transforms
 import torchvision
 import os 
 import sys
-sys.path.append(os.path.join(os.path.dirname(__file__), "invertinggradients"))
-import consts
+import consts # Local file
 
 from Misc_functions import get_keep_ids, compute_psnr_from_mse, build_network, get_keep_ids_by_gradsize
 from Network import weights_init
