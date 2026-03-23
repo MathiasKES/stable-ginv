@@ -28,33 +28,23 @@ conda activate stable-ginv
 
 cd /zhome/b6/5/204798/stable-ginv
 
-NETWORK="${NETWORK:-resnet18}"
-DATASET="${DATASET:-cifar100}"
-METHODS="${METHODS:-idlg}"
-MASK_MODE="${MASK_MODE:-gradsize_topfrac}"
-PREFIXES="${PREFIXES:-conv1,layer1,layer2,layer3}"
-TOPK="${TOPK:-20}"
-TOPFRAC="${TOPFRAC:-0.6}"
-THRESHOLD="${THRESHOLD:-0.0}"
-METRIC="${METRIC:-l2}"
-LR="${LR:-1}"
-NUM_DUMMY="${NUM_DUMMY:-1}"
-ITERATION="${ITERATION:-1000}"
-NUM_EXP="${NUM_EXP:-100}"
-RUN_ID="${RUN_ID:-0}"
-
-python iDLG_mask.py \
-    --network "$NETWORK" \
-    --dataset "$DATASET" \
-    --mask_mode "$MASK_MODE" \
-    --methods "$METHODS" \
-    --prefixes "$PREFIXES" \
-    --gradsize_topk "$TOPK" \
-    --gradsize_topfrac "$TOPFRAC" \
-    --gradsize_threshold "$THRESHOLD" \
-    --gradsize_metric "$METRIC" \
-    --lr "$LR" \
-    --num_dummy "$NUM_DUMMY" \
-    --iteration "$ITERATION" \
-    --num_exp "$NUM_EXP" \
-    --run_id "$RUN_ID"
+# python iDLG_mask.py --methods masked --mask_mode gradsize_topfrac_entries --gradsize_topfrac_entries 0.05 --gradsize_metric l2 --lr 1 --num_dummy 1 --iteration 1000 --num_exp 32 --network resnet18 --dataset cifar100 --run_id 0
+# python iDLG_mask.py --methods masked --mask_mode gradsize_topfrac_entries --gradsize_topfrac_entries 0.1 --gradsize_metric l2 --lr 1 --num_dummy 1 --iteration 1000 --num_exp 32 --network resnet18 --dataset cifar100 --run_id 0
+# python iDLG_mask.py --methods masked --mask_mode gradsize_topfrac_entries --gradsize_topfrac_entries 0.15 --gradsize_metric l2 --lr 1 --num_dummy 1 --iteration 1000 --num_exp 32 --network resnet18 --dataset cifar100 --run_id 0
+# python iDLG_mask.py --methods masked --mask_mode gradsize_topfrac_entries --gradsize_topfrac_entries 0.2 --gradsize_metric l2 --lr 1 --num_dummy 1 --iteration 1000 --num_exp 32 --network resnet18 --dataset cifar100 --run_id 0
+# python iDLG_mask.py --methods masked --mask_mode gradsize_topfrac_entries --gradsize_topfrac_entries 0.25 --gradsize_metric l2 --lr 1 --num_dummy 1 --iteration 1000 --num_exp 32 --network resnet18 --dataset cifar100 --run_id 0
+# python iDLG_mask.py --methods masked --mask_mode gradsize_topfrac_entries --gradsize_topfrac_entries 0.3 --gradsize_metric l2 --lr 1 --num_dummy 1 --iteration 1000 --num_exp 32 --network resnet18 --dataset cifar100 --run_id 0
+# python iDLG_mask.py --methods masked --mask_mode gradsize_topfrac_entries --gradsize_topfrac_entries 0.35 --gradsize_metric l2 --lr 1 --num_dummy 1 --iteration 1000 --num_exp 32 --network resnet18 --dataset cifar100 --run_id 0
+# python iDLG_mask.py --methods masked --mask_mode gradsize_topfrac_entries --gradsize_topfrac_entries 0.4 --gradsize_metric l2 --lr 1 --num_dummy 1 --iteration 1000 --num_exp 32 --network resnet18 --dataset cifar100 --run_id 0
+# python iDLG_mask.py --methods masked --mask_mode gradsize_topfrac_entries --gradsize_topfrac_entries 0.45 --gradsize_metric l2 --lr 1 --num_dummy 1 --iteration 1000 --num_exp 32 --network resnet18 --dataset cifar100 --run_id 0
+# python iDLG_mask.py --methods masked --mask_mode gradsize_topfrac_entries --gradsize_topfrac_entries 0.5 --gradsize_metric l2 --lr 1 --num_dummy 1 --iteration 1000 --num_exp 32 --network resnet18 --dataset cifar100 --run_id 0
+# python iDLG_mask.py --methods masked --mask_mode gradsize_topfrac_entries --gradsize_topfrac_entries 0.55 --gradsize_metric l2 --lr 1 --num_dummy 1 --iteration 1000 --num_exp 32 --network resnet18 --dataset cifar100 --run_id 0
+# python iDLG_mask.py --methods masked --mask_mode gradsize_topfrac_entries --gradsize_topfrac_entries 0.6 --gradsize_metric l2 --lr 1 --num_dummy 1 --iteration 1000 --num_exp 32 --network resnet18 --dataset cifar100 --run_id 0
+# python iDLG_mask.py --methods masked --mask_mode gradsize_topfrac_entries --gradsize_topfrac_entries 0.65 --gradsize_metric l2 --lr 1 --num_dummy 1 --iteration 1000 --num_exp 32 --network resnet18 --dataset cifar100 --run_id 0
+# python iDLG_mask.py --methods masked --mask_mode gradsize_topfrac_entries --gradsize_topfrac_entries 0.7 --gradsize_metric l2 --lr 1 --num_dummy 1 --iteration 1000 --num_exp 32 --network resnet18 --dataset cifar100 --run_id 0
+# python iDLG_mask.py --methods masked --mask_mode gradsize_topfrac_entries --gradsize_topfrac_entries 0.75 --gradsize_metric l2 --lr 1 --num_dummy 1 --iteration 1000 --num_exp 32 --network resnet18 --dataset cifar100 --run_id 0
+# python iDLG_mask.py --methods masked --mask_mode gradsize_topfrac_entries --gradsize_topfrac_entries 0.8 --gradsize_metric l2 --lr 1 --num_dummy 1 --iteration 1000 --num_exp 32 --network resnet18 --dataset cifar100 --run_id 0
+# python iDLG_mask.py --methods masked --mask_mode gradsize_topfrac_entries --gradsize_topfrac_entries 0.85 --gradsize_metric l2 --lr 1 --num_dummy 1 --iteration 1000 --num_exp 32 --network resnet18 --dataset cifar100 --run_id 0
+# python iDLG_mask.py --methods masked --mask_mode gradsize_topfrac_entries --gradsize_topfrac_entries 0.9 --gradsize_metric l2 --lr 1 --num_dummy 1 --iteration 1000 --num_exp 32 --network resnet18 --dataset cifar100 --run_id 0
+# python iDLG_mask.py --methods masked --mask_mode gradsize_topfrac_entries --gradsize_topfrac_entries 0.95 --gradsize_metric l2 --lr 1 --num_dummy 1 --iteration 1000 --num_exp 32 --network resnet18 --dataset cifar100 --run_id 0
+# python iDLG_mask.py --methods masked --mask_mode gradsize_topfrac_entries --gradsize_topfrac_entries 1 --gradsize_metric l2 --lr 1 --num_dummy 1 --iteration 1000 --num_exp 32 --network resnet18 --dataset cifar100 --run_id 0
