@@ -111,9 +111,11 @@ def get_entry_masks_by_gradsize(original_dy_dx, mode="topk_entries", topk=None, 
     offset = 0
     for i, numel, shape in meta:
         g = original_dy_dx[i]
-        if g is None:
+
+        if g is None or shape is None or numel == 0:
             entry_masks.append(None)
             continue
+
         local_mask = global_mask[offset:offset + numel].reshape(shape)
         entry_masks.append(local_mask)
         offset += numel
