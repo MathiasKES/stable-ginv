@@ -1,6 +1,6 @@
 #!/bin/bash
 
-COMMANDS_FILE="cmds.txt"
+COMMANDS_FILE="scripts/cmds.txt"
 
 while IFS= read -r CMD || [[ -n "$CMD" ]]; do
   [[ -z "$CMD" ]] && continue  # skip empty lines
@@ -34,7 +34,7 @@ unset __conda_setup
 
 conda activate stable-ginv
 
-cd /zhome/b6/5/204798/stable-ginv
+cd ~/stable-ginv
 
 $CMD
 EOF
