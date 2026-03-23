@@ -19,19 +19,25 @@ def main():
         "Determines which gradient parameters are used during the masked iDLG reconstruction. "
         "Controls how the gradient mask is constructed before inverting gradients. "
         "Options:\n"
-        "  'gradsize_topk'       - Keep only the top-K parameters ranked by gradient magnitude. "
+        "  'gradsize_topk'       - Keep only the top-K tensors ranked by gradient magnitude. "
                                 "The exact number K is set via --gradsize_topk.\n"
-        "  'gradsize_topfrac'    - Keep the top fraction of parameters by gradient magnitude. "
+        "  'gradsize_topfrac'    - Keep the top fraction of tensors by gradient magnitude. "
                                 "The fraction is set via --gradsize_topfrac (e.g. 0.5 = top 50%%).\n"
-        "  'gradsize_threshold'  - Keep only parameters whose gradient magnitude exceeds a fixed "
+        "  'gradsize_threshold'  - Keep only tensors whose gradient magnitude exceeds a fixed "
                                 "threshold, set via --gradsize_threshold.\n"
+        "  'gradsize_topk_entries'    - Keep the highest-ranked tensors until at least --gradsize_topk scalar gradient entries are retained."
+        "  'gradsize_topfrac_entries' - Keep the highest-ranked tensors until at least the fraction --gradsize_topfrac of all scalar gradient entries are retained."                        
         "  'prefix'              - Keep all parameters whose layer name starts with one of the "
                                 "prefixes listed in --prefixes (e.g. 'conv1,linear').\n"
+        "  'prefix_topk'           - First restrict to --prefixes, then keep the top-K tensors by gradient magnitude within those layers.\n"
+        "  'prefix_topfrac'        - First restrict to --prefixes, then keep the top fraction of tensors by gradient magnitude within those layers.\n"
+        "  'prefix_topk_entries'   - First restrict to --prefixes, then keep exactly the top-K scalar gradient entries within those layers.\n"
+        "  'prefix_topfrac_entries'- First restrict to --prefixes, then keep exactly the top fraction of scalar gradient entries within those layers.\n"
         "In all gradient-size modes, the metric used to measure gradient magnitude is controlled "
         "by --gradsize_metric."
     )) 
 
-    parser.add_argument("--prefixes", type=str, default="conv1,layer1,fc", help=(
+    parser.add_argument("--prefixes", type=str, default="conv1,layer1,layer2,layer3", help=(
         "Comma-separated list of layer-name prefixes used when --mask_mode is 'prefix'. "
         "Any parameter whose fully qualified name (e.g. 'conv1.weight', 'linear.bias') starts "
         "with one of these prefixes will be included in the gradient mask; all other parameters "
@@ -108,7 +114,7 @@ def main():
         "cost of longer runtime."
     ))
 
-    parser.add_argument("--num_exp", type=int, default=16, help=(
+    parser.add_argument("--num_exp", type=int, default=10, help=(
         "Total number of independent gradient-inversion experiments to run. Each experiment "
         "samples a different image from the dataset, computes its gradient on a freshly "
         "initialised network, and then attempts to reconstruct the original image via both "
@@ -146,6 +152,18 @@ def main():
         "configurations."
     ))
 
+    parser.add_argument("--methods", type=str, default="idlg", choices=["idlg", "masked", "both"], help=(
+    "Which reconstruction method(s) to run.\n"
+    "  'idlg'   - run only the baseline iDLG attack.\n"
+    "  'masked' - run only the masked iDLG attack.\n"
+    "  'both'   - run both baseline and masked iDLG."
+))
+    
+    parser.add_argument("--compute_jacobian_rank", action="store_true", help=(
+    "If set, compute the Jacobian of the observed gradient vector with respect to the input "
+    "and report its rank. This can be very expensive, especially for ResNet18."
+))
+    
     args = parser.parse_args()
 
     # -------- Masking config --------
@@ -156,6 +174,8 @@ def main():
     GRADSIZE_TOPFRAC = args.gradsize_topfrac
     GRADSIZE_THRESHOLD = args.gradsize_threshold
     GRADSIZE_METRIC = args.gradsize_metric
+    METHODS = args.methods
+    COMPUTE_JACOBIAN_RANK = args.compute_jacobian_rank
     lr = args.lr
     num_dummy = args.num_dummy
     Iteration = args.iteration
@@ -166,7 +186,7 @@ def main():
     timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
 
     loss_tol = 1e-6
-    patience = 200
+    patience = 100
     min_rel_improve = 1e-6
     explode_factor = 50.0
     warmup = 200
@@ -257,6 +277,8 @@ def main():
         'GRADSIZE_METRIC': GRADSIZE_METRIC,
         'NETWORK_NAME': NETWORK_NAME,
         'USE_INVERSEFED_IDLG': NETWORK_NAME.lower() == "resnet18",
+        'METHODS': METHODS,
+        'COMPUTE_JACOBIAN_RANK': COMPUTE_JACOBIAN_RANK,
         'run_id': run_id,
         'EarlyStop': {
             'loss_tol': loss_tol,
@@ -269,6 +291,8 @@ def main():
     }
 
     # -------- Run experiments in parallel --------
+    unknowns = channel * shape_img[0] * shape_img[1]
+    print(f"Input unknowns per image: {unknowns}")
     num_gpus = torch.cuda.device_count()
     print(f"Using {num_gpus} GPUs")
     if num_gpus == 0:
@@ -301,26 +325,39 @@ def main():
         idx_net = result['idx_net']
         finished_device = result['device_id']
 
-        psnr_idlg_all.append(result['psnr_idlg'])
-        psnr_masked_all.append(result['psnr_masked'])
-        final_loss_idlg_all.append(result['loss_iDLG'])
-        final_mse_idlg_all.append(result['mse_iDLG'])
-        final_loss_masked_all.append(result['loss_iDLG_masked'])
-        final_mse_masked_all.append(result['mse_iDLG_masked'])
+        if result['psnr_idlg'] is not None:
+            psnr_idlg_all.append(result['psnr_idlg'])
+        if result['psnr_masked'] is not None:
+            psnr_masked_all.append(result['psnr_masked'])
+        if result['loss_iDLG'] is not None:
+            final_loss_idlg_all.append(result['loss_iDLG'])
+        if result['mse_iDLG'] is not None:
+            final_mse_idlg_all.append(result['mse_iDLG'])
+        if result['loss_iDLG_masked'] is not None:
+            final_loss_masked_all.append(result['loss_iDLG_masked'])
+        if result['mse_iDLG_masked'] is not None:
+            final_mse_masked_all.append(result['mse_iDLG_masked'])
 
         # ---- accumulate recon panel ----
         gt_pil = tp(torch.from_numpy(result['gt_data'])[0])
-        idlg_pil = tp(torch.from_numpy(result['final_recon']['iDLG'])[0])
-        masked_pil = tp(torch.from_numpy(result['final_recon']['iDLG_masked'])[0])
-
         panel_gt_pil.append(gt_pil)
+
+        if 'iDLG' in result['final_recon']:
+            idlg_pil = tp(torch.from_numpy(result['final_recon']['iDLG'])[0])
+        else:
+            idlg_pil = gt_pil
         panel_idlg_pil.append(idlg_pil)
+
+        if 'iDLG_masked' in result['final_recon']:
+            masked_pil = tp(torch.from_numpy(result['final_recon']['iDLG_masked'])[0])
+        else:
+            masked_pil = gt_pil
         panel_masked_pil.append(masked_pil)
 
         if len(panel_gt_pil) == panel_block_size:
             save_recon_panel(
                 params, panel_gt_pil, panel_idlg_pil, panel_masked_pil,
-                save_path, panel_block_idx, dataset, mask_desc, timestamp_str
+                save_path, panel_block_idx, dataset, mask_desc, timestamp_str, methods=METHODS
             )
             panel_block_idx += 1
             panel_gt_pil.clear()
@@ -329,11 +366,24 @@ def main():
 
         es_r = result.get("early_stop_reason", {})
         es_i = result.get("early_stop_iter", {})
+
         print(f"early_stop iDLG: {es_r.get('iDLG')} @ {es_i.get('iDLG')}")
         print(f"early_stop masked: {es_r.get('iDLG_masked')} @ {es_i.get('iDLG_masked')}")
         print('imidx_list:', result['imidx_list'])
-        print('loss_iDLG:', result['loss_iDLG'], 'loss_iDLG_masked:', result['loss_iDLG_masked'])
-        print('mse_iDLG:', result['mse_iDLG'], 'mse_iDLG_masked:', result['mse_iDLG_masked'])
+
+        if result['loss_iDLG'] is not None:
+            print('loss_iDLG:', result['loss_iDLG'], 'mse_iDLG:', result['mse_iDLG'])
+        if result['loss_iDLG_masked'] is not None:
+            print('loss_iDLG_masked:', result['loss_iDLG_masked'], 'mse_iDLG_masked:', result['mse_iDLG_masked'])
+
+        if result.get('jac_rank_iDLG') is not None:
+            print('jac_rank_iDLG:', result['jac_rank_iDLG'],
+                'jac_shape_iDLG:', result['jac_shape_iDLG'])
+
+        if result.get('jac_rank_iDLG_masked') is not None:
+            print('jac_rank_iDLG_masked:', result['jac_rank_iDLG_masked'],
+                'jac_shape_iDLG_masked:', result['jac_shape_iDLG_masked'])
+
         print('gt_label:', result['gt_label'],
             'lab_iDLG:', result['label_iDLG'], 'lab_iDLG_masked:', result['label_iDLG_masked'])
         print('----------------------\n\n')
@@ -358,7 +408,7 @@ def main():
     # save any remaining
     if len(panel_gt_pil) > 0:
         save_recon_panel(params, panel_gt_pil, panel_idlg_pil, panel_masked_pil,
-                         save_path, panel_block_idx, dataset, mask_desc, timestamp_str)
+                         save_path, panel_block_idx, dataset, mask_desc, timestamp_str, methods=METHODS)
     
     # -------- Compute statistics --------
     avg_psnr_idlg           = float(np.mean(psnr_idlg_all))             if len(psnr_idlg_all)       else float("nan")
@@ -389,13 +439,16 @@ def main():
         "num_exp": num_exp,}
     
     grad_value = ""
-    if MASK_MODE == "gradsize_topfrac":
+    if MASK_MODE in ["gradsize_topfrac", "gradsize_topfrac_entries"]:
         grad_value = GRADSIZE_TOPFRAC
-    elif MASK_MODE == "gradsize_topk":
+    elif MASK_MODE in ["gradsize_topk", "gradsize_topk_entries"]:
         grad_value = GRADSIZE_TOPK
 
-    rows = [
-        {   "method": "iDLG",
+    rows = []
+
+    if METHODS in ["idlg", "both"]:
+        rows.append({
+            "method": "iDLG",
             **common,
             "mask_mode": "",
             "grad_param": "",
@@ -404,9 +457,12 @@ def main():
             "med_final_mse": med_final_mse_idlg,
             "avg_final_mse": avg_final_mse_idlg,
             "avg_psnr": avg_psnr_idlg,
-            "std_psnr": std_psnr_idlg},
+            "std_psnr": std_psnr_idlg
+        })
 
-        {   "method": "iDLG_masked",
+    if METHODS in ["masked", "both"]:
+        rows.append({
+            "method": "iDLG_masked",
             **common,
             "mask_mode": MASK_MODE if MASK_MODE != 'prefix' else args.prefixes,
             "grad_param": grad_value,
@@ -415,8 +471,8 @@ def main():
             "med_final_mse": med_final_mse_masked,
             "avg_final_mse": avg_final_mse_masked,
             "avg_psnr": avg_psnr_masked,
-            "std_psnr": std_psnr_masked}
-    ]
+            "std_psnr": std_psnr_masked
+        })
 
     fieldnames = ["method"] + [k for k in common.keys()] + ["mask_mode", "grad_param", "med_final_loss", "avg_final_loss", "med_final_mse", "avg_final_mse", "avg_psnr","std_psnr"]
 

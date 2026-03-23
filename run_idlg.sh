@@ -1,10 +1,10 @@
 #!/bin/bash
 #BSUB -J idlg_mask
-#BSUB -q gpua10
-#BSUB -n 8
-#BSUB -gpu "num=2:mode=shared"
+#BSUB -q gpuv100
+#BSUB -n 4
+#BSUB -gpu "num=1:mode=shared"
 #BSUB -R "span[hosts=1]"
-#BSUB -R "rusage[mem=8GB]"
+#BSUB -R "rusage[mem=16GB]"
 #BSUB -W 24:00
 #BSUB -oo gpuout/idlg/%J.out
 #BSUB -eo gpuout/idlg/%J.err
@@ -23,16 +23,31 @@ else
     fi
 fi
 unset __conda_setup
-# <<< conda initialize <<<
 
 conda activate stable-ginv
 
 cd /zhome/b6/5/204798/stable-ginv
 
+NETWORK="${NETWORK:-resnet18}"
+DATASET="${DATASET:-cifar100}"
+METHODS="${METHODS:-idlg}"
+MASK_MODE="${MASK_MODE:-gradsize_topfrac}"
+PREFIXES="${PREFIXES:-conv1,layer1,layer2,layer3}"
+TOPK="${TOPK:-20}"
+TOPFRAC="${TOPFRAC:-0.6}"
+THRESHOLD="${THRESHOLD:-0.0}"
+METRIC="${METRIC:-l2}"
+LR="${LR:-1}"
+NUM_DUMMY="${NUM_DUMMY:-1}"
+ITERATION="${ITERATION:-1000}"
+NUM_EXP="${NUM_EXP:-100}"
+RUN_ID="${RUN_ID:-0}"
+
 python iDLG_mask.py \
     --network "$NETWORK" \
     --dataset "$DATASET" \
     --mask_mode "$MASK_MODE" \
+    --methods "$METHODS" \
     --prefixes "$PREFIXES" \
     --gradsize_topk "$TOPK" \
     --gradsize_topfrac "$TOPFRAC" \

@@ -9,7 +9,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), "invertinggradients"))
 # import inversefed
 import consts
 
-from Misc_functions import get_keep_ids, compute_psnr_from_mse, build_network, get_keep_ids_by_gradsize
+from Misc_functions import get_keep_ids, compute_psnr_from_mse, build_network, get_keep_ids_by_gradsize, get_entry_masks_by_gradsize, get_prefix_keep_ids, compute_jacobian_rank
 from Network import weights_init
 
 def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_queue):
@@ -31,8 +31,10 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
     GRADSIZE_THRESHOLD = config['GRADSIZE_THRESHOLD']
     GRADSIZE_METRIC = config['GRADSIZE_METRIC']
     NETWORK_NAME = config['NETWORK_NAME']
+    METHODS = config.get('METHODS', 'both')
+    COMPUTE_JACOBIAN_RANK = config.get('COMPUTE_JACOBIAN_RANK', False)
 
-    seed = config.get("run_id", 0) + idx_net
+    seed = config.get("run_id", 0) + idx_net + 1 
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
     np.random.seed(seed)
@@ -53,7 +55,19 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
     early_stop_reason_dict = {}
     early_stop_iter_dict = {}
 
-    for method in ['iDLG', 'iDLG_masked']:
+    if METHODS == "idlg":
+        methods_to_run = ["iDLG"]
+    elif METHODS == "masked":
+        methods_to_run = ["iDLG_masked"]
+    else:
+        methods_to_run = ["iDLG", "iDLG_masked"]
+
+    jac_rank_iDLG = None
+    jac_rank_iDLG_masked = None
+    jac_shape_iDLG = None
+    jac_shape_iDLG_masked = None
+
+    for method in methods_to_run:
         print(f'[GPU {device_id}] {method}, Try to generate {num_dummy} images')
 
         criterion = nn.CrossEntropyLoss().to(device)
@@ -92,27 +106,131 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
         # iDLG label inference
         label_pred = torch.argmin(torch.sum(original_dy_dx[-2], dim=-1), dim=-1).detach().reshape((1,))
 
+        candidate_ids = None
         # choose which gradient tensors are "shared"
+        keep_ids = None
+        entry_masks = None
+        ranked = None
+
         if method == "iDLG":
-            keep_ids = get_keep_ids("all")
+            keep_ids = get_keep_ids("all", net=net)
         else:
+            if MASK_MODE.startswith("prefix_"):
+                candidate_ids = get_prefix_keep_ids(net, PREFIXES)
+
             if MASK_MODE == "gradsize_topk":
                 keep_ids, ranked = get_keep_ids_by_gradsize(
-                    original_dy_dx, mode="topk", topk=GRADSIZE_TOPK, metric=GRADSIZE_METRIC)
+                    original_dy_dx, mode="topk", topk=GRADSIZE_TOPK,
+                    metric=GRADSIZE_METRIC)
+
             elif MASK_MODE == "gradsize_topfrac":
                 keep_ids, ranked = get_keep_ids_by_gradsize(
-                    original_dy_dx, mode="topfrac", top_frac=GRADSIZE_TOPFRAC, metric=GRADSIZE_METRIC)
+                    original_dy_dx, mode="topfrac", top_frac=GRADSIZE_TOPFRAC,
+                    metric=GRADSIZE_METRIC)
+
+            elif MASK_MODE == "gradsize_topk_entries":
+                entry_masks, observed_entries, total_entries = get_entry_masks_by_gradsize(
+                    original_dy_dx, mode="topk_entries", topk=GRADSIZE_TOPK)
+
+            elif MASK_MODE == "gradsize_topfrac_entries":
+                entry_masks, observed_entries, total_entries = get_entry_masks_by_gradsize(
+                    original_dy_dx, mode="topfrac_entries", top_frac=GRADSIZE_TOPFRAC)
+
+            elif MASK_MODE == "prefix_topk":
+                keep_ids, ranked = get_keep_ids_by_gradsize(
+                    original_dy_dx, mode="topk", topk=GRADSIZE_TOPK,
+                    metric=GRADSIZE_METRIC, candidate_ids=candidate_ids)
+
+            elif MASK_MODE == "prefix_topfrac":
+                keep_ids, ranked = get_keep_ids_by_gradsize(
+                    original_dy_dx, mode="topfrac", top_frac=GRADSIZE_TOPFRAC,
+                    metric=GRADSIZE_METRIC, candidate_ids=candidate_ids)
+
+            elif MASK_MODE == "prefix_topk_entries":
+                entry_masks, observed_entries, total_entries = get_entry_masks_by_gradsize(
+                    original_dy_dx, mode="topk_entries", topk=GRADSIZE_TOPK,
+                    candidate_ids=candidate_ids)
+
+            elif MASK_MODE == "prefix_topfrac_entries":
+                entry_masks, observed_entries, total_entries = get_entry_masks_by_gradsize(
+                    original_dy_dx, mode="topfrac_entries", top_frac=GRADSIZE_TOPFRAC,
+                    candidate_ids=candidate_ids)
+
             elif MASK_MODE == "gradsize_threshold":
                 keep_ids, ranked = get_keep_ids_by_gradsize(
-                    original_dy_dx, mode="threshold", threshold=GRADSIZE_THRESHOLD, metric=GRADSIZE_METRIC)
+                    original_dy_dx, mode="threshold", threshold=GRADSIZE_THRESHOLD,
+                    metric=GRADSIZE_METRIC)
+
             elif MASK_MODE == "prefix":
                 keep_ids = get_keep_ids(mask_mode="prefix", net=net, prefixes=PREFIXES)
-                ranked = None
+
             elif MASK_MODE == "resnet_l1_fc":
                 keep_ids = get_keep_ids(mask_mode="prefix", net=net, prefixes=("layer1", "linear"))
+
             else:
-                keep_ids = get_keep_ids(MASK_MODE)
-                ranked = None
+                keep_ids = get_keep_ids(MASK_MODE)   
+
+        unknowns = int(gt_data[0].numel())
+
+        if entry_masks is not None:
+            observed_entries = sum(
+                int(m.sum().item()) for m in entry_masks if m is not None
+            )
+            total_entries = sum(g.numel() for g in original_dy_dx if g is not None)
+        else:
+            observed_entries = sum(
+                g.numel() for i, g in enumerate(original_dy_dx)
+                if g is not None and i in keep_ids
+            )
+            total_entries = sum(g.numel() for g in original_dy_dx if g is not None)
+
+        kept_fraction = observed_entries / total_entries
+
+        jacobian_rank = None
+        jacobian_shape = None
+
+        print(f"[GPU {device_id}] {method}: observed_entries={observed_entries}, "
+            f"total_entries={total_entries}, kept_fraction={kept_fraction:.4f}, "
+            f"unknowns={unknowns}")
+
+        if COMPUTE_JACOBIAN_RANK:
+            if num_dummy != 1:
+                raise ValueError("Jacobian-rank computation currently assumes num_dummy=1.")
+
+            jacobian_rank, jacobian_shape, jac_obs, jac_unknowns = compute_jacobian_rank(
+                net=net,
+                x_norm=gt_data_norm,
+                y=gt_label,
+                criterion=criterion,
+                keep_ids=keep_ids,
+                entry_masks=entry_masks,
+            )
+
+            print(f"[GPU {device_id}] {method}: jacobian_shape={jacobian_shape}, "
+                f"jacobian_rank={jacobian_rank}, unknowns={jac_unknowns}")
+
+            if jacobian_rank < jac_unknowns:
+                print(f"[GPU {device_id}] {method}: Jacobian rank too small for unique local reconstruction "
+                    f"({jacobian_rank} < {jac_unknowns})")
+        
+        if observed_entries < unknowns:
+            print(f"[GPU {device_id}] {method}: too few gradients for reconstruction "
+                f"({observed_entries} < {unknowns})")
+
+            final_recon[method] = torch.zeros_like(gt_data)
+
+            if method == 'iDLG':
+                loss_iDLG = [float("inf")]
+                label_iDLG = label_pred.item()
+                mse_iDLG = [float("inf")]
+            else:
+                loss_iDLG_masked = [float("inf")]
+                label_iDLG_masked = label_pred.item()
+                mse_iDLG_masked = [float("inf")]
+
+            early_stop_reason_dict[method] = "too_few_gradients"
+            early_stop_iter_dict[method] = 0
+            continue
         
         losses = []
         mses = []
@@ -149,9 +267,16 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
                 
                 grad_diff = 0.0
                 for i, (gx, gy) in enumerate(zip(dummy_dy_dx, original_dy_dx)):
-                    if i not in keep_ids:
-                        continue
-                    grad_diff = grad_diff + ((gx - gy) ** 2).sum()
+                    if entry_masks is not None:
+                        m = entry_masks[i]
+                        if m is None:
+                            continue
+                        diff = gx[m] - gy[m]
+                        grad_diff = grad_diff + (diff ** 2).sum()
+                    else:
+                        if i not in keep_ids:
+                            continue
+                        grad_diff = grad_diff + ((gx - gy) ** 2).sum()
                 grad_diff.backward()
                 return grad_diff
             
@@ -229,33 +354,41 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
             loss_iDLG = losses
             label_iDLG = label_pred.item()
             mse_iDLG = mses
+            jac_rank_iDLG = jacobian_rank
+            jac_shape_iDLG = jacobian_shape
         else:
             loss_iDLG_masked = losses
             label_iDLG_masked = label_pred.item()
             mse_iDLG_masked = mses
+            jac_rank_iDLG_masked = jacobian_rank
+            jac_shape_iDLG_masked = jacobian_shape
     
         early_stop_reason_dict[method] = early_stop_reason
         early_stop_iter_dict[method] = early_stop_iter
 
     # Prepare results to send back
     result = {
-        'idx_net': idx_net,
-        'device_id': device_id,
-        'gt_data': gt_data.detach().cpu().numpy(),
-        'final_recon': {k: v.detach().cpu().numpy() for k, v in final_recon.items()},
-        'psnr_idlg': compute_psnr_from_mse(mse_iDLG[-1], max_val=1.0),
-        'psnr_masked': compute_psnr_from_mse(mse_iDLG_masked[-1], max_val=1.0),
-        'loss_iDLG': loss_iDLG[-1],
-        'mse_iDLG': mse_iDLG[-1],
-        'loss_iDLG_masked': loss_iDLG_masked[-1],
-        'mse_iDLG_masked': mse_iDLG_masked[-1],
-        'label_iDLG': label_iDLG,
-        'label_iDLG_masked': label_iDLG_masked,
-        'gt_label': gt_label.detach().cpu().numpy(),
-        'imidx_list': imidx_list,
-        'early_stop_reason': early_stop_reason_dict,
-        'early_stop_iter': early_stop_iter_dict,
-    }
+    'idx_net': idx_net,
+    'device_id': device_id,
+    'gt_data': gt_data.detach().cpu().numpy(),
+    'final_recon': {k: v.detach().cpu().numpy() for k, v in final_recon.items()},
+    'psnr_idlg': compute_psnr_from_mse(mse_iDLG[-1], max_val=1.0) if 'iDLG' in final_recon else None,
+    'psnr_masked': compute_psnr_from_mse(mse_iDLG_masked[-1], max_val=1.0) if 'iDLG_masked' in final_recon else None,
+    'loss_iDLG': loss_iDLG[-1] if 'iDLG' in final_recon else None,
+    'mse_iDLG': mse_iDLG[-1] if 'iDLG' in final_recon else None,
+    'loss_iDLG_masked': loss_iDLG_masked[-1] if 'iDLG_masked' in final_recon else None,
+    'mse_iDLG_masked': mse_iDLG_masked[-1] if 'iDLG_masked' in final_recon else None,
+    'label_iDLG': label_iDLG if 'iDLG' in final_recon else None,
+    'label_iDLG_masked': label_iDLG_masked if 'iDLG_masked' in final_recon else None,
+    'jac_rank_iDLG': jac_rank_iDLG if 'iDLG' in final_recon else None,
+    'jac_shape_iDLG': jac_shape_iDLG if 'iDLG' in final_recon else None,
+    'jac_rank_iDLG_masked': jac_rank_iDLG_masked if 'iDLG_masked' in final_recon else None,
+    'jac_shape_iDLG_masked': jac_shape_iDLG_masked if 'iDLG_masked' in final_recon else None,
+    'gt_label': gt_label.detach().cpu().numpy(),
+    'imidx_list': imidx_list,
+    'early_stop_reason': early_stop_reason_dict,
+    'early_stop_iter': early_stop_iter_dict,
+}
     
     print(f"[GPU {device_id}] putting result for experiment {idx_net}", flush=True)
     result_queue.put(result)
