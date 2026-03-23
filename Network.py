@@ -3,7 +3,6 @@ import torch
 from torchvision import models
 
 def get_model(network, channel=3, num_classes=10, input_size=(32,32)):
-    # model = models.resnet18(weights=None)
     model = getattr(models, network)(weights=None)
     if channel != 3:
         model.conv1 = nn.Conv2d(

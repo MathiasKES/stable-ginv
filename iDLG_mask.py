@@ -128,7 +128,7 @@ def main():
         "network is instantiated with random weights, a single forward/backward pass is "
         "performed on a ground-truth sample to obtain the gradient, and that gradient is then "
         "fed to the iDLG inversion attack. Supported options include: 'LeNet', 'LeNet_bigger', "
-        "'MediumCNN', and 'resnet20'. The architecture must be compatible with the image shape "
+        "'MediumCNN', and 'resnetxx'. The architecture must be compatible with the image shape "
         "and number of classes implied by --dataset. The architecture also affects which "
         "mask modes are meaningful (e.g. 'resnet_l1_fc' is designed specifically for ResNet)."
     ))

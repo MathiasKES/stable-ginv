@@ -1,2 +1,2 @@
 #!/bin/bash
-export CUDA_VISIBLE_DEVICES=0,1,2,3
+source /work3/s234843/bachelor/init.sh

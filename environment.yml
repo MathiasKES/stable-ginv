@@ -1,0 +1,17 @@
+name: stable-ginv
+channels:
+  - conda-forge
+  - nodefaults
+
+dependencies:
+  - python=3.13
+  - numpy
+  - matplotlib
+  - ipykernel
+  - pip
+  - pip:
+    - --index-url https://download.pytorch.org/whl/cu128
+    - torch
+    - torchvision
+
+prefix: /work3/s234843/bin/miniconda3/envs/stable-ginv

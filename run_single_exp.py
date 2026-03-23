@@ -5,9 +5,7 @@ from torchvision import transforms
 import torchvision
 import os 
 import sys
-sys.path.append(os.path.join(os.path.dirname(__file__), "invertinggradients"))
-# import inversefed
-import consts
+import consts # Local file
 
 from Misc_functions import get_keep_ids, compute_psnr_from_mse, build_network, get_keep_ids_by_gradsize, get_entry_masks_by_gradsize, get_prefix_keep_ids, compute_jacobian_rank
 from Network import weights_init
@@ -40,7 +38,7 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
     np.random.seed(seed)
 
     net = build_network(NETWORK_NAME, channel=channel, num_classes=num_classes, input_size=shape_img)
-    if NETWORK_NAME not in ["resnet20", "resnet18"]:
+    if not NETWORK_NAME.startswith("resnet"):
         net.apply(weights_init)
     net = net.to(device)
     net.eval()
