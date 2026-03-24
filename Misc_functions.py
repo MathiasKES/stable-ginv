@@ -321,3 +321,75 @@ def save_recon_panel(params: dict, panel_gt_pil, panel_idlg_pil, panel_masked_pi
         print(f"Warning: failed to set permissions for {out_path}: {e}")
 
     print("Saved reconstruction panel to:", out_path)
+
+def build_gradient_mask(
+    method,
+    mask_mode,
+    net,
+    original_dy_dx,
+    prefixes=(),
+    gradsize_topk=20,
+    gradsize_topfrac=0.5,
+    gradsize_threshold=None,
+    gradsize_metric="l2",
+):
+    candidate_ids = None
+    keep_ids = None
+    entry_masks = None
+
+    if method == "idlg":
+        keep_ids = get_keep_ids("all", net=net)
+        return keep_ids, entry_masks
+
+    if mask_mode.startswith("prefix_"):
+        candidate_ids = get_prefix_keep_ids(net, prefixes)
+
+    if mask_mode == "gradsize_topk":
+        keep_ids, _ = get_keep_ids_by_gradsize(
+            original_dy_dx, mode="topk", topk=gradsize_topk, metric=gradsize_metric
+        )
+    elif mask_mode == "gradsize_topfrac":
+        keep_ids, _ = get_keep_ids_by_gradsize(
+            original_dy_dx, mode="topfrac", top_frac=gradsize_topfrac, metric=gradsize_metric
+        )
+    elif mask_mode == "gradsize_topk_entries":
+        entry_masks, _, _ = get_entry_masks_by_gradsize(
+            original_dy_dx, mode="topk_entries", topk=gradsize_topk
+        )
+    elif mask_mode == "gradsize_topfrac_entries":
+        entry_masks, _, _ = get_entry_masks_by_gradsize(
+            original_dy_dx, mode="topfrac_entries", top_frac=gradsize_topfrac
+        )
+    elif mask_mode == "prefix_topk":
+        keep_ids, _ = get_keep_ids_by_gradsize(
+            original_dy_dx, mode="topk", topk=gradsize_topk,
+            metric=gradsize_metric, candidate_ids=candidate_ids
+        )
+    elif mask_mode == "prefix_topfrac":
+        keep_ids, _ = get_keep_ids_by_gradsize(
+            original_dy_dx, mode="topfrac", top_frac=gradsize_topfrac,
+            metric=gradsize_metric, candidate_ids=candidate_ids
+        )
+    elif mask_mode == "prefix_topk_entries":
+        entry_masks, _, _ = get_entry_masks_by_gradsize(
+            original_dy_dx, mode="topk_entries", topk=gradsize_topk,
+            candidate_ids=candidate_ids
+        )
+    elif mask_mode == "prefix_topfrac_entries":
+        entry_masks, _, _ = get_entry_masks_by_gradsize(
+            original_dy_dx, mode="topfrac_entries", top_frac=gradsize_topfrac,
+            candidate_ids=candidate_ids
+        )
+    elif mask_mode == "gradsize_threshold":
+        keep_ids, _ = get_keep_ids_by_gradsize(
+            original_dy_dx, mode="threshold", threshold=gradsize_threshold,
+            metric=gradsize_metric
+        )
+    elif mask_mode == "prefix":
+        keep_ids = get_keep_ids(mask_mode="prefix", net=net, prefixes=prefixes)
+    elif mask_mode == "resnet_l1_fc":
+        keep_ids = get_keep_ids(mask_mode="prefix", net=net, prefixes=("layer1", "linear"))
+    else:
+        keep_ids = get_keep_ids(mask_mode, net=net)
+
+    return keep_ids, entry_masks

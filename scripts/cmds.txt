@@ -1,1 +1,3 @@
-python iDLG_mask.py --methods masked --mask_mode gradsize_topfrac_entries --gradsize_topfrac 0.05 --gradsize_metric l2 --lr 1 --num_dummy 1 --iteration 1000 --num_exp 32 --network resnet18 --dataset cifar100 --run_id 0
+python jacobian_rank_sweep.py --method idlg --network resnet18 --dataset cifar100 --num_samples 3 --row_counts 500,1000,2000,3000,4000,5000,10000,20000,30000,50000,75000,100000,125000,150000,200000, 250000 --jacobian_select_mode topk_abs
+python jacobian_rank_sweep.py --method idlg --network resnet18 --dataset cifar100 --num_samples 3 --row_counts 500,1000,2000,3000,4000,5000,10000,20000,30000,50000,75000,100000,125000,150000,200000, 250000 --jacobian_select_mode random
+python jacobian_rank_sweep.py --method idlg --network resnet18 --dataset cifar100 --num_samples 3 --row_counts 500,1000,2000,3000,4000,5000,10000,20000,30000,50000 --jacobian_select_mode topk_abs
