@@ -5,9 +5,23 @@ COMMANDS_FILE="scripts/cmds.txt"
 while IFS= read -r CMD || [[ -n "$CMD" ]]; do
   [[ -z "$CMD" ]] && continue  # skip empty lines
 
-  bsub <<EOF
+  # Extract fields for job name
+  METHODS=$(echo "$CMD"          | grep -oP '(?<=--methods )\S+')
+  MASK_MODE=$(echo "$CMD"        | grep -oP '(?<=--mask_mode )\S+')
+  GRADSIZE_TOPFRAC=$(echo "$CMD" | grep -oP '(?<=--gradsize_topfrac )\S+')
+  NUM_EXP=$(echo "$CMD"          | grep -oP '(?<=--num_exp )\S+')
+
+  METHODS=${METHODS:-idlg}
+  MASK_MODE=${MASK_MODE:-gradsize_topfrac}
+  GRADSIZE_TOPFRAC=${GRADSIZE_TOPFRAC:-0.5}
+  NUM_EXP=${NUM_EXP:-16}
+
+  JOB_NAME="${METHODS}_${MASK_MODE}_${GRADSIZE_TOPFRAC}_${NUM_EXP}"
+
+  # Capture bsub output to extract job ID
+  BSUB_OUT=$(bsub <<EOF
 #!/bin/bash
-#BSUB -J idlg_mask
+#BSUB -J $JOB_NAME
 #BSUB -q gpuv100
 #BSUB -n 4
 #BSUB -gpu "num=1:mode=shared"
@@ -18,26 +32,16 @@ while IFS= read -r CMD || [[ -n "$CMD" ]]; do
 #BSUB -eo /work3/s234843/bachelor/gpuout/idlg/%J.err
 
 module load cuda/12.8.1
-export CUDA_VISIBLE_DEVICES=0,1,2,3
 
-__conda_setup="\$('/work3/s234843/bin/miniconda3/bin/conda' 'shell.bash' 'hook' 2> /dev/null)"
-if [ \$? -eq 0 ]; then
-    eval "\$__conda_setup"
-else
-    if [ -f "/work3/s234843/bin/miniconda3/etc/profile.d/conda.sh" ]; then
-        . "/work3/s234843/bin/miniconda3/etc/profile.d/conda.sh"
-    else
-        export PATH="/work3/s234843/bin/miniconda3/bin:\$PATH"
-    fi
-fi
-unset __conda_setup
-
-conda activate stable-ginv
-
-cd ~/stable-ginv
+source /work3/s234843/bachelor/init.sh
 
 $CMD
 EOF
+)
 
-  echo "Submitted: $CMD"
+  # bsub prints: "Job <12345> is submitted to queue <gpuv100>."
+  JOB_ID=$(echo "$BSUB_OUT" | grep -oP '(?<=Job <)\d+')
+
+  echo "Submitted job $JOB_ID [$JOB_NAME]: $CMD"
+
 done < "$COMMANDS_FILE"
