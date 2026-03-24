@@ -31,6 +31,8 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
     NETWORK_NAME = config['NETWORK_NAME']
     METHODS = config.get('METHODS', 'both')
     COMPUTE_JACOBIAN_RANK = config.get('COMPUTE_JACOBIAN_RANK', False)
+    JACOBIAN_MAX_ENTRIES = config.get('JACOBIAN_MAX_ENTRIES', 4000)
+    JACOBIAN_SELECT_MODE = config.get('JACOBIAN_SELECT_MODE', 'topk_abs')
 
     seed = config.get("run_id", 0) + idx_net + 1 
     torch.manual_seed(seed)
@@ -202,8 +204,10 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
                 criterion=criterion,
                 keep_ids=keep_ids,
                 entry_masks=entry_masks,
+                max_entries=JACOBIAN_MAX_ENTRIES,
+                select_mode=JACOBIAN_SELECT_MODE,
+                device_for_J="cpu",
             )
-
             print(f"[GPU {device_id}] {method}: jacobian_shape={jacobian_shape}, "
                 f"jacobian_rank={jacobian_rank}, unknowns={jac_unknowns}")
 

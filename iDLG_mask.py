@@ -164,6 +164,15 @@ def main():
     "and report its rank. This can be very expensive, especially for ResNet18."
 ))
     
+    parser.add_argument("--jacobian_max_entries", type=int, default=4000, help=(
+    "Maximum number of observed gradient entries to use when computing the Jacobian rank."
+))
+    
+    parser.add_argument("--jacobian_select_mode", type=str, default="topk_abs",
+                    choices=["topk_abs", "first", "random"], help=(
+    "How to choose which observed gradient entries are used for Jacobian rank computation."
+))
+    
     args = parser.parse_args()
 
     # -------- Masking config --------
@@ -176,6 +185,8 @@ def main():
     GRADSIZE_METRIC = args.gradsize_metric
     METHODS = args.methods
     COMPUTE_JACOBIAN_RANK = args.compute_jacobian_rank
+    JACOBIAN_MAX_ENTRIES = args.jacobian_max_entries
+    JACOBIAN_SELECT_MODE = args.jacobian_select_mode
     lr = args.lr
     num_dummy = args.num_dummy
     Iteration = args.iteration
@@ -279,6 +290,8 @@ def main():
         'USE_INVERSEFED_IDLG': NETWORK_NAME.lower() == "resnet18",
         'METHODS': METHODS,
         'COMPUTE_JACOBIAN_RANK': COMPUTE_JACOBIAN_RANK,
+        'JACOBIAN_MAX_ENTRIES': JACOBIAN_MAX_ENTRIES,
+        'JACOBIAN_SELECT_MODE': JACOBIAN_SELECT_MODE,
         'run_id': run_id,
         'EarlyStop': {
             'loss_tol': loss_tol,

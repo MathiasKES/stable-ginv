@@ -30,36 +30,75 @@ def flatten_observed_gradients(grad_list, keep_ids=None, entry_masks=None):
         raise ValueError("No observed gradients selected.")
     return torch.cat(flat, dim=0)
 
-
-def compute_jacobian_rank(net, x_norm, y, criterion, keep_ids=None, entry_masks=None):
+def compute_jacobian_rank(
+    net,
+    x_norm,
+    y,
+    criterion,
+    keep_ids=None,
+    entry_masks=None,
+    max_entries=None,
+    select_mode="topk_abs",
+    device_for_J="cpu",
+):
     """
     Compute rank of J = d vec(g_obs(x)) / d vec(x),
-    where g_obs(x) is the flattened observed gradient vector.
+    using only a subset of observed gradient entries.
+
+    This version computes the Jacobian row-by-row to avoid OOM.
     """
     params = tuple(net.parameters())
     x_norm = x_norm.detach().clone().requires_grad_(True)
 
-    def grad_vector(inp):
-        out = net(inp)
-        loss = criterion(out, y)
-        grads = torch.autograd.grad(
-            loss,
-            params,
-            create_graph=True,
+    # Build observed gradient vector once
+    out = net(x_norm)
+    loss = criterion(out, y)
+    grads = torch.autograd.grad(
+        loss,
+        params,
+        create_graph=True,
+        retain_graph=True,
+        allow_unused=False,
+    )
+    g_obs = flatten_observed_gradients(grads, keep_ids=keep_ids, entry_masks=entry_masks)
+
+    total_entries = g_obs.numel()
+
+    if max_entries is None or max_entries >= total_entries:
+        selected_idx = torch.arange(total_entries, device=g_obs.device)
+    else:
+        k = int(max_entries)
+        if k <= 0:
+            raise ValueError("max_entries must be positive")
+
+        if select_mode == "topk_abs":
+            selected_idx = torch.topk(g_obs.detach().abs(), k=k, largest=True).indices
+        elif select_mode == "first":
+            selected_idx = torch.arange(k, device=g_obs.device)
+        elif select_mode == "random":
+            selected_idx = torch.randperm(total_entries, device=g_obs.device)[:k]
+        else:
+            raise ValueError(f"Unknown select_mode: {select_mode}")
+
+    g_sel = g_obs[selected_idx]
+
+    used_entries = g_sel.numel()
+    unknowns = x_norm.numel()
+
+    J = torch.empty((used_entries, unknowns), dtype=x_norm.dtype, device=device_for_J)
+
+    for i in range(used_entries):
+        grad_i = torch.autograd.grad(
+            g_sel[i],
+            x_norm,
             retain_graph=True,
+            create_graph=False,
             allow_unused=False,
-        )
-        return flatten_observed_gradients(grads, keep_ids=keep_ids, entry_masks=entry_masks)
+        )[0]
+        J[i] = grad_i.reshape(-1).detach().to(device_for_J)
 
-    J = torch.autograd.functional.jacobian(grad_vector, x_norm, vectorize=True)
-    J = J.reshape(J.shape[0], -1)
-
-    observed_entries = J.shape[0]
-    unknowns = J.shape[1]
     jac_rank = int(torch.linalg.matrix_rank(J).item())
-
-    return jac_rank, tuple(J.shape), observed_entries, unknowns
-
+    return jac_rank, tuple(J.shape), used_entries, unknowns
 
 def get_entry_masks_by_gradsize(original_dy_dx, mode="topk_entries", topk=None, top_frac=None, candidate_ids=None):
     """
