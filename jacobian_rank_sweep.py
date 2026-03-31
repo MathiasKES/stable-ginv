@@ -66,10 +66,15 @@ def main():
     parser.add_argument("--row_counts", type=str, default="500,1000,2000,3000,3500,4000")
     parser.add_argument("--jacobian_select_mode", type=str, default="random",
                         choices=["topk_abs", "first", "random"])
+    parser.add_argument("--rank_tol", type=float, default=1e-6,
+                    help="Relative tolerance for numerical Jacobian rank.")
+    parser.add_argument("--normalize_jacobian_rows", action="store_true",
+                    help="If set, normalize Jacobian rows before computing singular values.")
 
     parser.add_argument("--num_samples", type=int, default=3)
     parser.add_argument("--run_id", type=int, default=0)
     parser.add_argument("--device", type=str, default="cuda:0")
+
 
     args = parser.parse_args()
 
@@ -153,6 +158,8 @@ def main():
                 max_entries=rows,
                 select_mode=args.jacobian_select_mode,
                 device_for_J="cpu",
+                rank_tol=args.rank_tol,
+                normalize_rows=args.normalize_jacobian_rows,
             )
 
             print(f"  rows={rows}, rank={jac_rank}, shape={jac_shape}", flush=True)

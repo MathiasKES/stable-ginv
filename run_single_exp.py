@@ -7,7 +7,8 @@ import os
 import sys
 import consts # Local file
 
-from Misc_functions import get_keep_ids, compute_psnr_from_mse, build_network, get_keep_ids_by_gradsize, get_entry_masks_by_gradsize, get_prefix_keep_ids, compute_jacobian_rank
+from Misc_functions import (get_keep_ids, compute_psnr_from_mse, build_network, get_keep_ids_by_gradsize, 
+get_entry_masks_by_gradsize, get_prefix_keep_ids, compute_jacobian_rank, total_variation, get_entry_masks_by_prefix_group)
 from Network import weights_init
 
 def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_queue):
@@ -33,6 +34,7 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
     COMPUTE_JACOBIAN_RANK = config.get('COMPUTE_JACOBIAN_RANK', False)
     JACOBIAN_MAX_ENTRIES = config.get('JACOBIAN_MAX_ENTRIES', 4000)
     JACOBIAN_SELECT_MODE = config.get('JACOBIAN_SELECT_MODE', 'topk_abs')
+    TV_WEIGHT = config.get('TV_WEIGHT', 0.0)
 
     seed = config.get("run_id", 0) + idx_net + 1 
     torch.manual_seed(seed)
@@ -54,6 +56,11 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
     final_recon = {}
     early_stop_reason_dict = {}
     early_stop_iter_dict = {}
+
+    best_loss_iDLG = None
+    best_mse_iDLG = None
+    best_loss_iDLG_masked = None
+    best_mse_iDLG_masked = None
 
     if METHODS == "idlg":
         methods_to_run = ["iDLG"]
@@ -145,7 +152,7 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
                 keep_ids, ranked = get_keep_ids_by_gradsize(
                     original_dy_dx, mode="topfrac", top_frac=GRADSIZE_TOPFRAC,
                     metric=GRADSIZE_METRIC, candidate_ids=candidate_ids)
-
+            
             elif MASK_MODE == "prefix_topk_entries":
                 entry_masks, observed_entries, total_entries = get_entry_masks_by_gradsize(
                     original_dy_dx, mode="topk_entries", topk=GRADSIZE_TOPK,
@@ -155,6 +162,24 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
                 entry_masks, observed_entries, total_entries = get_entry_masks_by_gradsize(
                     original_dy_dx, mode="topfrac_entries", top_frac=GRADSIZE_TOPFRAC,
                     candidate_ids=candidate_ids)
+
+            elif MASK_MODE == "prefix_topk_entries_layer":
+                entry_masks, observed_entries, total_entries = get_entry_masks_by_prefix_group(
+                    net=net,
+                    original_dy_dx=original_dy_dx,
+                    prefixes=PREFIXES,
+                    mode="topk_entries",
+                    topk=GRADSIZE_TOPK,
+                )
+
+            elif MASK_MODE == "prefix_topfrac_entries_layer":
+                entry_masks, observed_entries, total_entries = get_entry_masks_by_prefix_group(
+                    net=net,
+                    original_dy_dx=original_dy_dx,
+                    prefixes=PREFIXES,
+                    mode="topfrac_entries",
+                    top_frac=GRADSIZE_TOPFRAC,
+                )
 
             elif MASK_MODE == "gradsize_threshold":
                 keep_ids, ranked = get_keep_ids_by_gradsize(
@@ -192,6 +217,18 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
         print(f"[GPU {device_id}] {method}: observed_entries={observed_entries}, "
             f"total_entries={total_entries}, kept_fraction={kept_fraction:.4f}, "
             f"unknowns={unknowns}")
+        
+        if MASK_MODE in ["prefix_topfrac_entries_layer", "prefix_topk_entries_layer"]:
+            print(f"[GPU {device_id}] kept entries per prefix:")
+            for prefix in PREFIXES:
+                kept = 0
+                total = 0
+                for i, (name, _) in enumerate(net.named_parameters()):
+                    if name.startswith(prefix) and entry_masks[i] is not None:
+                        kept += int(entry_masks[i].sum().item())
+                        total += entry_masks[i].numel()
+                if total > 0:
+                    print(f"  {prefix}: kept {kept}/{total} = {kept/total:.4f}")
 
         if COMPUTE_JACOBIAN_RANK:
             if num_dummy != 1:
@@ -225,10 +262,14 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
                 loss_iDLG = [float("inf")]
                 label_iDLG = label_pred.item()
                 mse_iDLG = [float("inf")]
+                best_loss_iDLG = float("inf")
+                best_mse_iDLG = float("inf")
             else:
                 loss_iDLG_masked = [float("inf")]
                 label_iDLG_masked = label_pred.item()
                 mse_iDLG_masked = [float("inf")]
+                best_loss_iDLG_masked = float("inf")
+                best_mse_iDLG_masked = float("inf")
 
             early_stop_reason_dict[method] = "too_few_gradients"
             early_stop_iter_dict[method] = 0
@@ -266,7 +307,7 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
 
                 dummy_loss = criterion(pred, gt_label)
                 dummy_dy_dx = torch.autograd.grad(dummy_loss, net.parameters(), create_graph=True)
-                
+
                 grad_diff = 0.0
                 for i, (gx, gy) in enumerate(zip(dummy_dy_dx, original_dy_dx)):
                     if entry_masks is not None:
@@ -279,8 +320,11 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
                         if i not in keep_ids:
                             continue
                         grad_diff = grad_diff + ((gx - gy) ** 2).sum()
-                grad_diff.backward()
-                return grad_diff
+
+                tv_loss = total_variation(x)
+                total_loss = grad_diff + TV_WEIGHT * tv_loss
+                total_loss.backward()
+                return total_loss
             
             #optimizer.step(closure)
             current_loss = optimizer.step(closure).item()
@@ -356,41 +400,54 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
             loss_iDLG = losses
             label_iDLG = label_pred.item()
             mse_iDLG = mses
+            best_loss_iDLG = best_loss_value
+            best_mse_iDLG = best_mse_value
             jac_rank_iDLG = jacobian_rank
             jac_shape_iDLG = jacobian_shape
         else:
             loss_iDLG_masked = losses
             label_iDLG_masked = label_pred.item()
             mse_iDLG_masked = mses
+            best_loss_iDLG_masked = best_loss_value
+            best_mse_iDLG_masked = best_mse_value
             jac_rank_iDLG_masked = jacobian_rank
             jac_shape_iDLG_masked = jacobian_shape
-    
+
         early_stop_reason_dict[method] = early_stop_reason
         early_stop_iter_dict[method] = early_stop_iter
 
     # Prepare results to send back
     result = {
-    'idx_net': idx_net,
-    'device_id': device_id,
-    'gt_data': gt_data.detach().cpu().numpy(),
-    'final_recon': {k: v.detach().cpu().numpy() for k, v in final_recon.items()},
-    'psnr_idlg': compute_psnr_from_mse(mse_iDLG[-1], max_val=1.0) if 'iDLG' in final_recon else None,
-    'psnr_masked': compute_psnr_from_mse(mse_iDLG_masked[-1], max_val=1.0) if 'iDLG_masked' in final_recon else None,
-    'loss_iDLG': loss_iDLG[-1] if 'iDLG' in final_recon else None,
-    'mse_iDLG': mse_iDLG[-1] if 'iDLG' in final_recon else None,
-    'loss_iDLG_masked': loss_iDLG_masked[-1] if 'iDLG_masked' in final_recon else None,
-    'mse_iDLG_masked': mse_iDLG_masked[-1] if 'iDLG_masked' in final_recon else None,
-    'label_iDLG': label_iDLG if 'iDLG' in final_recon else None,
-    'label_iDLG_masked': label_iDLG_masked if 'iDLG_masked' in final_recon else None,
-    'jac_rank_iDLG': jac_rank_iDLG if 'iDLG' in final_recon else None,
-    'jac_shape_iDLG': jac_shape_iDLG if 'iDLG' in final_recon else None,
-    'jac_rank_iDLG_masked': jac_rank_iDLG_masked if 'iDLG_masked' in final_recon else None,
-    'jac_shape_iDLG_masked': jac_shape_iDLG_masked if 'iDLG_masked' in final_recon else None,
-    'gt_label': gt_label.detach().cpu().numpy(),
-    'imidx_list': imidx_list,
-    'early_stop_reason': early_stop_reason_dict,
-    'early_stop_iter': early_stop_iter_dict,
-}
+        'idx_net': idx_net,
+        'device_id': device_id,
+        'gt_data': gt_data.detach().cpu().numpy(),
+        'final_recon': {k: v.detach().cpu().numpy() for k, v in final_recon.items()},
+
+        'last_psnr_idlg': compute_psnr_from_mse(mse_iDLG[-1], max_val=1.0) if 'iDLG' in final_recon else None,
+        'last_psnr_masked': compute_psnr_from_mse(mse_iDLG_masked[-1], max_val=1.0) if 'iDLG_masked' in final_recon else None,
+        'last_loss_iDLG': loss_iDLG[-1] if 'iDLG' in final_recon else None,
+        'last_mse_iDLG': mse_iDLG[-1] if 'iDLG' in final_recon else None,
+        'last_loss_iDLG_masked': loss_iDLG_masked[-1] if 'iDLG_masked' in final_recon else None,
+        'last_mse_iDLG_masked': mse_iDLG_masked[-1] if 'iDLG_masked' in final_recon else None,
+
+        'best_psnr_idlg': compute_psnr_from_mse(best_mse_iDLG, max_val=1.0) if best_mse_iDLG is not None else None,
+        'best_psnr_masked': compute_psnr_from_mse(best_mse_iDLG_masked, max_val=1.0) if best_mse_iDLG_masked is not None else None,
+        'best_loss_iDLG': best_loss_iDLG,
+        'best_mse_iDLG': best_mse_iDLG,
+        'best_loss_iDLG_masked': best_loss_iDLG_masked,
+        'best_mse_iDLG_masked': best_mse_iDLG_masked,
+
+        'label_iDLG': label_iDLG if 'iDLG' in final_recon else None,
+        'label_iDLG_masked': label_iDLG_masked if 'iDLG_masked' in final_recon else None,
+        'jac_rank_iDLG': jac_rank_iDLG if 'iDLG' in final_recon else None,
+        'jac_shape_iDLG': jac_shape_iDLG if 'iDLG' in final_recon else None,
+        'jac_rank_iDLG_masked': jac_rank_iDLG_masked if 'iDLG_masked' in final_recon else None,
+        'jac_shape_iDLG_masked': jac_shape_iDLG_masked if 'iDLG_masked' in final_recon else None,
+        'gt_label': gt_label.detach().cpu().numpy(),
+        'imidx_list': imidx_list,
+        'early_stop_reason': early_stop_reason_dict,
+        'early_stop_iter': early_stop_iter_dict,
+    }
     
     print(f"[GPU {device_id}] putting result for experiment {idx_net}", flush=True)
     result_queue.put(result)

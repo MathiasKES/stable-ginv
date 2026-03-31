@@ -40,6 +40,8 @@ def compute_jacobian_rank(
     max_entries=None,
     select_mode="topk_abs",
     device_for_J="cpu",
+    rank_tol=1e-6,
+    normalize_rows=False,
 ):
     """
     Compute rank of J = d vec(g_obs(x)) / d vec(x),
@@ -97,7 +99,14 @@ def compute_jacobian_rank(
         )[0]
         J[i] = grad_i.reshape(-1).detach().to(device_for_J)
 
-    jac_rank = int(torch.linalg.matrix_rank(J).item())
+    if normalize_rows:
+        row_norms = torch.norm(J, dim=1, keepdim=True).clamp_min(1e-12)
+        J = J / row_norms
+
+    svals = torch.linalg.svdvals(J)
+    tol = rank_tol * svals[0]
+    jac_rank = int((svals > tol).sum().item())
+
     return jac_rank, tuple(J.shape), used_entries, unknowns
 
 def get_entry_masks_by_gradsize(original_dy_dx, mode="topk_entries", topk=None, top_frac=None, candidate_ids=None):
@@ -160,6 +169,84 @@ def get_entry_masks_by_gradsize(original_dy_dx, mode="topk_entries", topk=None, 
         offset += numel
 
     return entry_masks, k, total_entries
+
+def get_entry_masks_by_prefix_group(
+    net,
+    original_dy_dx,
+    prefixes,
+    mode="topfrac_entries",
+    topk=None,
+    top_frac=None,
+):
+    """
+    Elementwise masking applied per prefix group.
+
+    For each prefix:
+      - collect all gradient entries from parameters whose name starts with that prefix
+      - rank entries only within that prefix group
+      - keep top-k or top-fraction within that group
+
+    Returns:
+        entry_masks: list of boolean tensors matching original_dy_dx
+        kept_entries: total kept scalar entries across all selected prefixes
+        total_entries: total scalar entries across all selected prefixes
+    """
+    named_params = list(net.named_parameters())
+    entry_masks = [None] * len(original_dy_dx)
+
+    kept_entries = 0
+    total_entries = 0
+
+    for prefix in prefixes:
+        group_infos = []
+        pieces = []
+
+        for i, (name, _) in enumerate(named_params):
+            if not name.startswith(prefix):
+                continue
+
+            g = original_dy_dx[i]
+            if g is None:
+                continue
+
+            flat = g.detach().abs().reshape(-1)
+            group_infos.append((i, g.shape, flat.numel()))
+            pieces.append(flat)
+
+        if len(pieces) == 0:
+            continue
+
+        all_vals = torch.cat(pieces, dim=0)
+        n = all_vals.numel()
+        total_entries += n
+
+        if mode == "topk_entries":
+            if topk is None:
+                raise ValueError("topk must be set for mode='topk_entries'")
+            k = max(1, min(int(topk), n))
+        elif mode == "topfrac_entries":
+            if top_frac is None:
+                raise ValueError("top_frac must be set for mode='topfrac_entries'")
+            k = max(1, min(int(round(top_frac * n)), n))
+        else:
+            raise ValueError(f"Unknown mode: {mode}")
+
+        top_idx = torch.topk(all_vals, k=k, largest=True).indices
+        group_mask = torch.zeros(n, dtype=torch.bool, device=all_vals.device)
+        group_mask[top_idx] = True
+
+        offset = 0
+        for i, shape, numel in group_infos:
+            local_mask = group_mask[offset:offset + numel].reshape(shape)
+            entry_masks[i] = local_mask
+            offset += numel
+
+        kept_entries += k
+
+    if kept_entries == 0:
+        raise ValueError(f"No gradients matched prefixes={prefixes}")
+
+    return entry_masks, kept_entries, total_entries
 
 def get_keep_ids_by_gradsize(original_dy_dx, mode="topk", topk=10, top_frac=None, threshold=None, metric="l2", candidate_ids=None):
     """
@@ -380,6 +467,22 @@ def build_gradient_mask(
             original_dy_dx, mode="topfrac_entries", top_frac=gradsize_topfrac,
             candidate_ids=candidate_ids
         )
+    elif mask_mode == "prefix_topk_entries_layer":
+        entry_masks, _, _ = get_entry_masks_by_prefix_group(
+            net=net,
+            original_dy_dx=original_dy_dx,
+            prefixes=prefixes,
+            mode="topk_entries",
+            topk=gradsize_topk,
+        )
+    elif mask_mode == "prefix_topfrac_entries_layer":
+        entry_masks, _, _ = get_entry_masks_by_prefix_group(
+            net=net,
+            original_dy_dx=original_dy_dx,
+            prefixes=prefixes,
+            mode="topfrac_entries",
+            top_frac=gradsize_topfrac,
+        )
     elif mask_mode == "gradsize_threshold":
         keep_ids, _ = get_keep_ids_by_gradsize(
             original_dy_dx, mode="threshold", threshold=gradsize_threshold,
@@ -393,3 +496,8 @@ def build_gradient_mask(
         keep_ids = get_keep_ids(mask_mode, net=net)
 
     return keep_ids, entry_masks
+
+def total_variation(x):
+    tv_h = torch.abs(x[:, :, 1:, :] - x[:, :, :-1, :]).mean()
+    tv_w = torch.abs(x[:, :, :, 1:] - x[:, :, :, :-1]).mean()
+    return tv_h + tv_w

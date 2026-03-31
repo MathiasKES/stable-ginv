@@ -31,8 +31,10 @@ def main():
                                 "prefixes listed in --prefixes (e.g. 'conv1,linear').\n"
         "  'prefix_topk'           - First restrict to --prefixes, then keep the top-K tensors by gradient magnitude within those layers.\n"
         "  'prefix_topfrac'        - First restrict to --prefixes, then keep the top fraction of tensors by gradient magnitude within those layers.\n"
-        "  'prefix_topk_entries'   - First restrict to --prefixes, then keep exactly the top-K scalar gradient entries within those layers.\n"
-        "  'prefix_topfrac_entries'- First restrict to --prefixes, then keep exactly the top fraction of scalar gradient entries within those layers.\n"
+        "  'prefix_topk_entries'   - First restrict to --prefixes, then keep exactly the top-K scalar gradient entries globally.\n"
+        "  'prefix_topfrac_entries'- First restrict to --prefixes, then keep exactly the top fraction of scalar gradient entries globally.\n"
+        "  'prefix_topk_entries_layer'   - First restrict to --prefixes, then keep exactly the top-K scalar gradient entries for each layer.\n"
+        "  'prefix_topfrac_entries_layer'- First restrict to --prefixes, then keep exactly the top fraction of scalar gradient entries for each layer.\n"
         "In all gradient-size modes, the metric used to measure gradient magnitude is controlled "
         "by --gradsize_metric."
     )) 
@@ -173,6 +175,11 @@ def main():
     "How to choose which observed gradient entries are used for Jacobian rank computation."
 ))
     
+    parser.add_argument("--tv_weight", type=float, default=0.0, help=(
+    "Weight of total variation regularization added to the reconstruction loss. "
+    "A small positive value can reduce noise and encourage smoother images."
+))
+    
     args = parser.parse_args()
 
     # -------- Masking config --------
@@ -187,6 +194,7 @@ def main():
     COMPUTE_JACOBIAN_RANK = args.compute_jacobian_rank
     JACOBIAN_MAX_ENTRIES = args.jacobian_max_entries
     JACOBIAN_SELECT_MODE = args.jacobian_select_mode
+    TV_WEIGHT = args.tv_weight
     lr = args.lr
     num_dummy = args.num_dummy
     Iteration = args.iteration
@@ -196,12 +204,12 @@ def main():
     run_id = args.run_id
     timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-    loss_tol = 1e-6
-    patience = 100
-    min_rel_improve = 1e-6
-    explode_factor = 50.0
-    warmup = 200
-    max_nan = 1
+    loss_tol = 1e-8
+    patience = 200
+    min_rel_improve = 1e-7
+    explode_factor = 100.0
+    warmup = 300
+    max_nan = 3
 
     root_path = '.'
     if os.access('/work3/s234843/bachelor', os.R_OK | os.W_OK | os.X_OK):
@@ -268,6 +276,13 @@ def main():
     final_loss_masked_all = []
     final_mse_masked_all = []
 
+    best_psnr_idlg_all = []
+    best_psnr_masked_all = []
+    best_loss_idlg_all = []
+    best_mse_idlg_all = []
+    best_loss_masked_all = []
+    best_mse_masked_all = []
+
     mask_desc = MASK_MODE
     params = {"num-exp": num_exp, "lr": lr, "batchsize": num_dummy, "iters": Iteration}
 
@@ -292,6 +307,7 @@ def main():
         'COMPUTE_JACOBIAN_RANK': COMPUTE_JACOBIAN_RANK,
         'JACOBIAN_MAX_ENTRIES': JACOBIAN_MAX_ENTRIES,
         'JACOBIAN_SELECT_MODE': JACOBIAN_SELECT_MODE,
+        'TV_WEIGHT': TV_WEIGHT,
         'run_id': run_id,
         'EarlyStop': {
             'loss_tol': loss_tol,
@@ -338,18 +354,33 @@ def main():
         idx_net = result['idx_net']
         finished_device = result['device_id']
 
-        if result['psnr_idlg'] is not None:
-            psnr_idlg_all.append(result['psnr_idlg'])
-        if result['psnr_masked'] is not None:
-            psnr_masked_all.append(result['psnr_masked'])
-        if result['loss_iDLG'] is not None:
-            final_loss_idlg_all.append(result['loss_iDLG'])
-        if result['mse_iDLG'] is not None:
-            final_mse_idlg_all.append(result['mse_iDLG'])
-        if result['loss_iDLG_masked'] is not None:
-            final_loss_masked_all.append(result['loss_iDLG_masked'])
-        if result['mse_iDLG_masked'] is not None:
-            final_mse_masked_all.append(result['mse_iDLG_masked'])
+        if result.get('last_psnr_idlg') is not None:
+            psnr_idlg_all.append(result['last_psnr_idlg'])
+        if result.get('last_psnr_masked') is not None:
+            psnr_masked_all.append(result['last_psnr_masked'])
+
+        if result.get('last_loss_iDLG') is not None:
+            final_loss_idlg_all.append(result['last_loss_iDLG'])
+        if result.get('last_mse_iDLG') is not None:
+            final_mse_idlg_all.append(result['last_mse_iDLG'])
+        if result.get('last_loss_iDLG_masked') is not None:
+            final_loss_masked_all.append(result['last_loss_iDLG_masked'])
+        if result.get('last_mse_iDLG_masked') is not None:
+            final_mse_masked_all.append(result['last_mse_iDLG_masked'])
+
+        if result.get('best_psnr_idlg') is not None:
+            best_psnr_idlg_all.append(result['best_psnr_idlg'])
+        if result.get('best_psnr_masked') is not None:
+            best_psnr_masked_all.append(result['best_psnr_masked'])
+
+        if result.get('best_loss_iDLG') is not None:
+            best_loss_idlg_all.append(result['best_loss_iDLG'])
+        if result.get('best_mse_iDLG') is not None:
+            best_mse_idlg_all.append(result['best_mse_iDLG'])
+        if result.get('best_loss_iDLG_masked') is not None:
+            best_loss_masked_all.append(result['best_loss_iDLG_masked'])
+        if result.get('best_mse_iDLG_masked') is not None:
+            best_mse_masked_all.append(result['best_mse_iDLG_masked'])
 
         # ---- accumulate recon panel ----
         gt_pil = tp(torch.from_numpy(result['gt_data'])[0])
@@ -384,11 +415,16 @@ def main():
         print(f"early_stop masked: {es_r.get('iDLG_masked')} @ {es_i.get('iDLG_masked')}")
         print('imidx_list:', result['imidx_list'])
 
-        if result['loss_iDLG'] is not None:
-            print('loss_iDLG:', result['loss_iDLG'], 'mse_iDLG:', result['mse_iDLG'])
-        if result['loss_iDLG_masked'] is not None:
-            print('loss_iDLG_masked:', result['loss_iDLG_masked'], 'mse_iDLG_masked:', result['mse_iDLG_masked'])
+        if result.get('last_loss_iDLG') is not None:
+            print('last_loss_iDLG:', result['last_loss_iDLG'], 'last_mse_iDLG:', result['last_mse_iDLG'])
+        if result.get('best_loss_iDLG') is not None:
+            print('best_loss_iDLG:', result['best_loss_iDLG'], 'best_mse_iDLG:', result['best_mse_iDLG'])
 
+        if result.get('last_loss_iDLG_masked') is not None:
+            print('last_loss_iDLG_masked:', result['last_loss_iDLG_masked'], 'last_mse_iDLG_masked:', result['last_mse_iDLG_masked'])
+        if result.get('best_loss_iDLG_masked') is not None:
+            print('best_loss_iDLG_masked:', result['best_loss_iDLG_masked'], 'best_mse_iDLG_masked:', result['best_mse_iDLG_masked'])
+            
         if result.get('jac_rank_iDLG') is not None:
             print('jac_rank_iDLG:', result['jac_rank_iDLG'],
                 'jac_shape_iDLG:', result['jac_shape_iDLG'])
@@ -439,6 +475,21 @@ def main():
     med_final_loss_masked   = float(np.median(final_loss_masked_all))   if final_loss_masked_all    else float("nan")
     med_final_mse_masked    = float(np.median(final_mse_masked_all))    if final_mse_masked_all     else float("nan")
 
+    avg_best_psnr_idlg         = float(np.mean(best_psnr_idlg_all))         if best_psnr_idlg_all else float("nan")
+    avg_best_psnr_masked       = float(np.mean(best_psnr_masked_all))       if best_psnr_masked_all else float("nan")
+    std_best_psnr_idlg         = float(np.std(best_psnr_idlg_all))          if best_psnr_idlg_all else float("nan")
+    std_best_psnr_masked       = float(np.std(best_psnr_masked_all))        if best_psnr_masked_all else float("nan")
+
+    avg_best_loss_idlg         = float(np.mean(best_loss_idlg_all))         if best_loss_idlg_all else float("nan")
+    avg_best_mse_idlg          = float(np.mean(best_mse_idlg_all))          if best_mse_idlg_all else float("nan")
+    avg_best_loss_masked       = float(np.mean(best_loss_masked_all))       if best_loss_masked_all else float("nan")
+    avg_best_mse_masked        = float(np.mean(best_mse_masked_all))        if best_mse_masked_all else float("nan")
+
+    med_best_loss_idlg         = float(np.median(best_loss_idlg_all))       if best_loss_idlg_all else float("nan")
+    med_best_mse_idlg          = float(np.median(best_mse_idlg_all))        if best_mse_idlg_all else float("nan")
+    med_best_loss_masked       = float(np.median(best_loss_masked_all))     if best_loss_masked_all else float("nan")
+    med_best_mse_masked        = float(np.median(best_mse_masked_all))      if best_mse_masked_all else float("nan")
+
     csv_path = os.path.join(save_path, "exp_results.csv")
     file_exists = os.path.isfile(csv_path)
 
@@ -452,9 +503,21 @@ def main():
         "num_exp": num_exp,}
     
     grad_value = ""
-    if MASK_MODE in ["gradsize_topfrac", "gradsize_topfrac_entries"]:
+    if MASK_MODE in [
+        "gradsize_topfrac",
+        "gradsize_topfrac_entries",
+        "prefix_topfrac",
+        "prefix_topfrac_entries",
+        "prefix_topfrac_entries_layer",
+    ]:
         grad_value = GRADSIZE_TOPFRAC
-    elif MASK_MODE in ["gradsize_topk", "gradsize_topk_entries"]:
+    elif MASK_MODE in [
+        "gradsize_topk",
+        "gradsize_topk_entries",
+        "prefix_topk",
+        "prefix_topk_entries",
+        "prefix_topk_entries_layer",
+    ]:
         grad_value = GRADSIZE_TOPK
 
     rows = []
@@ -470,7 +533,13 @@ def main():
             "med_final_mse": med_final_mse_idlg,
             "avg_final_mse": avg_final_mse_idlg,
             "avg_psnr": avg_psnr_idlg,
-            "std_psnr": std_psnr_idlg
+            "std_psnr": std_psnr_idlg,
+            "med_best_loss": med_best_loss_idlg,
+            "avg_best_loss": avg_best_loss_idlg,
+            "med_best_mse": med_best_mse_idlg,
+            "avg_best_mse": avg_best_mse_idlg,
+            "avg_best_psnr": avg_best_psnr_idlg,
+            "std_best_psnr": std_best_psnr_idlg,
         })
 
     if METHODS in ["masked", "both"]:
@@ -484,16 +553,19 @@ def main():
             "med_final_mse": med_final_mse_masked,
             "avg_final_mse": avg_final_mse_masked,
             "avg_psnr": avg_psnr_masked,
-            "std_psnr": std_psnr_masked
+            "std_psnr": std_psnr_masked,
+            "med_best_loss": med_best_loss_masked,
+            "avg_best_loss": avg_best_loss_masked,
+            "med_best_mse": med_best_mse_masked,
+            "avg_best_mse": avg_best_mse_masked,
+            "avg_best_psnr": avg_best_psnr_masked,
+            "std_best_psnr": std_best_psnr_masked,
         })
 
-    fieldnames = ["method"] + [k for k in common.keys()] + ["mask_mode", "grad_param", "med_final_loss", "avg_final_loss", "med_final_mse", "avg_final_mse", "avg_psnr","std_psnr"]
-
-    # rows = [
-    #     {"method": "iDLG", **common, "med_final_loss": med_final_loss_idlg, "avg_final_loss": avg_final_loss_idlg, "med_final_mse": med_final_mse_idlg, "avg_final_mse": avg_final_mse_idlg, "avg_psnr": avg_psnr_idlg},
-    #     {"method": "iDLG_masked", **common, "mask_mode": MASK_MODE, "grad_topfrac": GRADSIZE_TOPFRAC, "med_final_loss": med_final_loss_masked, "avg_final_loss": avg_final_loss_masked, "med_final_mse": med_final_mse_masked, "avg_final_mse": avg_final_mse_masked, "avg_psnr": avg_psnr_masked},]
-    
-    # fieldnames = ["method"] + [k for k in common.keys()] + ["mask_mode", "grad_topfrac", "med_final_loss", "avg_final_loss", "med_final_mse", "avg_final_mse", "avg_psnr"]
+    fieldnames = ["method"] + [k for k in common.keys()] + [
+    "mask_mode", "grad_param",
+    "med_final_loss", "avg_final_loss", "med_final_mse", "avg_final_mse", "avg_psnr", "std_psnr",
+    "med_best_loss", "avg_best_loss", "med_best_mse", "avg_best_mse", "avg_best_psnr", "std_best_psnr"]
 
     with open(csv_path, "a", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
@@ -517,5 +589,10 @@ def main():
     print(f"Median final loss iDLG: {med_final_loss_idlg:.6f} | masked: {med_final_loss_masked:.6f}")
     print(f"Median final mse  iDLG: {med_final_mse_idlg:.8f} | masked: {med_final_mse_masked:.8f}")
     print(f"Average PSNR iDLG: {avg_psnr_idlg:.4f} ± {std_psnr_idlg:.4f} dB | masked: {avg_psnr_masked:.4f} ± {std_psnr_masked:.4f} dB")
+    print(f"Avg best loss iDLG: {avg_best_loss_idlg:.6f} | masked: {avg_best_loss_masked:.6f}")
+    print(f"Avg best mse  iDLG: {avg_best_mse_idlg:.8f} | masked: {avg_best_mse_masked:.8f}")
+    print(f"Median best loss iDLG: {med_best_loss_idlg:.6f} | masked: {med_best_loss_masked:.6f}")
+    print(f"Median best mse  iDLG: {med_best_mse_idlg:.8f} | masked: {med_best_mse_masked:.8f}")
+    print(f"Average best PSNR iDLG: {avg_best_psnr_idlg:.4f} ± {std_best_psnr_idlg:.4f} dB | masked: {avg_best_psnr_masked:.4f} ± {std_best_psnr_masked:.4f} dB")
 if __name__ == '__main__':
     main()
