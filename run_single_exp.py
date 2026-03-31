@@ -188,10 +188,7 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
 
             elif MASK_MODE == "prefix":
                 keep_ids = get_keep_ids(mask_mode="prefix", net=net, prefixes=PREFIXES)
-
-            elif MASK_MODE == "resnet_l1_fc":
-                keep_ids = get_keep_ids(mask_mode="prefix", net=net, prefixes=("layer1", "linear"))
-
+                
             else:
                 keep_ids = get_keep_ids(MASK_MODE)   
 

@@ -490,8 +490,6 @@ def build_gradient_mask(
         )
     elif mask_mode == "prefix":
         keep_ids = get_keep_ids(mask_mode="prefix", net=net, prefixes=prefixes)
-    elif mask_mode == "resnet_l1_fc":
-        keep_ids = get_keep_ids(mask_mode="prefix", net=net, prefixes=("layer1", "linear"))
     else:
         keep_ids = get_keep_ids(mask_mode, net=net)
 

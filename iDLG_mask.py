@@ -86,7 +86,7 @@ def main():
                          "scales with the average gradient magnitude.\n"
         "  'sum_abs'   - Sum of absolute values (L1 norm). Similar to mean_abs but also grows "
                          "with the number of parameters in the tensor, favouring larger layers.\n"
-        "Has no effect when mask_mode is 'prefix', 'resnet_l1_fc', or 'conv12_fc'."
+        "Has no effect when mask_mode is 'prefix' or 'conv12_fc'."
     ))
 
     parser.add_argument("--lr", type=float, default=1, help=(
@@ -132,7 +132,7 @@ def main():
         "fed to the iDLG inversion attack. Supported options include: 'LeNet', 'LeNet_bigger', "
         "'MediumCNN', and 'resnetxx'. The architecture must be compatible with the image shape "
         "and number of classes implied by --dataset. The architecture also affects which "
-        "mask modes are meaningful (e.g. 'resnet_l1_fc' is designed specifically for ResNet)."
+        "mask modes are meaningful."
     ))
 
     parser.add_argument("--dataset", type=str, default="cifar100", help=(
