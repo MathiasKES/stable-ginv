@@ -500,7 +500,8 @@ def main():
         
         "lr": lr,
         "iteration": Iteration,
-        "num_exp": num_exp,}
+        "num_exp": num_exp,
+        "tv_weight": TV_WEIGHT,}
     
     grad_value = ""
     if MASK_MODE in [

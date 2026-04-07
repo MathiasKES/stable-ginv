@@ -188,7 +188,7 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
 
             elif MASK_MODE == "prefix":
                 keep_ids = get_keep_ids(mask_mode="prefix", net=net, prefixes=PREFIXES)
-                
+
             else:
                 keep_ids = get_keep_ids(MASK_MODE)   
 
@@ -215,7 +215,7 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
             f"total_entries={total_entries}, kept_fraction={kept_fraction:.4f}, "
             f"unknowns={unknowns}")
         
-        if MASK_MODE in ["prefix_topfrac_entries_layer", "prefix_topk_entries_layer"]:
+        if MASK_MODE in ["prefix_topfrac_entries_layer", "prefix_topk_entries_layer"] and entry_masks is not None:
             print(f"[GPU {device_id}] kept entries per prefix:")
             for prefix in PREFIXES:
                 kept = 0
