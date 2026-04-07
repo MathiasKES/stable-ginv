@@ -101,18 +101,18 @@ def main():
     net = build_network(args.network, channel=channel, num_classes=num_classes, input_size=shape_img)
     if not args.network.startswith("resnet"):
         net.apply(weights_init)
-    net = net.to(device)
+    net = net.to(device).double()
     net.eval()
 
     tt = transforms.Compose([transforms.ToTensor()])
     criterion = nn.CrossEntropyLoss().to(device)
 
     if channel == 1:
-        dm = torch.tensor(getattr(consts, f'{args.dataset.lower()}_mean'), device=device).view(1,1,1,1)
-        ds = torch.tensor(getattr(consts, f'{args.dataset.lower()}_std'), device=device).view(1,1,1,1)
+        dm = torch.tensor(getattr(consts, f'{args.dataset.lower()}_mean'), device=device, dtype=torch.float64).view(1,1,1,1)
+        ds = torch.tensor(getattr(consts, f'{args.dataset.lower()}_std'), device=device, dtype=torch.float64).view(1,1,1,1)
     else:
-        dm = torch.tensor(getattr(consts, f'{args.dataset.lower()}_mean'), device=device).view(1,channel,1,1)
-        ds = torch.tensor(getattr(consts, f'{args.dataset.lower()}_std'), device=device).view(1,channel,1,1)
+        dm = torch.tensor(getattr(consts, f'{args.dataset.lower()}_mean'), device=device, dtype=torch.float64).view(1,channel,1,1)
+        ds = torch.tensor(getattr(consts, f'{args.dataset.lower()}_std'), device=device, dtype=torch.float64).view(1,channel,1,1)
 
     idx_shuffle = np.random.permutation(len(dst))
     sample_indices = idx_shuffle[:args.num_samples]
@@ -126,7 +126,7 @@ def main():
     for s_idx, idx in enumerate(sample_indices):
         print(f"\nSample {s_idx+1}/{args.num_samples}, dataset idx={idx}", flush=True)
 
-        gt_data = tt(dst[idx][0]).float().to(device).unsqueeze(0)
+        gt_data = tt(dst[idx][0]).double().to(device).unsqueeze(0)
         gt_label = torch.tensor([dst[idx][1]], dtype=torch.long, device=device)
 
         gt_data_norm = (gt_data - dm) / ds
