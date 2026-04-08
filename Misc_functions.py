@@ -102,35 +102,12 @@ def compute_jacobian_rank(
         row_norms = torch.norm(J, dim=1, keepdim=True).clamp_min(1e-12)
         J = J / row_norms
 
-    svals = torch.linalg.svdvals(J)
-    sigma_max = svals[0].item()
-    sigma_min = svals[-1].item()
-    if len(svals) == 3071:
-        sigma_3072 = svals[3071].item()   # since Python is 0-indexed
-        print("3072nd singular value:", sigma_3072)
-    tol = sigma_max * rank_tol
-
-    below_tol = svals[svals < tol]
-    closest_below = below_tol[:10]  # svdvals are sorted largest -> smallest
-
-    print(f"largest singular value: {sigma_max}")
-    print(f"smallest singular value: {sigma_min}")
-    print(f"tolerance: {tol.item() if torch.is_tensor(tol) else tol}")
-
-    if below_tol.numel() == 0:
-        print("no singular values fall below the threshold")
-    else:
-        print(f"number of singular values below threshold: {below_tol.numel()}")
-        #print("10 singular values just below the threshold:")
-        #for j, val in enumerate(closest_below, start=1):
-            #print(f"  below[{j}] = {val.item()}")
-
-    #jac_rank = int(torch.linalg.matrix_rank(J,rtol=rank_tol).item())
     jac_rank = int(torch.linalg.matrix_rank(J).item())
 
-    # svals = torch.linalg.svdvals(J)
-    # tol = rank_tol * svals[0]
-    # jac_rank = int((svals > tol).sum().item())
+    # print(f"jacobian rank: {jac_rank}")
+    # print(f"matrix shape: {tuple(J.shape)}")
+    # print(f"max possible rank: {min(J.shape)}")
+    # print(f"rank deficiency: {min(J.shape) - jac_rank}")
 
     return jac_rank, tuple(J.shape), used_entries, unknowns
 
