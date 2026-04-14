@@ -6,6 +6,7 @@ import torchvision
 import os 
 import sys
 import consts # Local file
+#from skimage.metrics import structural_similarity as ssim
 
 from Misc_functions import (get_keep_ids, compute_psnr_from_mse, build_network, get_keep_ids_by_gradsize, 
 get_entry_masks_by_gradsize, get_prefix_keep_ids, compute_jacobian_rank, total_variation, get_entry_masks_by_prefix_group)
@@ -35,6 +36,7 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
     JACOBIAN_MAX_ENTRIES = config.get('JACOBIAN_MAX_ENTRIES', 4000)
     JACOBIAN_SELECT_MODE = config.get('JACOBIAN_SELECT_MODE', 'topk_abs')
     TV_WEIGHT = config.get('TV_WEIGHT', 0.0)
+    OPTIMIZER = config.get('OPTIMIZER', 'lbfgs')
 
     seed = config.get("run_id", 0) + idx_net + 1 
     torch.manual_seed(seed)
@@ -104,12 +106,17 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
         out = net(gt_data_norm)
         y = criterion(out, gt_label)
         dy_dx = torch.autograd.grad(y, net.parameters())
-        original_dy_dx = [g.detach().clone() for g in dy_dx]
+        original_dy_dx = [g.detach() for g in dy_dx]
 
         # ---- dummy init ----
         dummy_data = torch.randn(gt_data.size(), device=device, requires_grad=True)
-        optimizer = torch.optim.LBFGS([dummy_data], lr=lr)
-
+        if OPTIMIZER == "lbfgs":
+            optimizer = torch.optim.LBFGS([dummy_data], lr=lr)
+        elif OPTIMIZER == "adam":
+            optimizer = torch.optim.Adam([dummy_data], lr=lr)
+        else:
+            raise ValueError(f"Unknown optimizer: {OPTIMIZER}")
+        
         # iDLG label inference
         label_pred = torch.argmin(torch.sum(original_dy_dx[-2], dim=-1), dim=-1).detach().reshape((1,))
 
@@ -271,7 +278,20 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
             early_stop_reason_dict[method] = "too_few_gradients"
             early_stop_iter_dict[method] = 0
             continue
-        
+
+        all_params = list(net.parameters())
+        if entry_masks is not None:
+            selected_ids = [
+                i for i, m in enumerate(entry_masks)
+                if m is not None and m.any()
+            ]
+        else:
+            selected_ids = sorted(list(keep_ids))
+
+        selected_params = [all_params[i] for i in selected_ids]
+        selected_original = [original_dy_dx[i] for i in selected_ids]
+        selected_entry_masks = [entry_masks[i] for i in selected_ids] if entry_masks is not None else None
+
         losses = []
         mses = []
         # ---- EarlyStop config from main (with fallbacks) ----
@@ -294,37 +314,71 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
         best_mse_value = None
 
         for iters in range(Iteration):
-            def closure():
+            if OPTIMIZER == "lbfgs":
+                def closure():
+                    optimizer.zero_grad()
+
+                    x = torch.sigmoid(dummy_data)
+                    x_norm = (x - dm) / ds
+
+                    pred = net(x_norm)
+                    dummy_loss = criterion(pred, gt_label)
+                    dummy_dy_dx = torch.autograd.grad(dummy_loss, selected_params, create_graph=True)
+
+                    grad_diff = 0.0
+                    if selected_entry_masks is not None:
+                        for gx, gy, m in zip(dummy_dy_dx, selected_original, selected_entry_masks):
+                            diff = gx[m] - gy[m]
+                            grad_diff = grad_diff + (diff ** 2).sum()
+                    else:
+                        for gx, gy in zip(dummy_dy_dx, selected_original):
+                            grad_diff = grad_diff + ((gx - gy) ** 2).sum()
+
+                    # grad_diff = 0.0
+                    # if selected_entry_masks is not None:
+                    #     for gx, gy, m in zip(dummy_dy_dx, selected_original, selected_entry_masks):
+                    #         diff = gx[m] - gy[m]
+                    #         grad_diff = grad_diff + (diff ** 2).mean()
+                    # else:
+                    #     for gx, gy in zip(dummy_dy_dx, selected_original):
+                    #         grad_diff = grad_diff + ((gx - gy) ** 2).mean()
+
+                    tv_loss = total_variation(x)
+                    total_loss = grad_diff + TV_WEIGHT * tv_loss
+                    total_loss.backward()
+                    return total_loss
+
+                current_loss = optimizer.step(closure).item()
+
+            elif OPTIMIZER == "adam":
                 optimizer.zero_grad()
 
                 x = torch.sigmoid(dummy_data)
-                x_norm = (x - dm) / ds # normalize before forward pass
+                x_norm = (x - dm) / ds
 
                 pred = net(x_norm)
-
                 dummy_loss = criterion(pred, gt_label)
-                dummy_dy_dx = torch.autograd.grad(dummy_loss, net.parameters(), create_graph=True)
+                dummy_dy_dx = torch.autograd.grad(dummy_loss, selected_params, create_graph=True)
 
                 grad_diff = 0.0
-                for i, (gx, gy) in enumerate(zip(dummy_dy_dx, original_dy_dx)):
-                    if entry_masks is not None:
-                        m = entry_masks[i]
-                        if m is None:
-                            continue
+                if selected_entry_masks is not None:
+                    for gx, gy, m in zip(dummy_dy_dx, selected_original, selected_entry_masks):
                         diff = gx[m] - gy[m]
                         grad_diff = grad_diff + (diff ** 2).sum()
-                    else:
-                        if i not in keep_ids:
-                            continue
+                else:
+                    for gx, gy in zip(dummy_dy_dx, selected_original):
                         grad_diff = grad_diff + ((gx - gy) ** 2).sum()
 
                 tv_loss = total_variation(x)
                 total_loss = grad_diff + TV_WEIGHT * tv_loss
                 total_loss.backward()
-                return total_loss
-            
-            #optimizer.step(closure)
-            current_loss = optimizer.step(closure).item()
+                optimizer.step()
+
+                current_loss = total_loss.item()
+
+            else:
+                raise ValueError(f"Unknown optimizer: {OPTIMIZER}")
+
             if np.isfinite(current_loss):
                 current_mse = torch.mean((torch.sigmoid(dummy_data) - gt_data) ** 2).item()
                 if current_loss < best_loss_value:
@@ -332,8 +386,6 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
                     best_dummy = torch.sigmoid(dummy_data).detach().clone()
                     best_mse_value = current_mse
 
-
-            # ---- EARLY STOPPING (configurable from main) ----
             if not np.isfinite(current_loss):
                 nan_count += 1
                 early_stop_reason = "nan_or_inf"
@@ -342,7 +394,6 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
                 if nan_count >= max_nan:
                     break
             else:
-                # update best / plateau counter using RELATIVE improvement
                 if best_loss == float("inf"):
                     best_loss = current_loss
                     no_improve = 0
@@ -354,38 +405,30 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
                     elif iters >= warmup:
                         no_improve += 1
 
-            # convergence
             if iters >= warmup and current_loss < loss_tol:
                 early_stop_reason = "loss_tol"
                 early_stop_iter = iters
                 print(f"[GPU {device_id}] Early stop ({method}): loss_tol reached at iter {iters} (loss={current_loss:.3e})")
                 break
 
-            # explosion check
             if iters >= warmup and best_loss < float("inf") and current_loss > explode_factor * best_loss:
                 early_stop_reason = "explosion"
                 early_stop_iter = iters
                 print(f"[GPU {device_id}] Early stop ({method}): exploded at iter {iters} (loss={current_loss:.3e}, best={best_loss:.3e})")
                 break
 
-            # plateau check
             if iters >= warmup and no_improve >= patience:
                 early_stop_reason = "plateau"
                 early_stop_iter = iters
                 print(f"[GPU {device_id}] Early stop ({method}): plateau at iter {iters} (best={best_loss:.3e})")
                 break
-            # ---- END EARLY STOPPING ----
 
             losses.append(current_loss)
-            #mses.append(torch.mean((torch.sigmoid(dummy_data) - gt_data) ** 2).item())
             current_mse = torch.mean((torch.sigmoid(dummy_data) - gt_data) ** 2).item()
             mses.append(current_mse)
-            
-            if iters % 100 == 0:
-                print(f'[GPU {device_id}] iters {iters}, loss = {current_loss:.8f}, mse = {mses[-1]:.8f}')
 
-            # if current_loss < loss_tol:
-            #     break
+            if iters % 100 == 0:
+                print(f'[GPU {device_id}] {OPTIMIZER} iters {iters}, loss = {current_loss:.8f}, mse = {mses[-1]:.8f}')
 
         #final_recon[method] = torch.sigmoid(dummy_data).detach().clone()
         if best_dummy is not None:

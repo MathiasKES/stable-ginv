@@ -10,7 +10,7 @@ import argparse
 from Misc_functions import save_recon_panel
 from Dataset import lfw_dataset
 from run_single_exp import run_single_experiment
-
+from tqdm import tqdm
 
 def main():
     parser = argparse.ArgumentParser()
@@ -343,113 +343,118 @@ def main():
         )
         p.start()
         active_processes[device_id] = p
-        print(f"Launching experiment {next_exp} on GPU {device_id}", flush=True)
+        #print(f"Launching experiment {next_exp} on GPU {device_id}", flush=True)
+        tqdm.write(f"Launching experiment {next_exp} on GPU {device_id}")
         next_exp += 1
 
     # Keep launching a new experiment whenever one finishes
-    while completed < num_exp:
-        result = result_queue.get()
-        completed += 1
+    with tqdm(total=num_exp, desc="Experiments", position=0) as pbar:
+        while completed < num_exp:
+            result = result_queue.get()
+            completed += 1
+            pbar.update(1)
+            pbar.set_postfix(last_exp=result["idx_net"], gpu=result["device_id"])
 
-        idx_net = result['idx_net']
-        finished_device = result['device_id']
+            idx_net = result['idx_net']
+            finished_device = result['device_id']
 
-        if result.get('last_psnr_idlg') is not None:
-            psnr_idlg_all.append(result['last_psnr_idlg'])
-        if result.get('last_psnr_masked') is not None:
-            psnr_masked_all.append(result['last_psnr_masked'])
+            if result.get('last_psnr_idlg') is not None:
+                psnr_idlg_all.append(result['last_psnr_idlg'])
+            if result.get('last_psnr_masked') is not None:
+                psnr_masked_all.append(result['last_psnr_masked'])
 
-        if result.get('last_loss_iDLG') is not None:
-            final_loss_idlg_all.append(result['last_loss_iDLG'])
-        if result.get('last_mse_iDLG') is not None:
-            final_mse_idlg_all.append(result['last_mse_iDLG'])
-        if result.get('last_loss_iDLG_masked') is not None:
-            final_loss_masked_all.append(result['last_loss_iDLG_masked'])
-        if result.get('last_mse_iDLG_masked') is not None:
-            final_mse_masked_all.append(result['last_mse_iDLG_masked'])
+            if result.get('last_loss_iDLG') is not None:
+                final_loss_idlg_all.append(result['last_loss_iDLG'])
+            if result.get('last_mse_iDLG') is not None:
+                final_mse_idlg_all.append(result['last_mse_iDLG'])
+            if result.get('last_loss_iDLG_masked') is not None:
+                final_loss_masked_all.append(result['last_loss_iDLG_masked'])
+            if result.get('last_mse_iDLG_masked') is not None:
+                final_mse_masked_all.append(result['last_mse_iDLG_masked'])
 
-        if result.get('best_psnr_idlg') is not None:
-            best_psnr_idlg_all.append(result['best_psnr_idlg'])
-        if result.get('best_psnr_masked') is not None:
-            best_psnr_masked_all.append(result['best_psnr_masked'])
+            if result.get('best_psnr_idlg') is not None:
+                best_psnr_idlg_all.append(result['best_psnr_idlg'])
+            if result.get('best_psnr_masked') is not None:
+                best_psnr_masked_all.append(result['best_psnr_masked'])
 
-        if result.get('best_loss_iDLG') is not None:
-            best_loss_idlg_all.append(result['best_loss_iDLG'])
-        if result.get('best_mse_iDLG') is not None:
-            best_mse_idlg_all.append(result['best_mse_iDLG'])
-        if result.get('best_loss_iDLG_masked') is not None:
-            best_loss_masked_all.append(result['best_loss_iDLG_masked'])
-        if result.get('best_mse_iDLG_masked') is not None:
-            best_mse_masked_all.append(result['best_mse_iDLG_masked'])
+            if result.get('best_loss_iDLG') is not None:
+                best_loss_idlg_all.append(result['best_loss_iDLG'])
+            if result.get('best_mse_iDLG') is not None:
+                best_mse_idlg_all.append(result['best_mse_iDLG'])
+            if result.get('best_loss_iDLG_masked') is not None:
+                best_loss_masked_all.append(result['best_loss_iDLG_masked'])
+            if result.get('best_mse_iDLG_masked') is not None:
+                best_mse_masked_all.append(result['best_mse_iDLG_masked'])
 
-        # ---- accumulate recon panel ----
-        gt_pil = tp(torch.from_numpy(result['gt_data'])[0])
-        panel_gt_pil.append(gt_pil)
+            # ---- accumulate recon panel ----
+            gt_pil = tp(torch.from_numpy(result['gt_data'])[0])
+            panel_gt_pil.append(gt_pil)
 
-        if 'iDLG' in result['final_recon']:
-            idlg_pil = tp(torch.from_numpy(result['final_recon']['iDLG'])[0])
-        else:
-            idlg_pil = gt_pil
-        panel_idlg_pil.append(idlg_pil)
+            if 'iDLG' in result['final_recon']:
+                idlg_pil = tp(torch.from_numpy(result['final_recon']['iDLG'])[0])
+            else:
+                idlg_pil = gt_pil
+            panel_idlg_pil.append(idlg_pil)
 
-        if 'iDLG_masked' in result['final_recon']:
-            masked_pil = tp(torch.from_numpy(result['final_recon']['iDLG_masked'])[0])
-        else:
-            masked_pil = gt_pil
-        panel_masked_pil.append(masked_pil)
+            if 'iDLG_masked' in result['final_recon']:
+                masked_pil = tp(torch.from_numpy(result['final_recon']['iDLG_masked'])[0])
+            else:
+                masked_pil = gt_pil
+            panel_masked_pil.append(masked_pil)
 
-        if len(panel_gt_pil) == panel_block_size:
-            save_recon_panel(
-                params, panel_gt_pil, panel_idlg_pil, panel_masked_pil,
-                save_path, panel_block_idx, dataset, mask_desc, timestamp_str, methods=METHODS
-            )
-            panel_block_idx += 1
-            panel_gt_pil.clear()
-            panel_idlg_pil.clear()
-            panel_masked_pil.clear()
+            if len(panel_gt_pil) == panel_block_size:
+                save_recon_panel(
+                    params, panel_gt_pil, panel_idlg_pil, panel_masked_pil,
+                    save_path, panel_block_idx, dataset, mask_desc, timestamp_str, methods=METHODS
+                )
+                panel_block_idx += 1
+                panel_gt_pil.clear()
+                panel_idlg_pil.clear()
+                panel_masked_pil.clear()
 
-        es_r = result.get("early_stop_reason", {})
-        es_i = result.get("early_stop_iter", {})
+            es_r = result.get("early_stop_reason", {})
+            es_i = result.get("early_stop_iter", {})
 
-        print(f"early_stop iDLG: {es_r.get('iDLG')} @ {es_i.get('iDLG')}")
-        print(f"early_stop masked: {es_r.get('iDLG_masked')} @ {es_i.get('iDLG_masked')}")
-        print('imidx_list:', result['imidx_list'])
+            print(f"early_stop iDLG: {es_r.get('iDLG')} @ {es_i.get('iDLG')}")
+            print(f"early_stop masked: {es_r.get('iDLG_masked')} @ {es_i.get('iDLG_masked')}")
+            print('imidx_list:', result['imidx_list'])
 
-        if result.get('last_loss_iDLG') is not None:
-            print('last_loss_iDLG:', result['last_loss_iDLG'], 'last_mse_iDLG:', result['last_mse_iDLG'])
-        if result.get('best_loss_iDLG') is not None:
-            print('best_loss_iDLG:', result['best_loss_iDLG'], 'best_mse_iDLG:', result['best_mse_iDLG'])
+            if result.get('last_loss_iDLG') is not None:
+                print('last_loss_iDLG:', result['last_loss_iDLG'], 'last_mse_iDLG:', result['last_mse_iDLG'])
+            if result.get('best_loss_iDLG') is not None:
+                print('best_loss_iDLG:', result['best_loss_iDLG'], 'best_mse_iDLG:', result['best_mse_iDLG'])
 
-        if result.get('last_loss_iDLG_masked') is not None:
-            print('last_loss_iDLG_masked:', result['last_loss_iDLG_masked'], 'last_mse_iDLG_masked:', result['last_mse_iDLG_masked'])
-        if result.get('best_loss_iDLG_masked') is not None:
-            print('best_loss_iDLG_masked:', result['best_loss_iDLG_masked'], 'best_mse_iDLG_masked:', result['best_mse_iDLG_masked'])
-            
-        if result.get('jac_rank_iDLG') is not None:
-            print('jac_rank_iDLG:', result['jac_rank_iDLG'],
-                'jac_shape_iDLG:', result['jac_shape_iDLG'])
+            if result.get('last_loss_iDLG_masked') is not None:
+                print('last_loss_iDLG_masked:', result['last_loss_iDLG_masked'], 'last_mse_iDLG_masked:', result['last_mse_iDLG_masked'])
+            if result.get('best_loss_iDLG_masked') is not None:
+                print('best_loss_iDLG_masked:', result['best_loss_iDLG_masked'], 'best_mse_iDLG_masked:', result['best_mse_iDLG_masked'])
+                
+            if result.get('jac_rank_iDLG') is not None:
+                print('jac_rank_iDLG:', result['jac_rank_iDLG'],
+                    'jac_shape_iDLG:', result['jac_shape_iDLG'])
 
-        if result.get('jac_rank_iDLG_masked') is not None:
-            print('jac_rank_iDLG_masked:', result['jac_rank_iDLG_masked'],
-                'jac_shape_iDLG_masked:', result['jac_shape_iDLG_masked'])
+            if result.get('jac_rank_iDLG_masked') is not None:
+                print('jac_rank_iDLG_masked:', result['jac_rank_iDLG_masked'],
+                    'jac_shape_iDLG_masked:', result['jac_shape_iDLG_masked'])
 
-        print('gt_label:', result['gt_label'],
-            'lab_iDLG:', result['label_iDLG'], 'lab_iDLG_masked:', result['label_iDLG_masked'])
-        print('----------------------\n\n')
+            print('gt_label:', result['gt_label'],
+                'lab_iDLG:', result['label_iDLG'], 'lab_iDLG_masked:', result['label_iDLG_masked'])
+            print('----------------------\n\n')
 
-        # Clean up the finished process on that GPU
-        active_processes[finished_device].join()
+            # Clean up the finished process on that GPU
+            active_processes[finished_device].join()
 
-        # Start the next experiment immediately on the freed GPU
-        if next_exp < num_exp:
-            p = mp.Process(
-                target=run_single_experiment,
-                args=(next_exp, finished_device, dst, dataset, config, result_queue)
-            )
-            p.start()
-            active_processes[finished_device] = p
-            print(f"Launching experiment {next_exp} on GPU {finished_device}", flush=True)
-            next_exp += 1
+            # Start the next experiment immediately on the freed GPU
+            if next_exp < num_exp:
+                p = mp.Process(
+                    target=run_single_experiment,
+                    args=(next_exp, finished_device, dst, dataset, config, result_queue)
+                )
+                p.start()
+                active_processes[finished_device] = p
+                #print(f"Launching experiment {next_exp} on GPU {finished_device}", flush=True)
+                tqdm.write(f"Launching experiment {next_exp} on GPU {finished_device}")
+                next_exp += 1
 
     # Final cleanup
     for p in active_processes.values():
