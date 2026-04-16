@@ -4,7 +4,10 @@ import matplotlib.pyplot as plt
 import os
 import math
 from Network import LeNet, LeNet_bigger, MediumCNN, BiggerCNN, get_model
+#from skimage.metrics import structural_similarity as ssim
 import torch
+import torch.nn as nn
+import numpy as np
 
 def flatten_observed_gradients(grad_list, keep_ids=None, entry_masks=None):
     """
@@ -179,6 +182,7 @@ def get_entry_masks_by_prefix_group(
     mode="topfrac_entries",
     topk=None,
     top_frac=None,
+    prefix_top_fracs=None
 ):
     """
     Elementwise masking applied per prefix group.
@@ -198,6 +202,9 @@ def get_entry_masks_by_prefix_group(
 
     kept_entries = 0
     total_entries = 0
+
+    if prefix_top_fracs is None:
+        prefix_top_fracs = {}
 
     for prefix in prefixes:
         group_infos = []
@@ -227,9 +234,10 @@ def get_entry_masks_by_prefix_group(
                 raise ValueError("topk must be set for mode='topk_entries'")
             k = max(1, min(int(topk), n))
         elif mode == "topfrac_entries":
-            if top_frac is None:
+            local_top_frac = prefix_top_fracs.get(prefix, top_frac)
+            if local_top_frac is None:
                 raise ValueError("top_frac must be set for mode='topfrac_entries'")
-            k = max(1, min(int(round(top_frac * n)), n))
+            k = max(1, min(int(round(local_top_frac * n)), n))
         else:
             raise ValueError(f"Unknown mode: {mode}")
 
@@ -306,8 +314,13 @@ def build_network(name: str, channel: int, num_classes: int, input_size):
         return MediumCNN(channel=channel, num_classes=num_classes, input_size=input_size)
     if name == "BiggerCNN":
         return BiggerCNN(channel=channel, num_classes=num_classes, input_size=input_size)
-    if name.lower().startswith("resnet"): # 18, 34, 50, 101, 152
-        return get_model(network=name.lower(), channel=channel, num_classes=num_classes, input_size=input_size)
+    if name.lower().startswith("resnet") or name.lower().startswith("wide_resnet"):
+        return get_model(
+            network=name.lower(),
+            channel=channel,
+            num_classes=num_classes,
+            input_size=input_size,
+        )
     raise ValueError(f"Unknown NETWORK_NAME: {name}")
 
 def get_prefix_keep_ids(net, prefixes):
@@ -356,6 +369,38 @@ def compute_psnr_from_mse(mse: float, max_val: float = 1.0, eps: float = 1e-12) 
     if mse < eps:
         return float('inf')
     return 10.0 * math.log10((max_val * max_val) / (mse + eps))
+
+# def compute_ssim_batch(x, y):
+#     """
+#     x, y: torch tensors of shape [N, C, H, W] in [0, 1]
+#     Returns mean SSIM over the batch.
+#     """
+#     x_np = x.detach().cpu().numpy()
+#     y_np = y.detach().cpu().numpy()
+
+#     scores = []
+#     for i in range(x_np.shape[0]):
+#         img_x = np.transpose(x_np[i], (1, 2, 0))  # C,H,W -> H,W,C
+#         img_y = np.transpose(y_np[i], (1, 2, 0))
+
+#         if img_x.shape[2] == 1:
+#             score = ssim(
+#                 img_x.squeeze(-1),
+#                 img_y.squeeze(-1),
+#                 data_range=1.0,
+#                 win_size=7
+#             )
+#         else:
+#             score = ssim(
+#                 img_x,
+#                 img_y,
+#                 channel_axis=2,
+#                 data_range=1.0,
+#                 win_size=7
+#             )
+#         scores.append(score)
+
+#     return float(np.mean(scores))
 
 def save_recon_panel(params: dict, panel_gt_pil, panel_idlg_pil, panel_masked_pil,
                      save_dir, block_idx, dataset, mask_desc: str, timestamp_str: str,
@@ -417,6 +462,7 @@ def build_gradient_mask(
     net,
     original_dy_dx,
     prefixes=(),
+    prefix_layer_fracs=None,
     gradsize_topk=20,
     gradsize_topfrac=0.5,
     gradsize_threshold=None,
@@ -425,6 +471,9 @@ def build_gradient_mask(
     candidate_ids = None
     keep_ids = None
     entry_masks = None
+
+    if prefix_layer_fracs is None:
+        prefix_layer_fracs = {}
 
     if method == "idlg":
         keep_ids = get_keep_ids("all", net=net)
@@ -476,6 +525,7 @@ def build_gradient_mask(
             prefixes=prefixes,
             mode="topk_entries",
             topk=gradsize_topk,
+            prefix_top_fracs=prefix_layer_fracs,
         )
     elif mask_mode == "prefix_topfrac_entries_layer":
         entry_masks, _, _ = get_entry_masks_by_prefix_group(

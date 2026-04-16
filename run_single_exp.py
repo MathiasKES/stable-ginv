@@ -26,6 +26,7 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
     Iteration = config['Iteration']
     MASK_MODE = config['MASK_MODE']
     PREFIXES = config.get('PREFIXES', ())
+    PREFIX_LAYER_FRACS = config.get('PREFIX_LAYER_FRACS', {})
     GRADSIZE_TOPK = config['GRADSIZE_TOPK']
     GRADSIZE_TOPFRAC = config['GRADSIZE_TOPFRAC']
     GRADSIZE_THRESHOLD = config['GRADSIZE_THRESHOLD']
@@ -48,6 +49,10 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
         net.apply(weights_init)
     net = net.to(device)
     net.eval()
+
+    if idx_net == 0 and device_id == 0:
+        for i, (name, param) in enumerate(net.named_parameters()):
+            print(i, name, tuple(param.shape))
 
     print(f'[GPU {device_id}] Running {idx_net} experiment')
     
@@ -98,27 +103,27 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
                 gt_data = torch.cat((gt_data, tmp_datum), dim=0)
                 gt_label = torch.cat((gt_label, tmp_label), dim=0)
 
-        dm = torch.tensor(getattr(consts, f'{dataset_name.lower()}_mean'), device=device).view(1,3,1,1)
-        ds = torch.tensor(getattr(consts, f'{dataset_name.lower()}_std'), device=device).view(1,3,1,1)
+        dm = torch.tensor(getattr(consts, f'{dataset_name.lower()}_mean'), device=device).view(1,channel,1,1)
+        ds = torch.tensor(getattr(consts, f'{dataset_name.lower()}_std'), device=device).view(1,channel,1,1)
 
         # ---- compute original gradients ----
         gt_data_norm = (gt_data - dm) / ds # normalize gt data
         out = net(gt_data_norm)
         y = criterion(out, gt_label)
         dy_dx = torch.autograd.grad(y, net.parameters())
-        original_dy_dx = [g.detach() for g in dy_dx]
+        original_dy_dx = [g.detach().clone() for g in dy_dx]
 
         # ---- dummy init ----
         dummy_data = torch.randn(gt_data.size(), device=device, requires_grad=True)
         if OPTIMIZER == "lbfgs":
-            optimizer = torch.optim.LBFGS([dummy_data], lr=lr)
+            optimizer = torch.optim.LBFGS([dummy_data], lr=lr, line_search_fn="strong_wolfe")
         elif OPTIMIZER == "adam":
             optimizer = torch.optim.Adam([dummy_data], lr=lr)
         else:
             raise ValueError(f"Unknown optimizer: {OPTIMIZER}")
         
         # iDLG label inference
-        label_pred = torch.argmin(torch.sum(original_dy_dx[-2], dim=-1), dim=-1).detach().reshape((1,))
+        #label_pred = torch.argmin(torch.sum(original_dy_dx[-2], dim=-1), dim=-1).detach().reshape((1,))
 
         candidate_ids = None
         # choose which gradient tensors are "shared"
@@ -186,8 +191,8 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
                     prefixes=PREFIXES,
                     mode="topfrac_entries",
                     top_frac=GRADSIZE_TOPFRAC,
+                    prefix_top_fracs=PREFIX_LAYER_FRACS,
                 )
-
             elif MASK_MODE == "gradsize_threshold":
                 keep_ids, ranked = get_keep_ids_by_gradsize(
                     original_dy_dx, mode="threshold", threshold=GRADSIZE_THRESHOLD,
@@ -198,6 +203,47 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
 
             else:
                 keep_ids = get_keep_ids(MASK_MODE)   
+
+        final_weight_idx = len(original_dy_dx) - 2
+
+        label_pred = None
+        label_inference_available = False
+
+        if method == "iDLG":
+            label_pred = torch.argmin(torch.sum(original_dy_dx[final_weight_idx], dim=-1), dim=-1).detach().reshape((1,))
+            label_inference_available = True
+        else:
+            if entry_masks is not None:
+                m = entry_masks[final_weight_idx]
+                if m is not None and bool(m.all()):
+                    label_pred = torch.argmin(torch.sum(original_dy_dx[final_weight_idx], dim=-1), dim=-1).detach().reshape((1,))
+                    label_inference_available = True
+            else:
+                if final_weight_idx in keep_ids:
+                    label_pred = torch.argmin(torch.sum(original_dy_dx[final_weight_idx], dim=-1), dim=-1).detach().reshape((1,))
+                    label_inference_available = True
+
+        if not label_inference_available:
+            print(f"[GPU {device_id}] {method}: label inference unavailable under current mask")
+
+            final_recon[method] = torch.zeros_like(gt_data)
+
+            if method == 'iDLG':
+                loss_iDLG = [float("inf")]
+                label_iDLG = None
+                mse_iDLG = [float("inf")]
+                best_loss_iDLG = float("inf")
+                best_mse_iDLG = float("inf")
+            else:
+                loss_iDLG_masked = [float("inf")]
+                label_iDLG_masked = None
+                mse_iDLG_masked = [float("inf")]
+                best_loss_iDLG_masked = float("inf")
+                best_mse_iDLG_masked = float("inf")
+
+            early_stop_reason_dict[method] = "label_inference_unavailable"
+            early_stop_iter_dict[method] = 0
+            continue
 
         unknowns = int(gt_data[0].numel())
 
@@ -233,7 +279,7 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
                         total += entry_masks[i].numel()
                 if total > 0:
                     print(f"  {prefix}: kept {kept}/{total} = {kept/total:.4f}")
-
+                    
         if COMPUTE_JACOBIAN_RANK:
             if num_dummy != 1:
                 raise ValueError("Jacobian-rank computation currently assumes num_dummy=1.")
@@ -299,9 +345,9 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
         best_loss = float("inf")
         no_improve = 0
 
-        patience = int(es.get("patience", 50))
-        min_rel_improve = float(es.get("min_rel_improve", 1e-4))
-        explode_factor = float(es.get("explode_factor", 500.0))
+        patience = int(es.get("patience", 100))
+        min_rel_improve = float(es.get("min_rel_improve", 1e-6))
+        explode_factor = float(es.get("explode_factor", 30.0))
         warmup = int(es.get("warmup", 100))
         loss_tol = float(es.get("loss_tol", 1e-6))
         max_nan = int(es.get("max_nan", 1))
@@ -322,26 +368,23 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
                     x_norm = (x - dm) / ds
 
                     pred = net(x_norm)
-                    dummy_loss = criterion(pred, gt_label)
+                    dummy_loss = criterion(pred, label_pred)
                     dummy_dy_dx = torch.autograd.grad(dummy_loss, selected_params, create_graph=True)
 
                     grad_diff = 0.0
+                    num_terms = 0
                     if selected_entry_masks is not None:
                         for gx, gy, m in zip(dummy_dy_dx, selected_original, selected_entry_masks):
                             diff = gx[m] - gy[m]
                             grad_diff = grad_diff + (diff ** 2).sum()
+                            num_terms += diff.numel()
                     else:
                         for gx, gy in zip(dummy_dy_dx, selected_original):
-                            grad_diff = grad_diff + ((gx - gy) ** 2).sum()
+                            diff = gx - gy
+                            grad_diff = grad_diff + (diff ** 2).sum()
+                            num_terms += diff.numel()
 
-                    # grad_diff = 0.0
-                    # if selected_entry_masks is not None:
-                    #     for gx, gy, m in zip(dummy_dy_dx, selected_original, selected_entry_masks):
-                    #         diff = gx[m] - gy[m]
-                    #         grad_diff = grad_diff + (diff ** 2).mean()
-                    # else:
-                    #     for gx, gy in zip(dummy_dy_dx, selected_original):
-                    #         grad_diff = grad_diff + ((gx - gy) ** 2).mean()
+                    grad_diff = grad_diff/max(num_terms, 1) #normalize loss
 
                     tv_loss = total_variation(x)
                     total_loss = grad_diff + TV_WEIGHT * tv_loss
@@ -357,7 +400,7 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
                 x_norm = (x - dm) / ds
 
                 pred = net(x_norm)
-                dummy_loss = criterion(pred, gt_label)
+                dummy_loss = criterion(pred, label_pred)
                 dummy_dy_dx = torch.autograd.grad(dummy_loss, selected_params, create_graph=True)
 
                 grad_diff = 0.0

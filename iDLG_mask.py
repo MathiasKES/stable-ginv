@@ -39,13 +39,12 @@ def main():
         "by --gradsize_metric."
     )) 
 
-    parser.add_argument("--prefixes", type=str, default="conv1,layer1,layer2,layer3", help=(
-        "Comma-separated list of layer-name prefixes used when --mask_mode is 'prefix'. "
-        "Any parameter whose fully qualified name (e.g. 'conv1.weight', 'linear.bias') starts "
-        "with one of these prefixes will be included in the gradient mask; all other parameters "
-        "will be zeroed out before the gradient-inversion attack is run. "
-        "Example: 'conv1,linear' retains only the first convolutional layer and the linear head. "
-        "Has no effect when any other mask_mode is selected."
+    parser.add_argument("--prefixes", type=str, default="conv1:1.0,layer1:1.0,layer2:1.0,layer3:1.0,fc:1.0", help=(
+    "Comma-separated list of layer-name prefixes. "
+    "For prefix_topfrac_entries_layer, each prefix can optionally include its own fraction. "
+    "Format: 'conv1:1.0,layer1:0.5,layer2:0.3,layer3:0.2,fc:1.0'. "
+    "For other prefix-based modes, only the prefix names are used. "
+    "Examples: 'conv1,layer1,fc' or 'conv1:1.0,layer1:0.5,fc:1.0'."
     ))
     
     parser.add_argument("--gradsize_topk", type=int, default=20, help=(
@@ -180,12 +179,29 @@ def main():
     "A small positive value can reduce noise and encourage smoother images."
 ))
     
+    parser.add_argument("--optimizer", type=str, default="lbfgs", choices=["lbfgs", "adam"], help="Optimizer used for the reconstruction of dummy_data."
+)
+    
     args = parser.parse_args()
 
     # -------- Masking config --------
     MASK_MODE = args.mask_mode
     PREFIXES_NAME = args.prefixes
-    PREFIXES = tuple(p.strip() for p in PREFIXES_NAME.split(",") if p.strip())
+    PREFIXES = []
+    PREFIX_LAYER_FRACS = {}
+    for item in PREFIXES_NAME.split(","):
+        item = item.strip()
+        if not item:
+            continue
+        if ":" in item:
+            prefix, frac = item.split(":", 1)
+            prefix = prefix.strip()
+            frac = float(frac.strip())
+            PREFIXES.append(prefix)
+            PREFIX_LAYER_FRACS[prefix] = frac
+        else:
+            PREFIXES.append(item)
+    PREFIXES = tuple(PREFIXES)
     GRADSIZE_TOPK = args.gradsize_topk
     GRADSIZE_TOPFRAC = args.gradsize_topfrac
     GRADSIZE_THRESHOLD = args.gradsize_threshold
@@ -195,6 +211,7 @@ def main():
     JACOBIAN_MAX_ENTRIES = args.jacobian_max_entries
     JACOBIAN_SELECT_MODE = args.jacobian_select_mode
     TV_WEIGHT = args.tv_weight
+    OPTIMIZER = args.optimizer
     lr = args.lr
     num_dummy = args.num_dummy
     Iteration = args.iteration
@@ -204,12 +221,12 @@ def main():
     run_id = args.run_id
     timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-    loss_tol = 1e-8
-    patience = 200
-    min_rel_improve = 1e-7
-    explode_factor = 100.0
-    warmup = 300
-    max_nan = 3
+    loss_tol = 1e-6
+    patience = 100
+    min_rel_improve = 1e-6
+    explode_factor = 20.0
+    warmup = 100
+    max_nan = 1
 
     root_path = '.'
     if os.access('/work3/s234843/bachelor', os.R_OK | os.W_OK | os.X_OK):
@@ -297,6 +314,7 @@ def main():
         'run_id': args.run_id,
         'MASK_MODE': MASK_MODE,
         'PREFIXES': PREFIXES,
+        'PREFIX_LAYER_FRACS': PREFIX_LAYER_FRACS,
         'GRADSIZE_TOPK': GRADSIZE_TOPK,
         'GRADSIZE_TOPFRAC': GRADSIZE_TOPFRAC,
         'GRADSIZE_THRESHOLD': GRADSIZE_THRESHOLD,
@@ -308,6 +326,7 @@ def main():
         'JACOBIAN_MAX_ENTRIES': JACOBIAN_MAX_ENTRIES,
         'JACOBIAN_SELECT_MODE': JACOBIAN_SELECT_MODE,
         'TV_WEIGHT': TV_WEIGHT,
+        'OPTIMIZER': OPTIMIZER,
         'run_id': run_id,
         'EarlyStop': {
             'loss_tol': loss_tol,
@@ -506,7 +525,8 @@ def main():
         "lr": lr,
         "iteration": Iteration,
         "num_exp": num_exp,
-        "tv_weight": TV_WEIGHT,}
+        "tv_weight": TV_WEIGHT,
+        "optimizer": OPTIMIZER}
     
     grad_value = ""
     if MASK_MODE in [
@@ -534,43 +554,44 @@ def main():
             **common,
             "mask_mode": "",
             "grad_param": "",
-            "med_final_loss": med_final_loss_idlg,
-            "avg_final_loss": avg_final_loss_idlg,
-            "med_final_mse": med_final_mse_idlg,
-            "avg_final_mse": avg_final_mse_idlg,
-            "avg_psnr": avg_psnr_idlg,
-            "std_psnr": std_psnr_idlg,
-            "med_best_loss": med_best_loss_idlg,
-            "avg_best_loss": avg_best_loss_idlg,
-            "med_best_mse": med_best_mse_idlg,
-            "avg_best_mse": avg_best_mse_idlg,
-            "avg_best_psnr": avg_best_psnr_idlg,
-            "std_best_psnr": std_best_psnr_idlg,
+            # "med_final_loss": med_final_loss_idlg,
+            # "avg_final_loss": avg_final_loss_idlg,
+            # "med_final_mse": med_final_mse_idlg,
+            # "avg_final_mse": avg_final_mse_idlg,
+            # "avg_psnr": avg_psnr_idlg,
+            # "std_psnr": std_psnr_idlg,
+            "med_best_loss": round(med_best_loss_idlg,5),
+            "avg_best_loss": round(avg_best_loss_idlg,5),
+            "med_best_mse": round(med_best_mse_idlg,5),
+            "avg_best_mse": round(avg_best_mse_idlg,5),
+            "avg_best_psnr": round(avg_best_psnr_idlg,5),
+            "std_best_psnr": round(std_best_psnr_idlg,5),
         })
 
     if METHODS in ["masked", "both"]:
         rows.append({
             "method": "iDLG_masked",
             **common,
-            "mask_mode": MASK_MODE if MASK_MODE != 'prefix' else args.prefixes,
+            "mask_mode": MASK_MODE, #if MASK_MODE != 'prefix' else args.prefixes,
+            "prefixes": args.prefixes if "prefix" in MASK_MODE else "",
             "grad_param": grad_value,
-            "med_final_loss": med_final_loss_masked,
-            "avg_final_loss": avg_final_loss_masked,
-            "med_final_mse": med_final_mse_masked,
-            "avg_final_mse": avg_final_mse_masked,
-            "avg_psnr": avg_psnr_masked,
-            "std_psnr": std_psnr_masked,
-            "med_best_loss": med_best_loss_masked,
-            "avg_best_loss": avg_best_loss_masked,
-            "med_best_mse": med_best_mse_masked,
-            "avg_best_mse": avg_best_mse_masked,
-            "avg_best_psnr": avg_best_psnr_masked,
-            "std_best_psnr": std_best_psnr_masked,
+            # "med_final_loss": med_final_loss_masked,
+            # "avg_final_loss": avg_final_loss_masked,
+            # "med_final_mse": med_final_mse_masked,
+            # "avg_final_mse": avg_final_mse_masked,
+            # "avg_psnr": avg_psnr_masked,
+            # "std_psnr": std_psnr_masked,
+            "med_best_loss": round(med_best_loss_masked,5),
+            "avg_best_loss": round(avg_best_loss_masked,5),
+            "med_best_mse": round(med_best_mse_masked,5),
+            "avg_best_mse": round(avg_best_mse_masked,5),
+            "avg_best_psnr": round(avg_best_psnr_masked,5),
+            "std_best_psnr": round(std_best_psnr_masked,5,)
         })
 
     fieldnames = ["method"] + [k for k in common.keys()] + [
-    "mask_mode", "grad_param",
-    "med_final_loss", "avg_final_loss", "med_final_mse", "avg_final_mse", "avg_psnr", "std_psnr",
+    "mask_mode", "prefixes", "grad_param",
+    # "med_final_loss", "avg_final_loss", "med_final_mse", "avg_final_mse", "avg_psnr", "std_psnr",
     "med_best_loss", "avg_best_loss", "med_best_mse", "avg_best_mse", "avg_best_psnr", "std_best_psnr"]
 
     with open(csv_path, "a", newline="") as f:
