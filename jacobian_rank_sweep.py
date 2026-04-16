@@ -63,8 +63,8 @@ def main():
     parser.add_argument("--gradsize_threshold", type=float, default=None)
     parser.add_argument("--gradsize_metric", type=str, default="l2")
 
-    parser.add_argument("--row_counts", type=str, default="500,1000,2000,3000,3500,4000")
-    parser.add_argument("--jacobian_select_mode", type=str, default="random",
+    parser.add_argument("--row_counts", type=str, default="3072,3500,4000,4500,5000,5500,6000,6500,7000,7500,8000,8500,9000,9500,10000")
+    parser.add_argument("--jacobian_select_mode", type=str, default="topk_abs",
                         choices=["topk_abs", "first", "random"])
     parser.add_argument("--rank_tol", type=float, default=1e-6,
                     help="Relative tolerance for numerical Jacobian rank.")
