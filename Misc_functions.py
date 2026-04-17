@@ -551,3 +551,81 @@ def total_variation(x):
     tv_h = torch.abs(x[:, :, 1:, :] - x[:, :, :-1, :]).mean()
     tv_w = torch.abs(x[:, :, :, 1:] - x[:, :, :, :-1]).mean()
     return tv_h + tv_w
+
+def get_keep_ids_by_prefix_group(
+    net,
+    original_dy_dx,
+    prefixes,
+    mode="topfrac",
+    topk=None,
+    top_frac=None,
+    prefix_top_fracs=None,
+    metric="l2",
+):
+    """
+    Tensor-wise masking applied per prefix group.
+
+    For each prefix:
+      - collect parameter tensors whose name starts with that prefix
+      - rank tensors within that prefix group by gradient size
+      - keep top-k or top-fraction within that group
+
+    Returns:
+        keep_ids: sorted list of kept parameter indices
+        ranked_by_prefix: dict mapping prefix -> sorted [(idx, score), ...]
+    """
+    if prefix_top_fracs is None:
+        prefix_top_fracs = {}
+
+    named_params = list(net.named_parameters())
+    keep = set()
+    ranked_by_prefix = {}
+
+    for prefix in prefixes:
+        sizes = []
+
+        for i, (name, _) in enumerate(named_params):
+            if not name.startswith(prefix):
+                continue
+
+            g = original_dy_dx[i]
+            if g is None:
+                continue
+
+            if metric == "l2":
+                s = g.detach().norm(p=2).item()
+            elif metric == "mean_abs":
+                s = g.detach().abs().mean().item()
+            elif metric == "sum_abs":
+                s = g.detach().abs().sum().item()
+            else:
+                raise ValueError(f"Unknown metric: {metric}")
+
+            sizes.append((i, s))
+
+        if len(sizes) == 0:
+            continue
+
+        sizes_sorted = sorted(sizes, key=lambda x: x[1], reverse=True)
+        ranked_by_prefix[prefix] = sizes_sorted
+
+        if mode == "topk":
+            if topk is None:
+                raise ValueError("topk must be set for mode='topk'")
+            k = max(1, min(int(topk), len(sizes_sorted)))
+
+        elif mode == "topfrac":
+            local_top_frac = prefix_top_fracs.get(prefix, top_frac)
+            if local_top_frac is None:
+                raise ValueError("top_frac must be set for mode='topfrac'")
+            k = max(1, min(int(round(local_top_frac * len(sizes_sorted))), len(sizes_sorted)))
+
+        else:
+            raise ValueError(f"Unknown mode: {mode}")
+
+        keep.update(i for i, _ in sizes_sorted[:k])
+
+    if len(keep) == 0:
+        raise ValueError(f"No parameters matched prefixes={prefixes}")
+
+    return sorted(keep), ranked_by_prefix

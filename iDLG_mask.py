@@ -179,7 +179,7 @@ def main():
     "A small positive value can reduce noise and encourage smoother images."
 ))
     
-    parser.add_argument("--optimizer", type=str, default="lbfgs", choices=["lbfgs", "adam"], help="Optimizer used for the reconstruction of dummy_data."
+    parser.add_argument("--optimizer", type=str, default="lbfgs", choices=["lbfgs", "adam", "adamw"], help="Optimizer used for the reconstruction of dummy_data."
 )
     
     args = parser.parse_args()
@@ -223,9 +223,9 @@ def main():
 
     loss_tol = 1e-6
     patience = 100
-    min_rel_improve = 1e-6
+    min_rel_improve = 1e-7
     explode_factor = 20.0
-    warmup = 100
+    warmup = 300
     max_nan = 1
 
     root_path = '.'

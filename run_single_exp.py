@@ -9,7 +9,7 @@ import consts # Local file
 #from skimage.metrics import structural_similarity as ssim
 
 from Misc_functions import (get_keep_ids, compute_psnr_from_mse, build_network, get_keep_ids_by_gradsize, 
-get_entry_masks_by_gradsize, get_prefix_keep_ids, compute_jacobian_rank, total_variation, get_entry_masks_by_prefix_group)
+get_entry_masks_by_gradsize, get_prefix_keep_ids, compute_jacobian_rank, total_variation, get_entry_masks_by_prefix_group, get_keep_ids_by_prefix_group)
 from Network import weights_init
 
 def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_queue):
@@ -50,9 +50,9 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
     net = net.to(device)
     net.eval()
 
-    if idx_net == 0 and device_id == 0:
-        for i, (name, param) in enumerate(net.named_parameters()):
-            print(i, name, tuple(param.shape))
+    # if idx_net == 0 and device_id == 0:
+    #     for i, (name, param) in enumerate(net.named_parameters()):
+    #         print(i, name, tuple(param.shape))
 
     print(f'[GPU {device_id}] Running {idx_net} experiment')
     
@@ -115,10 +115,16 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
 
         # ---- dummy init ----
         dummy_data = torch.randn(gt_data.size(), device=device, requires_grad=True)
+        #dummy_data = (0.5 * torch.randn(gt_data.size(), device=device)).requires_grad_(True)
+        scheduler = None
         if OPTIMIZER == "lbfgs":
-            optimizer = torch.optim.LBFGS([dummy_data], lr=lr, line_search_fn="strong_wolfe")
+            optimizer = torch.optim.LBFGS([dummy_data], lr=lr, max_iter=20, history_size=50)#, line_search_fn="strong_wolfe")
         elif OPTIMIZER == "adam":
             optimizer = torch.optim.Adam([dummy_data], lr=lr)
+            scheduler = torch.optim.lr_scheduler.StepLR(optimizer,step_size=300, gamma=0.5)
+        elif OPTIMIZER == "adamw":
+            optimizer = torch.optim.AdamW([dummy_data], lr=lr)
+            scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=300, gamma=0.5)
         else:
             raise ValueError(f"Unknown optimizer: {OPTIMIZER}")
         
@@ -156,14 +162,24 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
                     original_dy_dx, mode="topfrac_entries", top_frac=GRADSIZE_TOPFRAC)
 
             elif MASK_MODE == "prefix_topk":
-                keep_ids, ranked = get_keep_ids_by_gradsize(
-                    original_dy_dx, mode="topk", topk=GRADSIZE_TOPK,
-                    metric=GRADSIZE_METRIC, candidate_ids=candidate_ids)
-
+                keep_ids, ranked = get_keep_ids_by_prefix_group(
+                    net=net,
+                    original_dy_dx=original_dy_dx,
+                    prefixes=PREFIXES,
+                    mode="topk",
+                    topk=GRADSIZE_TOPK,
+                    metric=GRADSIZE_METRIC,
+                )
             elif MASK_MODE == "prefix_topfrac":
-                keep_ids, ranked = get_keep_ids_by_gradsize(
-                    original_dy_dx, mode="topfrac", top_frac=GRADSIZE_TOPFRAC,
-                    metric=GRADSIZE_METRIC, candidate_ids=candidate_ids)
+                keep_ids, ranked = get_keep_ids_by_prefix_group(
+                    net=net,
+                    original_dy_dx=original_dy_dx,
+                    prefixes=PREFIXES,
+                    mode="topfrac",
+                    top_frac=GRADSIZE_TOPFRAC,
+                    prefix_top_fracs=PREFIX_LAYER_FRACS,
+                    metric=GRADSIZE_METRIC,
+                )
             
             elif MASK_MODE == "prefix_topk_entries":
                 entry_masks, observed_entries, total_entries = get_entry_masks_by_gradsize(
@@ -279,7 +295,25 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
                         total += entry_masks[i].numel()
                 if total > 0:
                     print(f"  {prefix}: kept {kept}/{total} = {kept/total:.4f}")
-                    
+        
+        if MASK_MODE in ["prefix_topfrac", "prefix_topk"] and keep_ids is not None:
+            print(f"[GPU {device_id}] kept tensors per prefix:")
+            named_params = list(net.named_parameters())
+            keep_ids_set = set(keep_ids)
+
+            for prefix in PREFIXES:
+                total = 0
+                kept = 0
+                for i, (name, _) in enumerate(named_params):
+                    if name.startswith(prefix):
+                        total += 1
+                        if i in keep_ids_set:
+                            kept += 1
+
+                if total > 0:
+                    req = PREFIX_LAYER_FRACS.get(prefix, GRADSIZE_TOPFRAC) if MASK_MODE == "prefix_topfrac" else GRADSIZE_TOPK
+                    print(f"  {prefix}: kept {kept}/{total} = {kept/total:.4f}, requested={req}")
+                            
         if COMPUTE_JACOBIAN_RANK:
             if num_dummy != 1:
                 raise ValueError("Jacobian-rank computation currently assumes num_dummy=1.")
@@ -340,6 +374,7 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
 
         losses = []
         mses = []
+
         # ---- EarlyStop config from main (with fallbacks) ----
         es = config.get("EarlyStop", {})
         best_loss = float("inf")
@@ -384,7 +419,7 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
                             grad_diff = grad_diff + (diff ** 2).sum()
                             num_terms += diff.numel()
 
-                    grad_diff = grad_diff/max(num_terms, 1) #normalize loss
+                    #grad_diff = grad_diff/max(num_terms, 1) #normalize loss
 
                     tv_loss = total_variation(x)
                     total_loss = grad_diff + TV_WEIGHT * tv_loss
@@ -393,7 +428,7 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
 
                 current_loss = optimizer.step(closure).item()
 
-            elif OPTIMIZER == "adam":
+            elif OPTIMIZER in ["adam","adamw"]:
                 optimizer.zero_grad()
 
                 x = torch.sigmoid(dummy_data)
@@ -404,18 +439,27 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
                 dummy_dy_dx = torch.autograd.grad(dummy_loss, selected_params, create_graph=True)
 
                 grad_diff = 0.0
+                num_terms = 0
                 if selected_entry_masks is not None:
                     for gx, gy, m in zip(dummy_dy_dx, selected_original, selected_entry_masks):
                         diff = gx[m] - gy[m]
                         grad_diff = grad_diff + (diff ** 2).sum()
+                        num_terms += diff.numel()
                 else:
                     for gx, gy in zip(dummy_dy_dx, selected_original):
-                        grad_diff = grad_diff + ((gx - gy) ** 2).sum()
+                        diff = gx - gy
+                        grad_diff = grad_diff + ((diff) ** 2).sum()
+                        num_terms += diff.numel()
+
+                #grad_diff = grad_diff/max(num_terms, 1) #normalize loss
 
                 tv_loss = total_variation(x)
                 total_loss = grad_diff + TV_WEIGHT * tv_loss
                 total_loss.backward()
                 optimizer.step()
+
+                if scheduler is not None:
+                    scheduler.step()
 
                 current_loss = total_loss.item()
 
@@ -470,8 +514,10 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
             current_mse = torch.mean((torch.sigmoid(dummy_data) - gt_data) ** 2).item()
             mses.append(current_mse)
 
+            
             if iters % 100 == 0:
-                print(f'[GPU {device_id}] {OPTIMIZER} iters {iters}, loss = {current_loss:.8f}, mse = {mses[-1]:.8f}')
+                current_lr = optimizer.param_groups[0]["lr"]
+                print(f'[GPU {device_id}] {OPTIMIZER} iters {iters}, lr = {current_lr:.6g}, loss = {current_loss:.8f}, mse = {mses[-1]:.8f}')
 
         #final_recon[method] = torch.sigmoid(dummy_data).detach().clone()
         if best_dummy is not None:
