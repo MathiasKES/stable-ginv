@@ -519,9 +519,10 @@ def main():
 
     common = {
         "timestamp": timestamp_str,
+        "job_id": os.environ.get("LSB_JOBID", ""),
         "dataset": dataset,
         "network": NETWORK_NAME,
-        
+
         "lr": lr,
         "iteration": Iteration,
         "num_exp": num_exp,
