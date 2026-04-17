@@ -444,7 +444,7 @@ def save_recon_panel(params: dict, panel_gt_pil, panel_idlg_pil, panel_masked_pi
     plt.tight_layout(rect=(0.08, 0.0, 1.0, 1.0))
     out_path = os.path.join(
         save_dir,
-        f"{'_'.join(f'{key}{val}' for key, val in params.items())}_{mask_desc}_{methods}_{timestamp_str}.png"
+        f"{timestamp_str}_{'_'.join(f'{key}{val}' for key, val in params.items())}_{mask_desc}_{methods}.png"
     )
     plt.savefig(out_path, dpi=250, bbox_inches='tight')
     plt.close(fig)
