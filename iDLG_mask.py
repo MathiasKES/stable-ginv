@@ -182,6 +182,9 @@ def main():
     parser.add_argument("--optimizer", type=str, default="lbfgs", choices=["lbfgs", "adam", "adamw"], help="Optimizer used for the reconstruction of dummy_data."
 )
     
+    parser.add_argument("--num_restarts", type=int, default=1,
+        help="Number of random restarts for each reconstruction.")
+    
     args = parser.parse_args()
 
     # -------- Masking config --------
@@ -217,12 +220,13 @@ def main():
     Iteration = args.iteration
     num_exp = args.num_exp
     NETWORK_NAME = args.network
+    NUM_RESTARTS = args.num_restarts
     dataset = args.dataset
     run_id = args.run_id
     timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
 
     loss_tol = 1e-6
-    patience = 100
+    patience = 200
     min_rel_improve = 1e-7
     explode_factor = 20.0
     warmup = 300
@@ -327,6 +331,7 @@ def main():
         'JACOBIAN_SELECT_MODE': JACOBIAN_SELECT_MODE,
         'TV_WEIGHT': TV_WEIGHT,
         'OPTIMIZER': OPTIMIZER,
+        "NUM_RESTARTS": NUM_RESTARTS,
         'run_id': run_id,
         'EarlyStop': {
             'loss_tol': loss_tol,
@@ -521,7 +526,7 @@ def main():
         "timestamp": timestamp_str,
         "dataset": dataset,
         "network": NETWORK_NAME,
-        
+        "restarts": NUM_RESTARTS,
         "lr": lr,
         "iteration": Iteration,
         "num_exp": num_exp,

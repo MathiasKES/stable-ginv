@@ -499,9 +499,14 @@ def build_gradient_mask(
             original_dy_dx, mode="topfrac_entries", top_frac=gradsize_topfrac
         )
     elif mask_mode == "prefix_topk":
-        keep_ids, _ = get_keep_ids_by_gradsize(
-            original_dy_dx, mode="topk", topk=gradsize_topk,
-            metric=gradsize_metric, candidate_ids=candidate_ids
+        keep_ids, _ = get_keep_ids_by_prefix_group(
+            net=net,
+            original_dy_dx=original_dy_dx,
+            prefixes=prefixes,
+            mode="topk",
+            topk=gradsize_topk,
+            prefix_top_ks={k: int(v) for k, v in prefix_layer_fracs.items()},
+            metric=gradsize_metric,
         )
     elif mask_mode == "prefix_topfrac":
         keep_ids, _ = get_keep_ids_by_gradsize(
@@ -560,6 +565,7 @@ def get_keep_ids_by_prefix_group(
     topk=None,
     top_frac=None,
     prefix_top_fracs=None,
+    prefix_top_ks=None,
     metric="l2",
 ):
     """
@@ -576,6 +582,9 @@ def get_keep_ids_by_prefix_group(
     """
     if prefix_top_fracs is None:
         prefix_top_fracs = {}
+    
+    if prefix_top_ks is None:
+        prefix_top_ks = {}
 
     named_params = list(net.named_parameters())
     keep = set()
@@ -610,9 +619,10 @@ def get_keep_ids_by_prefix_group(
         ranked_by_prefix[prefix] = sizes_sorted
 
         if mode == "topk":
-            if topk is None:
+            local_topk = prefix_top_ks.get(prefix, topk)
+            if local_topk is None:
                 raise ValueError("topk must be set for mode='topk'")
-            k = max(1, min(int(topk), len(sizes_sorted)))
+            k = max(0, min(int(local_topk), len(sizes_sorted)))
 
         elif mode == "topfrac":
             local_top_frac = prefix_top_fracs.get(prefix, top_frac)
@@ -623,7 +633,8 @@ def get_keep_ids_by_prefix_group(
         else:
             raise ValueError(f"Unknown mode: {mode}")
 
-        keep.update(i for i, _ in sizes_sorted[:k])
+        if k > 0:
+            keep.update(i for i, _ in sizes_sorted[:k])
 
     if len(keep) == 0:
         raise ValueError(f"No parameters matched prefixes={prefixes}")

@@ -38,6 +38,7 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
     JACOBIAN_SELECT_MODE = config.get('JACOBIAN_SELECT_MODE', 'topk_abs')
     TV_WEIGHT = config.get('TV_WEIGHT', 0.0)
     OPTIMIZER = config.get('OPTIMIZER', 'lbfgs')
+    NUM_RESTARTS = config.get('NUM_RESTARTS', 1)
 
     seed = config.get("run_id", 0) + idx_net + 1 
     torch.manual_seed(seed)
@@ -84,6 +85,14 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
     for method in methods_to_run:
         print(f'[GPU {device_id}] {method}, Try to generate {num_dummy} images')
 
+        best_restart_loss_value = float("inf")
+        best_restart_mse_value = None
+        best_restart_dummy = None
+        best_restart_losses = None
+        best_restart_mses = None
+        best_restart_early_stop_reason = None
+        best_restart_early_stop_iter = None
+
         criterion = nn.CrossEntropyLoss().to(device)
         imidx_list = []
 
@@ -113,21 +122,6 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
         dy_dx = torch.autograd.grad(y, net.parameters())
         original_dy_dx = [g.detach().clone() for g in dy_dx]
 
-        # ---- dummy init ----
-        dummy_data = torch.randn(gt_data.size(), device=device, requires_grad=True)
-        #dummy_data = (0.5 * torch.randn(gt_data.size(), device=device)).requires_grad_(True)
-        scheduler = None
-        if OPTIMIZER == "lbfgs":
-            optimizer = torch.optim.LBFGS([dummy_data], lr=lr, max_iter=20, history_size=50)#, line_search_fn="strong_wolfe")
-        elif OPTIMIZER == "adam":
-            optimizer = torch.optim.Adam([dummy_data], lr=lr)
-            scheduler = torch.optim.lr_scheduler.StepLR(optimizer,step_size=300, gamma=0.5)
-        elif OPTIMIZER == "adamw":
-            optimizer = torch.optim.AdamW([dummy_data], lr=lr)
-            scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=300, gamma=0.5)
-        else:
-            raise ValueError(f"Unknown optimizer: {OPTIMIZER}")
-        
         # iDLG label inference
         #label_pred = torch.argmin(torch.sum(original_dy_dx[-2], dim=-1), dim=-1).detach().reshape((1,))
 
@@ -168,6 +162,7 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
                     prefixes=PREFIXES,
                     mode="topk",
                     topk=GRADSIZE_TOPK,
+                    prefix_top_ks={k: int(v) for k, v in PREFIX_LAYER_FRACS.items()},
                     metric=GRADSIZE_METRIC,
                 )
             elif MASK_MODE == "prefix_topfrac":
@@ -311,7 +306,11 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
                             kept += 1
 
                 if total > 0:
-                    req = PREFIX_LAYER_FRACS.get(prefix, GRADSIZE_TOPFRAC) if MASK_MODE == "prefix_topfrac" else GRADSIZE_TOPK
+                    if MASK_MODE == "prefix_topfrac":
+                        req = PREFIX_LAYER_FRACS.get(prefix, GRADSIZE_TOPFRAC)
+                    else:
+                        req = int(PREFIX_LAYER_FRACS.get(prefix, GRADSIZE_TOPK))
+                    # req = PREFIX_LAYER_FRACS.get(prefix, GRADSIZE_TOPFRAC) if MASK_MODE == "prefix_topfrac" else GRADSIZE_TOPK
                     print(f"  {prefix}: kept {kept}/{total} = {kept/total:.4f}, requested={req}")
                             
         if COMPUTE_JACOBIAN_RANK:
@@ -372,31 +371,95 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
         selected_original = [original_dy_dx[i] for i in selected_ids]
         selected_entry_masks = [entry_masks[i] for i in selected_ids] if entry_masks is not None else None
 
-        losses = []
-        mses = []
+        all_params = list(net.parameters())
+        if entry_masks is not None:
+            selected_ids = [
+                i for i, m in enumerate(entry_masks)
+                if m is not None and m.any()
+            ]
+        else:
+            selected_ids = sorted(list(keep_ids))
 
-        # ---- EarlyStop config from main (with fallbacks) ----
-        es = config.get("EarlyStop", {})
-        best_loss = float("inf")
-        no_improve = 0
+        selected_params = [all_params[i] for i in selected_ids]
+        selected_original = [original_dy_dx[i] for i in selected_ids]
+        selected_entry_masks = [entry_masks[i] for i in selected_ids] if entry_masks is not None else None
 
-        patience = int(es.get("patience", 100))
-        min_rel_improve = float(es.get("min_rel_improve", 1e-6))
-        explode_factor = float(es.get("explode_factor", 30.0))
-        warmup = int(es.get("warmup", 100))
-        loss_tol = float(es.get("loss_tol", 1e-6))
-        max_nan = int(es.get("max_nan", 1))
+        for restart_idx in range(NUM_RESTARTS):
+            restart_seed = seed * 1000 + restart_idx
+            torch.manual_seed(restart_seed)
+            np.random.seed(restart_seed)
+            torch.cuda.manual_seed_all(restart_seed)
 
-        nan_count = 0
-        early_stop_reason = None
-        early_stop_iter = None
-        best_loss_value = float("inf")
-        best_dummy = None
-        best_mse_value = None
+            print(f"[GPU {device_id}] {method}: restart {restart_idx+1}/{NUM_RESTARTS}")
 
-        for iters in range(Iteration):
+            dummy_data = (torch.randn(gt_data.size(), device=device)).requires_grad_(True)
+
+            scheduler = None
             if OPTIMIZER == "lbfgs":
-                def closure():
+                optimizer = torch.optim.LBFGS([dummy_data], lr=lr, max_iter=20, history_size=50)
+            elif OPTIMIZER == "adam":
+                optimizer = torch.optim.Adam([dummy_data], lr=lr)
+                scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=300, gamma=0.5)
+            elif OPTIMIZER == "adamw":
+                optimizer = torch.optim.AdamW([dummy_data], lr=lr, weight_decay=1e-5)
+                scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=300, gamma=0.5)
+            else:
+                raise ValueError(f"Unknown optimizer: {OPTIMIZER}")
+
+            losses = []
+            mses = []
+
+            es = config.get("EarlyStop", {})
+            best_loss = float("inf")
+            no_improve = 0
+
+            patience = int(es.get("patience", 100))
+            min_rel_improve = float(es.get("min_rel_improve", 1e-6))
+            explode_factor = float(es.get("explode_factor", 30.0))
+            warmup = int(es.get("warmup", 100))
+            loss_tol = float(es.get("loss_tol", 1e-6))
+            max_nan = int(es.get("max_nan", 1))
+
+            nan_count = 0
+            early_stop_reason = None
+            early_stop_iter = None
+            best_loss_value = float("inf")
+            best_dummy = None
+            best_mse_value = None
+
+            for iters in range(Iteration):
+                if OPTIMIZER == "lbfgs":
+                    def closure():
+                        optimizer.zero_grad()
+
+                        x = torch.sigmoid(dummy_data)
+                        x_norm = (x - dm) / ds
+
+                        pred = net(x_norm)
+                        dummy_loss = criterion(pred, label_pred)
+                        dummy_dy_dx = torch.autograd.grad(dummy_loss, selected_params, create_graph=True)
+
+                        grad_diff = 0.0
+                        num_terms = 0
+                        if selected_entry_masks is not None:
+                            for gx, gy, m in zip(dummy_dy_dx, selected_original, selected_entry_masks):
+                                diff = gx[m] - gy[m]
+                                grad_diff = grad_diff + (diff ** 2).sum()
+                                num_terms += diff.numel()
+                        else:
+                            for gx, gy in zip(dummy_dy_dx, selected_original):
+                                diff = gx - gy
+                                grad_diff = grad_diff + (diff ** 2).sum()
+                                num_terms += diff.numel()
+
+                        tv_loss = total_variation(x)
+                        total_loss = grad_diff + TV_WEIGHT * tv_loss
+                        total_loss.backward()
+                        return total_loss
+
+                    current_loss = optimizer.step(closure).item()
+
+                elif OPTIMIZER in ["adam","adamw"]:
                     optimizer.zero_grad()
 
                     x = torch.sigmoid(dummy_data)
@@ -416,134 +479,111 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
                     else:
                         for gx, gy in zip(dummy_dy_dx, selected_original):
                             diff = gx - gy
-                            grad_diff = grad_diff + (diff ** 2).sum()
+                            grad_diff = grad_diff + ((diff) ** 2).sum()
                             num_terms += diff.numel()
-
-                    #grad_diff = grad_diff/max(num_terms, 1) #normalize loss
 
                     tv_loss = total_variation(x)
                     total_loss = grad_diff + TV_WEIGHT * tv_loss
                     total_loss.backward()
-                    return total_loss
+                    optimizer.step()
 
-                current_loss = optimizer.step(closure).item()
+                    if scheduler is not None:
+                        scheduler.step()
 
-            elif OPTIMIZER in ["adam","adamw"]:
-                optimizer.zero_grad()
+                    current_loss = total_loss.item()
 
-                x = torch.sigmoid(dummy_data)
-                x_norm = (x - dm) / ds
-
-                pred = net(x_norm)
-                dummy_loss = criterion(pred, label_pred)
-                dummy_dy_dx = torch.autograd.grad(dummy_loss, selected_params, create_graph=True)
-
-                grad_diff = 0.0
-                num_terms = 0
-                if selected_entry_masks is not None:
-                    for gx, gy, m in zip(dummy_dy_dx, selected_original, selected_entry_masks):
-                        diff = gx[m] - gy[m]
-                        grad_diff = grad_diff + (diff ** 2).sum()
-                        num_terms += diff.numel()
                 else:
-                    for gx, gy in zip(dummy_dy_dx, selected_original):
-                        diff = gx - gy
-                        grad_diff = grad_diff + ((diff) ** 2).sum()
-                        num_terms += diff.numel()
+                    raise ValueError(f"Unknown optimizer: {OPTIMIZER}")
 
-                #grad_diff = grad_diff/max(num_terms, 1) #normalize loss
+                current_x = torch.sigmoid(dummy_data).detach().clone()
+                current_mse = torch.mean((current_x - gt_data) ** 2).item()
 
-                tv_loss = total_variation(x)
-                total_loss = grad_diff + TV_WEIGHT * tv_loss
-                total_loss.backward()
-                optimizer.step()
+                if np.isfinite(current_loss):
+                    if current_loss < best_loss_value:
+                        best_loss_value = current_loss
 
-                if scheduler is not None:
-                    scheduler.step()
+                    if best_mse_value is None or current_mse < best_mse_value:
+                        best_mse_value = current_mse
+                        best_dummy = current_x
 
-                current_loss = total_loss.item()
-
-            else:
-                raise ValueError(f"Unknown optimizer: {OPTIMIZER}")
-
-            if np.isfinite(current_loss):
-                current_mse = torch.mean((torch.sigmoid(dummy_data) - gt_data) ** 2).item()
-                if current_loss < best_loss_value:
-                    best_loss_value = current_loss
-                    best_dummy = torch.sigmoid(dummy_data).detach().clone()
-                    best_mse_value = current_mse
-
-            if not np.isfinite(current_loss):
-                nan_count += 1
-                early_stop_reason = "nan_or_inf"
-                early_stop_iter = iters
-                print(f"[GPU {device_id}] Early stop ({method}): NaN/Inf at iter {iters}")
-                if nan_count >= max_nan:
-                    break
-            else:
-                if best_loss == float("inf"):
-                    best_loss = current_loss
-                    no_improve = 0
+                if not np.isfinite(current_loss):
+                    nan_count += 1
+                    early_stop_reason = "nan_or_inf"
+                    early_stop_iter = iters
+                    print(f"[GPU {device_id}] Early stop ({method}, restart {restart_idx+1}): NaN/Inf at iter {iters}")
+                    if nan_count >= max_nan:
+                        break
                 else:
-                    rel_improve = (best_loss - current_loss) / max(abs(best_loss), 1e-12)
-                    if rel_improve > min_rel_improve:
+                    if best_loss == float("inf"):
                         best_loss = current_loss
                         no_improve = 0
-                    elif iters >= warmup:
-                        no_improve += 1
+                    else:
+                        rel_improve = (best_loss - current_loss) / max(abs(best_loss), 1e-12)
+                        if rel_improve > min_rel_improve:
+                            best_loss = current_loss
+                            no_improve = 0
+                        elif iters >= warmup:
+                            no_improve += 1
 
-            if iters >= warmup and current_loss < loss_tol:
-                early_stop_reason = "loss_tol"
-                early_stop_iter = iters
-                print(f"[GPU {device_id}] Early stop ({method}): loss_tol reached at iter {iters} (loss={current_loss:.3e})")
-                break
+                if iters >= warmup and current_loss < loss_tol:
+                    early_stop_reason = "loss_tol"
+                    early_stop_iter = iters
+                    print(f"[GPU {device_id}] Early stop ({method}, restart {restart_idx+1}): loss_tol reached at iter {iters} (loss={current_loss:.3e})")
+                    break
 
-            if iters >= warmup and best_loss < float("inf") and current_loss > explode_factor * best_loss:
-                early_stop_reason = "explosion"
-                early_stop_iter = iters
-                print(f"[GPU {device_id}] Early stop ({method}): exploded at iter {iters} (loss={current_loss:.3e}, best={best_loss:.3e})")
-                break
+                if iters >= warmup and best_loss < float("inf") and current_loss > explode_factor * best_loss:
+                    early_stop_reason = "explosion"
+                    early_stop_iter = iters
+                    print(f"[GPU {device_id}] Early stop ({method}, restart {restart_idx+1}): exploded at iter {iters} (loss={current_loss:.3e}, best={best_loss:.3e})")
+                    break
 
-            if iters >= warmup and no_improve >= patience:
-                early_stop_reason = "plateau"
-                early_stop_iter = iters
-                print(f"[GPU {device_id}] Early stop ({method}): plateau at iter {iters} (best={best_loss:.3e})")
-                break
+                if iters >= warmup and no_improve >= patience:
+                    early_stop_reason = "plateau"
+                    early_stop_iter = iters
+                    print(f"[GPU {device_id}] Early stop ({method}, restart {restart_idx+1}): plateau at iter {iters} (best={best_loss:.3e})")
+                    break
 
-            losses.append(current_loss)
-            current_mse = torch.mean((torch.sigmoid(dummy_data) - gt_data) ** 2).item()
-            mses.append(current_mse)
+                losses.append(current_loss)
+                mses.append(current_mse)
 
-            
-            if iters % 100 == 0:
-                current_lr = optimizer.param_groups[0]["lr"]
-                print(f'[GPU {device_id}] {OPTIMIZER} iters {iters}, lr = {current_lr:.6g}, loss = {current_loss:.8f}, mse = {mses[-1]:.8f}')
+                if iters % 100 == 0:
+                    current_lr = optimizer.param_groups[0]["lr"]
+                    print(f'[GPU {device_id}] {OPTIMIZER} restart {restart_idx+1} iters {iters}, lr = {current_lr:.6g}, loss = {current_loss:.8f}, mse = {current_mse:.8f}')
 
-        #final_recon[method] = torch.sigmoid(dummy_data).detach().clone()
-        if best_dummy is not None:
-            final_recon[method] = best_dummy
+            if best_mse_value is not None:
+                if best_restart_mse_value is None or best_mse_value < best_restart_mse_value:
+                    best_restart_mse_value = best_mse_value
+                    best_restart_loss_value = best_loss_value
+                    best_restart_dummy = best_dummy.clone() if best_dummy is not None else torch.sigmoid(dummy_data).detach().clone()
+                    best_restart_losses = losses[:]
+                    best_restart_mses = mses[:]
+                    best_restart_early_stop_reason = early_stop_reason
+                    best_restart_early_stop_iter = early_stop_iter
+
+        if best_restart_dummy is not None:
+            final_recon[method] = best_restart_dummy
         else:
-            final_recon[method] = torch.sigmoid(dummy_data).detach().clone()
+            final_recon[method] = torch.zeros_like(gt_data)
 
         if method == 'iDLG':
-            loss_iDLG = losses
+            loss_iDLG = best_restart_losses if best_restart_losses is not None else [float("inf")]
             label_iDLG = label_pred.item()
-            mse_iDLG = mses
-            best_loss_iDLG = best_loss_value
-            best_mse_iDLG = best_mse_value
+            mse_iDLG = best_restart_mses if best_restart_mses is not None else [float("inf")]
+            best_loss_iDLG = best_restart_loss_value
+            best_mse_iDLG = best_restart_mse_value
             jac_rank_iDLG = jacobian_rank
             jac_shape_iDLG = jacobian_shape
         else:
-            loss_iDLG_masked = losses
+            loss_iDLG_masked = best_restart_losses if best_restart_losses is not None else [float("inf")]
             label_iDLG_masked = label_pred.item()
-            mse_iDLG_masked = mses
-            best_loss_iDLG_masked = best_loss_value
-            best_mse_iDLG_masked = best_mse_value
+            mse_iDLG_masked = best_restart_mses if best_restart_mses is not None else [float("inf")]
+            best_loss_iDLG_masked = best_restart_loss_value
+            best_mse_iDLG_masked = best_restart_mse_value
             jac_rank_iDLG_masked = jacobian_rank
             jac_shape_iDLG_masked = jacobian_shape
 
-        early_stop_reason_dict[method] = early_stop_reason
-        early_stop_iter_dict[method] = early_stop_iter
+        early_stop_reason_dict[method] = best_restart_early_stop_reason
+        early_stop_iter_dict[method] = best_restart_early_stop_iter
 
     # Prepare results to send back
     result = {
