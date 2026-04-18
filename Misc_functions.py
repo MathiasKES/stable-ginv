@@ -442,9 +442,11 @@ def save_recon_panel(params: dict, panel_gt_pil, panel_idlg_pil, panel_masked_pi
             ax.axis('off')
 
     plt.tight_layout(rect=(0.08, 0.0, 1.0, 1.0))
+    job_id = os.environ.get("LSB_JOBID", "")
+    prefix = f"{timestamp_str}_job{job_id}" if job_id else timestamp_str
     out_path = os.path.join(
         save_dir,
-        f"{'_'.join(f'{key}{val}' for key, val in params.items())}_{mask_desc}_{methods}_{timestamp_str}.png"
+        f"{prefix}_{'_'.join(f'{key}{val}' for key, val in params.items())}_{mask_desc}_{methods}.png"
     )
     plt.savefig(out_path, dpi=250, bbox_inches='tight')
     plt.close(fig)
@@ -455,6 +457,7 @@ def save_recon_panel(params: dict, panel_gt_pil, panel_idlg_pil, panel_masked_pi
         print(f"Warning: failed to set permissions for {out_path}: {e}")
 
     print("Saved reconstruction panel to:", out_path)
+    return out_path
 
 def build_gradient_mask(
     method,

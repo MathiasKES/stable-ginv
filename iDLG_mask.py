@@ -289,6 +289,7 @@ def main():
     panel_gt_pil = []
     panel_idlg_pil = []
     panel_masked_pil = []
+    panel_png_paths = []
 
     psnr_idlg_all = []
     psnr_masked_all = []
@@ -427,10 +428,12 @@ def main():
             panel_masked_pil.append(masked_pil)
 
             if len(panel_gt_pil) == panel_block_size:
-                save_recon_panel(
+                panel_path = save_recon_panel(
                     params, panel_gt_pil, panel_idlg_pil, panel_masked_pil,
                     save_path, panel_block_idx, dataset, mask_desc, timestamp_str, methods=METHODS
                 )
+                if panel_path:
+                    panel_png_paths.append(panel_path)
                 panel_block_idx += 1
                 panel_gt_pil.clear()
                 panel_idlg_pil.clear()
@@ -485,8 +488,10 @@ def main():
         p.join()
     # save any remaining
     if len(panel_gt_pil) > 0:
-        save_recon_panel(params, panel_gt_pil, panel_idlg_pil, panel_masked_pil,
+        panel_path = save_recon_panel(params, panel_gt_pil, panel_idlg_pil, panel_masked_pil,
                          save_path, panel_block_idx, dataset, mask_desc, timestamp_str, methods=METHODS)
+        if panel_path:
+            panel_png_paths.append(panel_path)
     
     # -------- Compute statistics --------
     avg_psnr_idlg           = float(np.mean(psnr_idlg_all))             if len(psnr_idlg_all)       else float("nan")
@@ -522,8 +527,14 @@ def main():
     csv_path = os.path.join(save_path, "exp_results.csv")
     file_exists = os.path.isfile(csv_path)
 
+    png_display_prefix = "/work3/s234843/bachelor/results"
+    png_path_str = "|".join(
+        f"{png_display_prefix}/{os.path.basename(p)}" for p in panel_png_paths
+    )
+
     common = {
         "timestamp": timestamp_str,
+        "job_id": os.environ.get("LSB_JOBID", ""),
         "dataset": dataset,
         "network": NETWORK_NAME,
         "restarts": NUM_RESTARTS,
@@ -571,6 +582,7 @@ def main():
             "avg_best_mse": round(avg_best_mse_idlg,5),
             "avg_best_psnr": round(avg_best_psnr_idlg,5),
             "std_best_psnr": round(std_best_psnr_idlg,5),
+            "png_path": png_path_str,
         })
 
     if METHODS in ["masked", "both"]:
@@ -591,13 +603,15 @@ def main():
             "med_best_mse": round(med_best_mse_masked,5),
             "avg_best_mse": round(avg_best_mse_masked,5),
             "avg_best_psnr": round(avg_best_psnr_masked,5),
-            "std_best_psnr": round(std_best_psnr_masked,5,)
+            "std_best_psnr": round(std_best_psnr_masked,5,),
+            "png_path": png_path_str,
         })
 
     fieldnames = ["method"] + [k for k in common.keys()] + [
     "mask_mode", "prefixes", "grad_param",
     # "med_final_loss", "avg_final_loss", "med_final_mse", "avg_final_mse", "avg_psnr", "std_psnr",
-    "med_best_loss", "avg_best_loss", "med_best_mse", "avg_best_mse", "avg_best_psnr", "std_best_psnr"]
+    "med_best_loss", "avg_best_loss", "med_best_mse", "avg_best_mse", "avg_best_psnr", "std_best_psnr",
+    "png_path"]
 
     with open(csv_path, "a", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)

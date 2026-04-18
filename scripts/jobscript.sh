@@ -4,6 +4,7 @@ COMMANDS_FILE="scripts/cmds.txt"
 
 while IFS= read -r CMD || [[ -n "$CMD" ]]; do
   [[ -z "$CMD" ]] && continue  # skip empty lines
+  [[ "$CMD" =~ ^[[:space:]]*# ]] && continue  # skip comment lines
 
   # Extract fields for job name
   METHODS=$(echo "$CMD"          | grep -oP '(?<=--methods )\S+')
