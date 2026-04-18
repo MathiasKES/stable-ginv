@@ -88,7 +88,23 @@ def worker(rank, world_size, args, sample_chunks, shared_results, progress_count
         torch.cuda.manual_seed_all(seed)
 
     row_counts = [int(x.strip()) for x in args.row_counts.split(",") if x.strip()]
-    prefixes = tuple(p.strip() for p in args.prefixes.split(",") if p.strip())
+
+    prefixes_list = []
+    prefix_layer_values = {}
+    for item in args.prefixes.split(","):
+        item = item.strip()
+        if not item:
+            continue
+        if ":" in item:
+            prefix, value = item.split(":", 1)
+            prefix = prefix.strip()
+            value = float(value.strip())
+            prefixes_list.append(prefix)
+            prefix_layer_values[prefix] = value
+        else:
+            prefixes_list.append(item)
+
+    prefixes = tuple(prefixes_list)
 
     if os.access('/work3/s234843/bachelor', os.R_OK | os.W_OK | os.X_OK):
         data_path = '/work3/s234843/bachelor/datasets'
@@ -153,11 +169,53 @@ def worker(rank, world_size, args, sample_chunks, shared_results, progress_count
             net=net,
             original_dy_dx=original_dy_dx,
             prefixes=prefixes,
+            prefix_layer_fracs=prefix_layer_values,
             gradsize_topk=args.gradsize_topk,
             gradsize_topfrac=args.gradsize_topfrac,
             gradsize_threshold=args.gradsize_threshold,
             gradsize_metric=args.gradsize_metric,
         )
+
+         # ----- debug masking -----
+        if rank == 0 and local_i == 0:
+            named_params = list(net.named_parameters())
+
+            print("\n=== MASK DEBUG ===", flush=True)
+            print("mask_mode:", args.mask_mode, flush=True)
+            print("prefixes:", prefixes, flush=True)
+            print("prefix_layer_values:", prefix_layer_values, flush=True)
+            print("entry_masks is None:", entry_masks is None, flush=True)
+            print("num keep_ids:", 0 if keep_ids is None else len(keep_ids), flush=True)
+
+            if keep_ids is not None:
+                keep_ids_set = set(keep_ids)
+
+                total_entries = sum(g.numel() for g in original_dy_dx if g is not None)
+                observed_entries = sum(
+                    g.numel() for i, g in enumerate(original_dy_dx)
+                    if g is not None and i in keep_ids_set
+                )
+                print(f"observed_entries={observed_entries}, total_entries={total_entries}, kept_fraction={observed_entries/total_entries:.6f}", flush=True)
+
+                print("kept tensors per prefix:", flush=True)
+                for prefix in prefixes:
+                    total = 0
+                    kept = 0
+                    kept_names = []
+
+                    for i, (name, _) in enumerate(named_params):
+                        if name.startswith(prefix):
+                            total += 1
+                            if i in keep_ids_set:
+                                kept += 1
+                                kept_names.append(name)
+
+                    requested = int(prefix_layer_values.get(prefix, args.gradsize_topk))
+                    print(f"  {prefix}: kept {kept}/{total}, requested={requested}", flush=True)
+                    for name in kept_names:
+                        print(f"    - {name}", flush=True)
+
+            print("=== END MASK DEBUG ===\n", flush=True)
 
         for rows in row_counts:
             jac_rank, jac_shape, used_rows, jac_unknowns = compute_jacobian_rank(

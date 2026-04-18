@@ -1,3 +1,5 @@
-python jacobian_rank_sweep.py --method idlg --network resnet18 --dataset cifar100 --num_samples 3 --row_counts 500,1000,2000,3000,4000,5000,10000,20000,30000,50000,75000,100000,125000,150000,200000, 250000 --jacobian_select_mode topk_abs
-python jacobian_rank_sweep.py --method idlg --network resnet18 --dataset cifar100 --num_samples 3 --row_counts 500,1000,2000,3000,4000,5000,10000,20000,30000,50000,75000,100000,125000,150000,200000, 250000 --jacobian_select_mode random
-python jacobian_rank_sweep.py --method idlg --network resnet18 --dataset cifar100 --num_samples 3 --row_counts 500,1000,2000,3000,4000,5000,10000,20000,30000,50000 --jacobian_select_mode topk_abs
+python iDLG_mask.py --methods both --mask_mode prefix_topk --prefixes conv1:1,layer1:20,layer2:15,layer3:10,layer4:0,fc:2 --num_exp 30 --network resnet50 --lr 0.1 --optimizer adamw --iteration 3000 --num_restarts 5
+python iDLG_mask.py --methods masked --mask_mode prefix_topk --prefixes conv1:1,layer1:20,layer2:15,layer3:10,layer4:0,fc:2 --num_exp 30 --network resnet50 --lr 0.1 --optimizer adamw --iteration 3000 --num_restarts 5
+python iDLG_mask.py --methods masked --mask_mode prefix_topk --prefixes conv1:1,layer1:30,layer2:15,layer3:10,layer4:0,fc:2 --num_exp 30 --network resnet50 --lr 0.1 --optimizer adamw --iteration 3000 --num_restarts 5
+python iDLG_mask.py --methods masked --mask_mode prefix_topk --prefixes conv1:1,layer1:20,layer2:20,layer3:10,layer4:0,fc:2 --num_exp 30 --network resnet50 --lr 0.1 --optimizer adamw --iteration 3000 --num_restarts 5
+python iDLG_mask.py --methods masked --mask_mode prefix_topk --prefixes conv1:1,layer1:20,layer2:10,layer3:20,layer4:0,fc:2 --num_exp 30 --network resnet50 --lr 0.1 --optimizer adamw --iteration 3000 --num_restarts 5
