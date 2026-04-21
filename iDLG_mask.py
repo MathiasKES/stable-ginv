@@ -534,7 +534,9 @@ def main():
 
     common = {
         "timestamp": timestamp_str,
-        "job_id": os.environ.get("LSB_JOBID", ""),
+        "job_id": "INTERACTIVE" if os.environ.get("LSB_INTERACTIVE") == "Y" else os.environ.get("LSB_JOBID", ""),
+        "Run by": os.environ.get("USER", ""),
+        "device": os.environ.get("LSB_QUEUE", ""),
         "dataset": dataset,
         "network": NETWORK_NAME,
         "restarts": NUM_RESTARTS,
@@ -607,7 +609,7 @@ def main():
             "png_path": png_path_str,
         })
 
-    fieldnames = ["method"] + [k for k in common.keys()] + [
+    fieldnames = ["method"] + list(common.keys()) + [
     "mask_mode", "prefixes", "grad_param",
     # "med_final_loss", "avg_final_loss", "med_final_mse", "avg_final_mse", "avg_psnr", "std_psnr",
     "med_best_loss", "avg_best_loss", "med_best_mse", "avg_best_mse", "avg_best_psnr", "std_best_psnr",
