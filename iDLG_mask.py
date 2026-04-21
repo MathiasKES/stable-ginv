@@ -179,13 +179,31 @@ def main():
     "A small positive value can reduce noise and encourage smoother images."
 ))
     
-    parser.add_argument("--optimizer", type=str, default="lbfgs", choices=["lbfgs", "adam", "adamw"], help="Optimizer used for the reconstruction of dummy_data."
+    parser.add_argument("--optimizer", type=str, default="lbfgs", choices=["lbfgs", "adam", "adamw", "adamw_lbfgs"], help="Optimizer used for the reconstruction of dummy_data."
 )
     
-    parser.add_argument("--num_restarts", type=int, default=1,
+    parser.add_argument("--num_restarts", type=int, default=3,
         help="Number of random restarts for each reconstruction.")
     
+    parser.add_argument(
+        "--max_iteration",
+        type=int,
+        default=20,
+        help="Maximum number of iterations per LBFGS step. Only used when --optimizer lbfgs."
+    )
+
+    parser.add_argument(
+        "--history_size",
+        type=int,
+        default=100,
+        help="History size for LBFGS. Only used when --optimizer lbfgs."
+    )
+    
     args = parser.parse_args()
+
+    if args.optimizer not in ["lbfgs","adamw_lbfgs"]:
+        if "--max_iteration" in sys.argv or "--history_size" in sys.argv:
+            parser.error("--max_iteration and --history_size can only be used when --optimizer lbfgs")
 
     # -------- Masking config --------
     MASK_MODE = args.mask_mode
@@ -221,13 +239,15 @@ def main():
     num_exp = args.num_exp
     NETWORK_NAME = args.network
     NUM_RESTARTS = args.num_restarts
+    MAX_ITERATION = args.max_iteration
+    HISTORY_SIZE = args.history_size
     dataset = args.dataset
     run_id = args.run_id
     timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-    loss_tol = 1e-6
-    patience = 200
-    min_rel_improve = 1e-7
+    loss_tol = 1e-9
+    patience = 100
+    min_rel_improve = 1e-6
     explode_factor = 20.0
     warmup = 300
     max_nan = 1
@@ -333,6 +353,8 @@ def main():
         'TV_WEIGHT': TV_WEIGHT,
         'OPTIMIZER': OPTIMIZER,
         "NUM_RESTARTS": NUM_RESTARTS,
+        'MAX_ITERATION': MAX_ITERATION,
+        'HISTORY_SIZE': HISTORY_SIZE,
         'run_id': run_id,
         'EarlyStop': {
             'loss_tol': loss_tol,
@@ -346,9 +368,9 @@ def main():
 
     # -------- Run experiments in parallel --------
     unknowns = channel * shape_img[0] * shape_img[1]
-    print(f"Input unknowns per image: {unknowns}")
+    #print(f"Input unknowns per image: {unknowns}")
     num_gpus = torch.cuda.device_count()
-    print(f"Using {num_gpus} GPUs")
+    #print(f"Using {num_gpus} GPUs")
     if num_gpus == 0:
         raise RuntimeError("No CUDA GPUs available.")
     
@@ -369,7 +391,7 @@ def main():
         p.start()
         active_processes[device_id] = p
         #print(f"Launching experiment {next_exp} on GPU {device_id}", flush=True)
-        tqdm.write(f"Launching experiment {next_exp} on GPU {device_id}")
+        #tqdm.write(f"Launching experiment {next_exp} on GPU {device_id}")
         next_exp += 1
 
     # Keep launching a new experiment whenever one finishes
@@ -443,8 +465,8 @@ def main():
             es_i = result.get("early_stop_iter", {})
 
             print(f"early_stop iDLG: {es_r.get('iDLG')} @ {es_i.get('iDLG')}")
-            print(f"early_stop masked: {es_r.get('iDLG_masked')} @ {es_i.get('iDLG_masked')}")
-            print('imidx_list:', result['imidx_list'])
+            # print(f"early_stop masked: {es_r.get('iDLG_masked')} @ {es_i.get('iDLG_masked')}")
+            # print('imidx_list:', result['imidx_list'])
 
             if result.get('last_loss_iDLG') is not None:
                 print('last_loss_iDLG:', result['last_loss_iDLG'], 'last_mse_iDLG:', result['last_mse_iDLG'])
@@ -464,9 +486,9 @@ def main():
                 print('jac_rank_iDLG_masked:', result['jac_rank_iDLG_masked'],
                     'jac_shape_iDLG_masked:', result['jac_shape_iDLG_masked'])
 
-            print('gt_label:', result['gt_label'],
-                'lab_iDLG:', result['label_iDLG'], 'lab_iDLG_masked:', result['label_iDLG_masked'])
-            print('----------------------\n\n')
+            # print('gt_label:', result['gt_label'],
+            #     'lab_iDLG:', result['label_iDLG'], 'lab_iDLG_masked:', result['label_iDLG_masked'])
+            # print('----------------------\n\n')
 
             # Clean up the finished process on that GPU
             active_processes[finished_device].join()
@@ -544,7 +566,9 @@ def main():
         "iteration": Iteration,
         "num_exp": num_exp,
         "tv_weight": TV_WEIGHT,
-        "optimizer": OPTIMIZER}
+        "optimizer": OPTIMIZER,
+        "max_iter": MAX_ITERATION,
+        "history": HISTORY_SIZE}
     
     grad_value = ""
     if MASK_MODE in [
@@ -580,8 +604,8 @@ def main():
             # "std_psnr": std_psnr_idlg,
             "med_best_loss": round(med_best_loss_idlg,5),
             "avg_best_loss": round(avg_best_loss_idlg,5),
-            "med_best_mse": round(med_best_mse_idlg,5),
-            "avg_best_mse": round(avg_best_mse_idlg,5),
+            "med_best_mse": round(med_best_mse_idlg,10),
+            "avg_best_mse": round(avg_best_mse_idlg,10),
             "avg_best_psnr": round(avg_best_psnr_idlg,5),
             "std_best_psnr": round(std_best_psnr_idlg,5),
             "png_path": png_path_str,
@@ -602,8 +626,8 @@ def main():
             # "std_psnr": std_psnr_masked,
             "med_best_loss": round(med_best_loss_masked,5),
             "avg_best_loss": round(avg_best_loss_masked,5),
-            "med_best_mse": round(med_best_mse_masked,5),
-            "avg_best_mse": round(avg_best_mse_masked,5),
+            "med_best_mse": round(med_best_mse_masked,10),
+            "avg_best_mse": round(avg_best_mse_masked,10),
             "avg_best_psnr": round(avg_best_psnr_masked,5),
             "std_best_psnr": round(std_best_psnr_masked,5,),
             "png_path": png_path_str,
@@ -640,7 +664,7 @@ def main():
     print(f"Avg best loss iDLG: {avg_best_loss_idlg:.6f} | masked: {avg_best_loss_masked:.6f}")
     print(f"Avg best mse  iDLG: {avg_best_mse_idlg:.8f} | masked: {avg_best_mse_masked:.8f}")
     print(f"Median best loss iDLG: {med_best_loss_idlg:.6f} | masked: {med_best_loss_masked:.6f}")
-    print(f"Median best mse  iDLG: {med_best_mse_idlg:.8f} | masked: {med_best_mse_masked:.8f}")
+    print(f"Median best mse  iDLG: {med_best_mse_idlg:.10f} | masked: {med_best_mse_masked:.10f}")
     print(f"Average best PSNR iDLG: {avg_best_psnr_idlg:.4f} ± {std_best_psnr_idlg:.4f} dB | masked: {avg_best_psnr_masked:.4f} ± {std_best_psnr_masked:.4f} dB")
 if __name__ == '__main__':
     main()

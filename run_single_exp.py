@@ -39,6 +39,8 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
     TV_WEIGHT = config.get('TV_WEIGHT', 0.0)
     OPTIMIZER = config.get('OPTIMIZER', 'lbfgs')
     NUM_RESTARTS = config.get('NUM_RESTARTS', 1)
+    MAX_ITERATION = config.get('MAX_ITERATION',20)
+    HISTORY_SIZE = config.get('HISTORY_SIZE',100)
 
     seed = config.get("run_id", 0) + idx_net + 1 
     torch.manual_seed(seed)
@@ -52,10 +54,9 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
     net.eval()
 
     # if idx_net == 0 and device_id == 0:
-    #     for i, (name, param) in enumerate(net.named_parameters()):
-    #         print(i, name, tuple(param.shape))
-
-    print(f'[GPU {device_id}] Running {idx_net} experiment')
+    # #     for i, (name, param) in enumerate(net.named_parameters()):
+    # #         print(i, name, tuple(param.shape))
+    #     print(f'[GPU {device_id}] Running {idx_net} experiment')
     
     idx_shuffle = np.random.permutation(len(dst))
     tt = transforms.Compose([transforms.ToTensor()])
@@ -83,7 +84,7 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
     jac_shape_iDLG_masked = None
 
     for method in methods_to_run:
-        print(f'[GPU {device_id}] {method}, Try to generate {num_dummy} images')
+        #print(f'[GPU {device_id}] {method}, Try to generate {num_dummy} images')
 
         best_restart_loss_value = float("inf")
         best_restart_mse_value = None
@@ -275,10 +276,11 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
         jacobian_rank = None
         jacobian_shape = None
 
-        print(f"[GPU {device_id}] {method}: observed_entries={observed_entries}, "
-            f"total_entries={total_entries}, kept_fraction={kept_fraction:.4f}, "
-            f"unknowns={unknowns}")
-        
+        if idx_net == 0 and device_id == 0:
+            print(f"[GPU {device_id}] {method}: observed_entries={observed_entries}, "
+                f"total_entries={total_entries}, kept_fraction={kept_fraction:.4f}, "
+                f"unknowns={unknowns}")
+            
         if MASK_MODE in ["prefix_topfrac_entries_layer", "prefix_topk_entries_layer"] and entry_masks is not None:
             print(f"[GPU {device_id}] kept entries per prefix:")
             for prefix in PREFIXES:
@@ -390,19 +392,26 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
             np.random.seed(restart_seed)
             torch.cuda.manual_seed_all(restart_seed)
 
-            print(f"[GPU {device_id}] {method}: restart {restart_idx+1}/{NUM_RESTARTS}")
+            #print(f"[GPU {device_id}] {method}: restart {restart_idx+1}/{NUM_RESTARTS}")
 
             dummy_data = (torch.randn(gt_data.size(), device=device)).requires_grad_(True)
 
             scheduler = None
             if OPTIMIZER == "lbfgs":
-                optimizer = torch.optim.LBFGS([dummy_data], lr=lr, max_iter=20, history_size=50)
+                optimizer = torch.optim.LBFGS([dummy_data], lr=lr, max_iter=MAX_ITERATION, history_size=HISTORY_SIZE)
+                phase = "lbfgs"
             elif OPTIMIZER == "adam":
                 optimizer = torch.optim.Adam([dummy_data], lr=lr)
                 scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=300, gamma=0.5)
+                phase = "adam"
             elif OPTIMIZER == "adamw":
                 optimizer = torch.optim.AdamW([dummy_data], lr=lr, weight_decay=1e-5)
                 scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=300, gamma=0.5)
+                phase = "adamw"
+            elif OPTIMIZER == "adamw_lbfgs":
+                optimizer = torch.optim.AdamW([dummy_data], lr=lr, weight_decay=1e-5)
+                scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=300, gamma=0.5)
+                phase = "adamw"
             else:
                 raise ValueError(f"Unknown optimizer: {OPTIMIZER}")
 
@@ -428,7 +437,7 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
             best_mse_value = None
 
             for iters in range(Iteration):
-                if OPTIMIZER == "lbfgs":
+                if phase == "lbfgs":
                     def closure():
                         optimizer.zero_grad()
 
@@ -451,6 +460,7 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
                                 diff = gx - gy
                                 grad_diff = grad_diff + (diff ** 2).sum()
                                 num_terms += diff.numel()
+                        grad_diff = grad_diff/max(num_terms,1)
 
                         tv_loss = total_variation(x)
                         total_loss = grad_diff + TV_WEIGHT * tv_loss
@@ -459,7 +469,7 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
 
                     current_loss = optimizer.step(closure).item()
 
-                elif OPTIMIZER in ["adam","adamw"]:
+                elif phase in ["adam", "adamw"]:
                     optimizer.zero_grad()
 
                     x = torch.sigmoid(dummy_data)
@@ -481,7 +491,8 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
                             diff = gx - gy
                             grad_diff = grad_diff + ((diff) ** 2).sum()
                             num_terms += diff.numel()
-
+                    grad_diff = grad_diff/max(num_terms,1)
+                    
                     tv_loss = total_variation(x)
                     total_loss = grad_diff + TV_WEIGHT * tv_loss
                     total_loss.backward()
@@ -510,7 +521,7 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
                     nan_count += 1
                     early_stop_reason = "nan_or_inf"
                     early_stop_iter = iters
-                    print(f"[GPU {device_id}] Early stop ({method}, restart {restart_idx+1}): NaN/Inf at iter {iters}")
+                    #print(f"[GPU {device_id}] Early stop ({method}, restart {restart_idx+1}): NaN/Inf at iter {iters}")
                     if nan_count >= max_nan:
                         break
                 else:
@@ -538,17 +549,25 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
                     break
 
                 if iters >= warmup and no_improve >= patience:
-                    early_stop_reason = "plateau"
-                    early_stop_iter = iters
-                    print(f"[GPU {device_id}] Early stop ({method}, restart {restart_idx+1}): plateau at iter {iters} (best={best_loss:.3e})")
-                    break
+                    if OPTIMIZER == "adamw_lbfgs" and phase == "adamw":
+                        print(f"[GPU {device_id}] Switching AdamW -> L-BFGS at iter {iters} (best={best_loss:.3e})")
+                        scheduler = None
+                        optimizer = torch.optim.LBFGS([dummy_data], lr=1, max_iter=MAX_ITERATION, history_size=HISTORY_SIZE)
+                        phase = "lbfgs"
+                        no_improve = 0
+                        best_loss = float("inf")
+                    else:
+                        early_stop_reason = "plateau"
+                        early_stop_iter = iters
+                        print(f"[GPU {device_id}] Early stop ({method}, restart {restart_idx+1}): plateau at iter {iters} (best={best_loss:.3e})")
+                        break
 
                 losses.append(current_loss)
                 mses.append(current_mse)
 
-                if iters % 100 == 0:
+                if iters % 1000 == 0:
                     current_lr = optimizer.param_groups[0]["lr"]
-                    print(f'[GPU {device_id}] {OPTIMIZER} restart {restart_idx+1} iters {iters}, lr = {current_lr:.6g}, loss = {current_loss:.8f}, mse = {current_mse:.8f}')
+                    print(f'[GPU {device_id}] {OPTIMIZER}({phase}) restart {restart_idx+1} iters {iters}, lr = {current_lr:.6g}, loss = {current_loss:.8f}, mse = {current_mse:.8f}')
 
             if best_mse_value is not None:
                 if best_restart_mse_value is None or best_mse_value < best_restart_mse_value:
@@ -618,6 +637,6 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
         'early_stop_iter': early_stop_iter_dict,
     }
     
-    print(f"[GPU {device_id}] putting result for experiment {idx_net}", flush=True)
+    # print(f"[GPU {device_id}] putting result for experiment {idx_net}", flush=True)
     result_queue.put(result)
-    print(f"[GPU {device_id}] finished put for experiment {idx_net}", flush=True)
+    # print(f"[GPU {device_id}] finished put for experiment {idx_net}", flush=True)
