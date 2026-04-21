@@ -179,7 +179,7 @@ def main():
     "A small positive value can reduce noise and encourage smoother images."
 ))
     
-    parser.add_argument("--optimizer", type=str, default="lbfgs", choices=["lbfgs", "adam", "adamw"], help="Optimizer used for the reconstruction of dummy_data."
+    parser.add_argument("--optimizer", type=str, default="lbfgs", choices=["lbfgs", "adam", "adamw", "adamw_lbfgs"], help="Optimizer used for the reconstruction of dummy_data."
 )
     
     parser.add_argument("--num_restarts", type=int, default=1,

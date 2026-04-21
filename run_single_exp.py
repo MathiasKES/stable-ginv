@@ -397,12 +397,19 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
             scheduler = None
             if OPTIMIZER == "lbfgs":
                 optimizer = torch.optim.LBFGS([dummy_data], lr=lr, max_iter=20, history_size=50)
+                phase = "lbfgs"
             elif OPTIMIZER == "adam":
                 optimizer = torch.optim.Adam([dummy_data], lr=lr)
                 scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=300, gamma=0.5)
+                phase = "adam"
             elif OPTIMIZER == "adamw":
                 optimizer = torch.optim.AdamW([dummy_data], lr=lr, weight_decay=1e-5)
                 scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=300, gamma=0.5)
+                phase = "adamw"
+            elif OPTIMIZER == "adamw_lbfgs":
+                optimizer = torch.optim.AdamW([dummy_data], lr=lr, weight_decay=1e-5)
+                scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=300, gamma=0.5)
+                phase = "adamw"
             else:
                 raise ValueError(f"Unknown optimizer: {OPTIMIZER}")
 
@@ -428,7 +435,7 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
             best_mse_value = None
 
             for iters in range(Iteration):
-                if OPTIMIZER == "lbfgs":
+                if phase == "lbfgs":
                     def closure():
                         optimizer.zero_grad()
 
@@ -459,7 +466,7 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
 
                     current_loss = optimizer.step(closure).item()
 
-                elif OPTIMIZER in ["adam","adamw"]:
+                elif phase in ["adam", "adamw"]:
                     optimizer.zero_grad()
 
                     x = torch.sigmoid(dummy_data)
@@ -538,17 +545,25 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
                     break
 
                 if iters >= warmup and no_improve >= patience:
-                    early_stop_reason = "plateau"
-                    early_stop_iter = iters
-                    print(f"[GPU {device_id}] Early stop ({method}, restart {restart_idx+1}): plateau at iter {iters} (best={best_loss:.3e})")
-                    break
+                    if OPTIMIZER == "adamw_lbfgs" and phase == "adamw":
+                        print(f"[GPU {device_id}] Switching AdamW -> L-BFGS at iter {iters} (best={best_loss:.3e})")
+                        scheduler = None
+                        optimizer = torch.optim.LBFGS([dummy_data], lr=1, max_iter=20, history_size=50)
+                        phase = "lbfgs"
+                        no_improve = 0
+                        best_loss = float("inf")
+                    else:
+                        early_stop_reason = "plateau"
+                        early_stop_iter = iters
+                        print(f"[GPU {device_id}] Early stop ({method}, restart {restart_idx+1}): plateau at iter {iters} (best={best_loss:.3e})")
+                        break
 
                 losses.append(current_loss)
                 mses.append(current_mse)
 
                 if iters % 100 == 0:
                     current_lr = optimizer.param_groups[0]["lr"]
-                    print(f'[GPU {device_id}] {OPTIMIZER} restart {restart_idx+1} iters {iters}, lr = {current_lr:.6g}, loss = {current_loss:.8f}, mse = {current_mse:.8f}')
+                    print(f'[GPU {device_id}] {OPTIMIZER}({phase}) restart {restart_idx+1} iters {iters}, lr = {current_lr:.6g}, loss = {current_loss:.8f}, mse = {current_mse:.8f}')
 
             if best_mse_value is not None:
                 if best_restart_mse_value is None or best_mse_value < best_restart_mse_value:
