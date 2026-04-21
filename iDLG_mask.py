@@ -201,7 +201,7 @@ def main():
     
     args = parser.parse_args()
 
-    if args.optimizer != "lbfgs":
+    if args.optimizer not in ["lbfgs","adamw_lbfgs"]:
         if "--max_iteration" in sys.argv or "--history_size" in sys.argv:
             parser.error("--max_iteration and --history_size can only be used when --optimizer lbfgs")
 

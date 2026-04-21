@@ -552,7 +552,7 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
                     if OPTIMIZER == "adamw_lbfgs" and phase == "adamw":
                         print(f"[GPU {device_id}] Switching AdamW -> L-BFGS at iter {iters} (best={best_loss:.3e})")
                         scheduler = None
-                        optimizer = torch.optim.LBFGS([dummy_data], lr=1, max_iter=20, history_size=50)
+                        optimizer = torch.optim.LBFGS([dummy_data], lr=1, max_iter=MAX_ITERATION, history_size=HISTORY_SIZE)
                         phase = "lbfgs"
                         no_improve = 0
                         best_loss = float("inf")
