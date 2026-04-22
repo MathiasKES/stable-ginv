@@ -593,6 +593,7 @@ def main():
         "job_id": "INTERACTIVE" if os.environ.get("LSB_INTERACTIVE") == "Y" else os.environ.get("LSB_JOBID", ""),
         "Run by": os.environ.get("USER", ""),
         "device": os.environ.get("LSB_QUEUE", ""),
+        "cmd": "python " + " ".join(sys.argv),
         "dataset": dataset,
         "network": NETWORK_NAME,
         "restarts": NUM_RESTARTS,
