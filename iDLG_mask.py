@@ -97,6 +97,11 @@ def main():
         "original iDLG paper setting; tune together with --iteration when experimenting."
     ))
 
+    parser.add_argument("--grad_loss", type=str, default="cos", choices=["cos", "l2"], help=(
+    "Gradient matching loss: cos (cosine similarity) or l2 (squared distance). "
+    "cos is default"
+    ))
+
     parser.add_argument("--num_dummy", type=int, default=1, help=(
         "Number of dummy data samples to optimise simultaneously during each gradient-inversion "
         "attempt. This should match the batch size that was used when the victim computed the "

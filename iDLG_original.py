@@ -4,6 +4,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch.utils.data import Dataset
 from torchvision import datasets, transforms
 import pickle
@@ -103,6 +104,7 @@ def main():
     num_dummy = 1
     Iteration = 300
     num_exp = 5
+    grad_loss = "cos" # options: "l2" or "cos"
 
     run_id = client.run(
         name="iDLG-%s" % dataset,
@@ -204,21 +206,42 @@ def main():
             losses = []
             mses = []
             train_iters = []
+            grad_loss = []
 
             print('lr =', lr)
-            for iters in range(Iteration):
-
+            for iters in range(Iteration):  
                 def closure():
                     optimizer.zero_grad()
                     pred = net(dummy_data)
                     if method == 'DLG':
-                        dummy_loss = - torch.mean(torch.sum(torch.softmax(dummy_label, -1) * torch.log(torch.softmax(pred, -1)), dim=-1))
+                        dummy_loss = - torch.mean(
+                            torch.sum(
+                                torch.softmax(dummy_label, -1) *
+                                torch.log(torch.softmax(pred, -1)),
+                                dim=-1
+                            )
+                        )
                     elif method == 'iDLG':
                         dummy_loss = criterion(pred, label_pred)
                     dummy_dy_dx = torch.autograd.grad(dummy_loss, net.parameters(), create_graph=True)
                     grad_diff = 0
                     for gx, gy in zip(dummy_dy_dx, original_dy_dx):
-                        grad_diff += ((gx - gy) ** 2).sum()
+                        if grad_loss == "l2":
+                            grad_diff += ((gx - gy) ** 2).sum()
+
+                        elif grad_loss == "cos":
+                            gx_flat = gx.reshape(-1)
+                            gy_flat = gy.reshape(-1)
+                            cos_sim = F.cosine_similarity(
+                                gx_flat.unsqueeze(0),
+                                gy_flat.unsqueeze(0),
+                                dim=1
+                            )
+                            grad_diff += 1 - cos_sim[0]
+
+                        else:
+                            raise ValueError(f"Unknown grad_loss: {grad_loss}")
+
                     grad_diff.backward()
                     return grad_diff
 

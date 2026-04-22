@@ -1,4 +1,5 @@
 import numpy as np
+import torch.nn.functional as F
 import torch
 import torch.nn as nn
 from torchvision import transforms
@@ -41,6 +42,7 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
     NUM_RESTARTS = config.get('NUM_RESTARTS', 1)
     MAX_ITERATION = config.get('MAX_ITERATION',20)
     HISTORY_SIZE = config.get('HISTORY_SIZE',100)
+    GRAD_LOSS = config.get('GRAD_LOSS', 'cos').lower() # options: "l2" or "cos"
 
     seed = config.get("run_id", 0) + idx_net + 1 
     torch.manual_seed(seed)
