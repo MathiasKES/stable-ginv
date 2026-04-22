@@ -2,14 +2,61 @@ import torch.nn as nn
 import torch
 from torchvision import models
 
-def get_model(network, channel=3, num_classes=10, input_size=(32,32)):
+
+def get_model(network, channel=3, num_classes=10, input_size=(32, 32)):
     model = getattr(models, network)(weights=None)
-    if channel != 3:
-        model.conv1 = nn.Conv2d(
-            channel, 64, kernel_size=7, stride=2, padding=3, bias=False
-        )
-    model.fc = nn.Linear(model.fc.in_features, num_classes)
+
+    # ResNet-like
+    if network.startswith(("resnet", "resnext", "wide_resnet")):
+        if channel != 3:
+            model.conv1 = nn.Conv2d(
+                channel, model.conv1.out_channels,
+                kernel_size=model.conv1.kernel_size,
+                stride=model.conv1.stride,
+                padding=model.conv1.padding,
+                bias=False
+            )
+        model.fc = nn.Linear(model.fc.in_features, num_classes)
+
+    # VGG
+    elif network.startswith("vgg"):
+        if channel != 3:
+            first_conv = model.features[0]
+            model.features[0] = nn.Conv2d(
+                channel,
+                first_conv.out_channels,
+                kernel_size=first_conv.kernel_size,
+                stride=first_conv.stride,
+                padding=first_conv.padding,
+                bias=(first_conv.bias is not None)
+            )
+
+        # replace final classifier layer
+        last_linear_idx = None
+        for i in range(len(model.classifier) - 1, -1, -1):
+            if isinstance(model.classifier[i], nn.Linear):
+                last_linear_idx = i
+                break
+
+        if last_linear_idx is None:
+            raise ValueError(f"Could not find final Linear layer in VGG classifier for {network}")
+
+        in_features = model.classifier[last_linear_idx].in_features
+        model.classifier[last_linear_idx] = nn.Linear(in_features, num_classes)
+
+    else:
+        raise ValueError(f"Unsupported torchvision model: {network}")
+
     return model
+
+# def get_model(network, channel=3, num_classes=10, input_size=(32,32)):
+#     model = getattr(models, network)(weights=None)
+#     if channel != 3:
+#         model.conv1 = nn.Conv2d(
+#             channel, 64, kernel_size=7, stride=2, padding=3, bias=False
+#         )
+#     model.fc = nn.Linear(model.fc.in_features, num_classes)
+#     return model
 
 class LeNet(nn.Module):
     def __init__(self, channel=3, num_classes=10, input_size=(32,32)):
