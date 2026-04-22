@@ -184,7 +184,7 @@ def main():
     "A small positive value can reduce noise and encourage smoother images."
 ))
     
-    parser.add_argument("--optimizer", type=str, default="lbfgs", choices=["lbfgs", "adam", "adamw", "adamw_lbfgs"], help="Optimizer used for the reconstruction of dummy_data."
+    parser.add_argument("--optimizer", type=str, default="lbfgs", choices=["lbfgs", "adam", "adamw", "adamw_lbfgs", "signed_adam", "signed_adamw"], help="Optimizer used for the reconstruction of dummy_data."
 )
     
     parser.add_argument("--num_restarts", type=int, default=3,
@@ -241,6 +241,7 @@ def main():
     GRADSIZE_TOPFRAC = args.gradsize_topfrac
     GRADSIZE_THRESHOLD = args.gradsize_threshold
     GRADSIZE_METRIC = args.gradsize_metric
+    GRAD_LOSS = args.grad_loss
     METHODS = args.methods
     SAVE_GIF = args.save_gif
     FRAME_INTERVAL = args.frame_interval
@@ -361,6 +362,7 @@ def main():
         'GRADSIZE_TOPFRAC': GRADSIZE_TOPFRAC,
         'GRADSIZE_THRESHOLD': GRADSIZE_THRESHOLD,
         'GRADSIZE_METRIC': GRADSIZE_METRIC,
+        'GRAD_LOSS': GRAD_LOSS,
         'NETWORK_NAME': NETWORK_NAME,
         'USE_INVERSEFED_IDLG': NETWORK_NAME.lower() == "resnet18",
         'METHODS': METHODS,

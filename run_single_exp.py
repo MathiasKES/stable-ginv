@@ -10,7 +10,7 @@ import consts # Local file
 #from skimage.metrics import structural_similarity as ssim
 
 from Misc_functions import (get_keep_ids, compute_psnr_from_mse, build_network, get_keep_ids_by_gradsize, 
-get_entry_masks_by_gradsize, get_prefix_keep_ids, compute_jacobian_rank, total_variation, get_entry_masks_by_prefix_group, get_keep_ids_by_prefix_group)
+get_entry_masks_by_gradsize, get_prefix_keep_ids, compute_jacobian_rank, total_variation, get_entry_masks_by_prefix_group, get_keep_ids_by_prefix_group, compute_grad_match_loss)
 from Network import weights_init
 
 def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_queue):
@@ -384,19 +384,6 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
         selected_original = [original_dy_dx[i] for i in selected_ids]
         selected_entry_masks = [entry_masks[i] for i in selected_ids] if entry_masks is not None else None
 
-        all_params = list(net.parameters())
-        if entry_masks is not None:
-            selected_ids = [
-                i for i, m in enumerate(entry_masks)
-                if m is not None and m.any()
-            ]
-        else:
-            selected_ids = sorted(list(keep_ids))
-
-        selected_params = [all_params[i] for i in selected_ids]
-        selected_original = [original_dy_dx[i] for i in selected_ids]
-        selected_entry_masks = [entry_masks[i] for i in selected_ids] if entry_masks is not None else None
-
         for restart_idx in range(NUM_RESTARTS):
             restart_seed = seed * 1000 + restart_idx
             torch.manual_seed(restart_seed)
@@ -405,10 +392,12 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
 
             print(f"[GPU {device_id}] {method}: restart {restart_idx+1}/{NUM_RESTARTS}")
 
-            dummy_data = (torch.randn(gt_data.size(), device=device)).requires_grad_(True)
+            #dummy_data = (torch.randn(gt_data.size(), device=device)).requires_grad_(True)
+            dummy_data = torch.rand(gt_data.size(), device=device, requires_grad=True)
 
             if SAVE_GIF:
-                _restart_init_np = torch.sigmoid(dummy_data).detach().cpu().numpy()
+                #_restart_init_np = torch.sigmoid(dummy_data).detach().cpu().numpy()
+                _restart_init_np = dummy_data.detach().cpu().numpy()
                 _restart_frames = []
                 _last_gif_iter = -1
 
@@ -424,6 +413,14 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
                 optimizer = torch.optim.AdamW([dummy_data], lr=lr, weight_decay=1e-5)
                 scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=300, gamma=0.5)
                 phase = "adamw"
+            elif OPTIMIZER == "signed_adam":
+                optimizer = torch.optim.Adam([dummy_data], lr=lr)
+                scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=300, gamma=0.5)
+                phase = "signed_adam"
+            elif OPTIMIZER == "signed_adamw":
+                optimizer = torch.optim.AdamW([dummy_data], lr=lr, weight_decay=1e-5)
+                scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=300, gamma=0.5)
+                phase = "signed_adamw"
             elif OPTIMIZER == "adamw_lbfgs":
                 optimizer = torch.optim.AdamW([dummy_data], lr=lr, weight_decay=1e-5)
                 scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=300, gamma=0.5)
@@ -457,26 +454,15 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
                     def closure():
                         optimizer.zero_grad()
 
-                        x = torch.sigmoid(dummy_data)
+                        #x = torch.sigmoid(dummy_data)
+                        x = dummy_data
                         x_norm = (x - dm) / ds
 
                         pred = net(x_norm)
                         dummy_loss = criterion(pred, label_pred)
                         dummy_dy_dx = torch.autograd.grad(dummy_loss, selected_params, create_graph=True)
 
-                        grad_diff = 0.0
-                        num_terms = 0
-                        if selected_entry_masks is not None:
-                            for gx, gy, m in zip(dummy_dy_dx, selected_original, selected_entry_masks):
-                                diff = gx[m] - gy[m]
-                                grad_diff = grad_diff + (diff ** 2).sum()
-                                num_terms += diff.numel()
-                        else:
-                            for gx, gy in zip(dummy_dy_dx, selected_original):
-                                diff = gx - gy
-                                grad_diff = grad_diff + (diff ** 2).sum()
-                                num_terms += diff.numel()
-                        #grad_diff = grad_diff/max(num_terms,1)
+                        grad_diff, _ = compute_grad_match_loss(dummy_dy_dx, selected_original, selected_entry_masks=selected_entry_masks, grad_loss=GRAD_LOSS)
 
                         tv_loss = total_variation(x)
                         total_loss = grad_diff + TV_WEIGHT * tv_loss
@@ -484,35 +470,33 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
                         return total_loss
 
                     current_loss = optimizer.step(closure).item()
+                    with torch.no_grad():
+                        dummy_data.clamp_(0.0, 1.0)
 
-                elif phase in ["adam", "adamw"]:
+                elif phase in ["adam", "adamw", "signed_adam", "signed_adamw"]:
                     optimizer.zero_grad()
 
-                    x = torch.sigmoid(dummy_data)
+                    #x = torch.sigmoid(dummy_data)
+                    x = dummy_data
                     x_norm = (x - dm) / ds
 
                     pred = net(x_norm)
                     dummy_loss = criterion(pred, label_pred)
                     dummy_dy_dx = torch.autograd.grad(dummy_loss, selected_params, create_graph=True)
 
-                    grad_diff = 0.0
-                    num_terms = 0
-                    if selected_entry_masks is not None:
-                        for gx, gy, m in zip(dummy_dy_dx, selected_original, selected_entry_masks):
-                            diff = gx[m] - gy[m]
-                            grad_diff = grad_diff + (diff ** 2).sum()
-                            num_terms += diff.numel()
-                    else:
-                        for gx, gy in zip(dummy_dy_dx, selected_original):
-                            diff = gx - gy
-                            grad_diff = grad_diff + ((diff) ** 2).sum()
-                            num_terms += diff.numel()
-                    #grad_diff = grad_diff/max(num_terms,1)
+                    grad_diff, num_terms = compute_grad_match_loss(dummy_dy_dx, selected_original, selected_entry_masks=selected_entry_masks, grad_loss=GRAD_LOSS)
                     
                     tv_loss = total_variation(x)
                     total_loss = grad_diff + TV_WEIGHT * tv_loss
                     total_loss.backward()
+
+                    if phase in ["signed_adam", "signed_adamw"] and dummy_data.grad is not None:
+                        with torch.no_grad():
+                            dummy_data.grad.sign_()
+
                     optimizer.step()
+                    with torch.no_grad():
+                        dummy_data.clamp_(0.0, 1.0)
 
                     if scheduler is not None:
                         scheduler.step()
@@ -522,7 +506,8 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
                 else:
                     raise ValueError(f"Unknown optimizer: {OPTIMIZER}")
 
-                current_x = torch.sigmoid(dummy_data).detach().clone()
+                #current_x = torch.sigmoid(dummy_data).detach().clone()
+                current_x = dummy_data.detach().clone()
                 current_mse = torch.mean((current_x - gt_data) ** 2).item()
 
                 if SAVE_GIF and iters % FRAME_INTERVAL == 0:
@@ -595,7 +580,8 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
                     print(f'[GPU {device_id}] {OPTIMIZER}({phase}) restart {restart_idx+1} iters {iters}, lr = {current_lr:.6g}, loss = {current_loss:.8f}, mse = {current_mse:.8f}')
 
             if SAVE_GIF and Iteration > 0 and _last_gif_iter != iters:
-                _final_x = torch.sigmoid(dummy_data).detach()
+                #_final_x = torch.sigmoid(dummy_data).detach()
+                _final_x = dummy_data.detach()
                 _restart_frames.append({
                     'iter': iters,
                     'dummy': _final_x.cpu().numpy(),
@@ -607,7 +593,8 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
                 if best_restart_mse_value is None or best_mse_value < best_restart_mse_value:
                     best_restart_mse_value = best_mse_value
                     best_restart_loss_value = best_loss_value
-                    best_restart_dummy = best_dummy.clone() if best_dummy is not None else torch.sigmoid(dummy_data).detach().clone()
+                    #best_restart_dummy = best_dummy.clone() if best_dummy is not None else torch.sigmoid(dummy_data).detach().clone()
+                    best_restart_dummy = best_dummy.clone() if best_dummy is not None else dummy_data.detach().clone()
                     best_restart_losses = losses[:]
                     best_restart_mses = mses[:]
                     best_restart_early_stop_reason = early_stop_reason
