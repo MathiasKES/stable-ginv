@@ -48,15 +48,15 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
     np.random.seed(seed)
 
     net = build_network(NETWORK_NAME, channel=channel, num_classes=num_classes, input_size=shape_img)
-    if not NETWORK_NAME.startswith("resnet"):
+    if NETWORK_NAME in ["LeNet", "LeNet_bigger", "MediumCNN", "BiggerCNN"]:
         net.apply(weights_init)
     net = net.to(device)
     net.eval()
 
-    # if idx_net == 0 and device_id == 0:
-    # #     for i, (name, param) in enumerate(net.named_parameters()):
-    # #         print(i, name, tuple(param.shape))
-    #     print(f'[GPU {device_id}] Running {idx_net} experiment')
+    if idx_net == 0 and device_id == 0:
+        for i, (name, param) in enumerate(net.named_parameters()):
+            print(i, name, tuple(param.shape))
+        print(f'[GPU {device_id}] Running {idx_net} experiment')
     
     idx_shuffle = np.random.permutation(len(dst))
     tt = transforms.Compose([transforms.ToTensor()])
@@ -392,7 +392,7 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
             np.random.seed(restart_seed)
             torch.cuda.manual_seed_all(restart_seed)
 
-            #print(f"[GPU {device_id}] {method}: restart {restart_idx+1}/{NUM_RESTARTS}")
+            print(f"[GPU {device_id}] {method}: restart {restart_idx+1}/{NUM_RESTARTS}")
 
             dummy_data = (torch.randn(gt_data.size(), device=device)).requires_grad_(True)
 
@@ -460,7 +460,7 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
                                 diff = gx - gy
                                 grad_diff = grad_diff + (diff ** 2).sum()
                                 num_terms += diff.numel()
-                        grad_diff = grad_diff/max(num_terms,1)
+                        #grad_diff = grad_diff/max(num_terms,1)
 
                         tv_loss = total_variation(x)
                         total_loss = grad_diff + TV_WEIGHT * tv_loss
@@ -491,7 +491,7 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
                             diff = gx - gy
                             grad_diff = grad_diff + ((diff) ** 2).sum()
                             num_terms += diff.numel()
-                    grad_diff = grad_diff/max(num_terms,1)
+                    #grad_diff = grad_diff/max(num_terms,1)
                     
                     tv_loss = total_variation(x)
                     total_loss = grad_diff + TV_WEIGHT * tv_loss
@@ -521,7 +521,7 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
                     nan_count += 1
                     early_stop_reason = "nan_or_inf"
                     early_stop_iter = iters
-                    #print(f"[GPU {device_id}] Early stop ({method}, restart {restart_idx+1}): NaN/Inf at iter {iters}")
+                    print(f"[GPU {device_id}] Early stop ({method}, restart {restart_idx+1}): NaN/Inf at iter {iters}")
                     if nan_count >= max_nan:
                         break
                 else:
@@ -565,7 +565,7 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
                 losses.append(current_loss)
                 mses.append(current_mse)
 
-                if iters % 1000 == 0:
+                if iters % 250 == 0:
                     current_lr = optimizer.param_groups[0]["lr"]
                     print(f'[GPU {device_id}] {OPTIMIZER}({phase}) restart {restart_idx+1} iters {iters}, lr = {current_lr:.6g}, loss = {current_loss:.8f}, mse = {current_mse:.8f}')
 

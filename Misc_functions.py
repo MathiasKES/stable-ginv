@@ -314,7 +314,7 @@ def build_network(name: str, channel: int, num_classes: int, input_size):
         return MediumCNN(channel=channel, num_classes=num_classes, input_size=input_size)
     if name == "BiggerCNN":
         return BiggerCNN(channel=channel, num_classes=num_classes, input_size=input_size)
-    if name.lower().startswith("resnet") or name.lower().startswith("wide_resnet"):
+    if name.lower().startswith("resnet") or name.lower().startswith("wide_resnet") or name.lower().startswith("vgg"):
         return get_model(
             network=name.lower(),
             channel=channel,

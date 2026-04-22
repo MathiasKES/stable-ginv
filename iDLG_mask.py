@@ -370,7 +370,7 @@ def main():
     unknowns = channel * shape_img[0] * shape_img[1]
     #print(f"Input unknowns per image: {unknowns}")
     num_gpus = torch.cuda.device_count()
-    #print(f"Using {num_gpus} GPUs")
+    print(f"Using {num_gpus} GPUs")
     if num_gpus == 0:
         raise RuntimeError("No CUDA GPUs available.")
     
@@ -486,9 +486,9 @@ def main():
                 print('jac_rank_iDLG_masked:', result['jac_rank_iDLG_masked'],
                     'jac_shape_iDLG_masked:', result['jac_shape_iDLG_masked'])
 
-            # print('gt_label:', result['gt_label'],
-            #     'lab_iDLG:', result['label_iDLG'], 'lab_iDLG_masked:', result['label_iDLG_masked'])
-            # print('----------------------\n\n')
+            print('gt_label:', result['gt_label'],
+                'lab_iDLG:', result['label_iDLG'], 'lab_iDLG_masked:', result['label_iDLG_masked'])
+            print('----------------------\n\n')
 
             # Clean up the finished process on that GPU
             active_processes[finished_device].join()
