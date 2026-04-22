@@ -7,7 +7,7 @@ from datetime import datetime
 import csv
 import torch.multiprocessing as mp
 import argparse
-from Misc_functions import save_recon_panel
+from Misc_functions import save_recon_panel, save_recon_gif
 from Dataset import lfw_dataset
 from run_single_exp import run_single_experiment
 from tqdm import tqdm
@@ -198,7 +198,16 @@ def main():
         default=100,
         help="History size for LBFGS. Only used when --optimizer lbfgs."
     )
-    
+
+    parser.add_argument("--save_gif", action="store_true",
+        help="Save an animated GIF showing reconstruction progress per experiment.")
+
+    parser.add_argument("--frame_interval", type=int, default=20,
+        help="Capture a GIF frame every N optimisation iterations. Only used with --save_gif.")
+
+    parser.add_argument("--gif_fps", type=int, default=8,
+        help="Frames per second for the output GIF. Only used with --save_gif.")
+
     args = parser.parse_args()
 
     if args.optimizer not in ["lbfgs","adamw_lbfgs"]:
@@ -228,6 +237,9 @@ def main():
     GRADSIZE_THRESHOLD = args.gradsize_threshold
     GRADSIZE_METRIC = args.gradsize_metric
     METHODS = args.methods
+    SAVE_GIF = args.save_gif
+    FRAME_INTERVAL = args.frame_interval
+    GIF_FPS = args.gif_fps
     COMPUTE_JACOBIAN_RANK = args.compute_jacobian_rank
     JACOBIAN_MAX_ENTRIES = args.jacobian_max_entries
     JACOBIAN_SELECT_MODE = args.jacobian_select_mode
@@ -363,7 +375,9 @@ def main():
             'explode_factor': explode_factor,
             'warmup': warmup,
             'max_nan': max_nan,
-        }
+        },
+        'SAVE_GIF': SAVE_GIF,
+        'FRAME_INTERVAL': FRAME_INTERVAL,
     }
 
     # -------- Run experiments in parallel --------
@@ -381,6 +395,7 @@ def main():
     active_processes = {}
     next_exp = 0
     completed = 0
+    all_results_by_idx = {}
 
     # Start one experiment per GPU initially
     for device_id in range(min(num_gpus, num_exp)):
@@ -404,6 +419,7 @@ def main():
 
             idx_net = result['idx_net']
             finished_device = result['device_id']
+            all_results_by_idx[idx_net] = result
 
             if result.get('last_psnr_idlg') is not None:
                 psnr_idlg_all.append(result['last_psnr_idlg'])
@@ -514,7 +530,18 @@ def main():
                          save_path, panel_block_idx, dataset, mask_desc, timestamp_str, methods=METHODS)
         if panel_path:
             panel_png_paths.append(panel_path)
-    
+
+    # -------- Save animated GIFs --------
+    if SAVE_GIF:
+        ordered_results = [all_results_by_idx[i] for i in sorted(all_results_by_idx.keys())]
+        for b_start in range(0, len(ordered_results), panel_block_size):
+            block = ordered_results[b_start:b_start + panel_block_size]
+            b_idx = b_start // panel_block_size
+            save_recon_gif(
+                block, save_path, b_idx, dataset, mask_desc, timestamp_str,
+                methods=METHODS, fps=GIF_FPS,
+            )
+
     # -------- Compute statistics --------
     avg_psnr_idlg           = float(np.mean(psnr_idlg_all))             if len(psnr_idlg_all)       else float("nan")
     avg_psnr_masked         = float(np.mean(psnr_masked_all))           if len(psnr_masked_all)     else float("nan")

@@ -41,6 +41,8 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
     NUM_RESTARTS = config.get('NUM_RESTARTS', 1)
     MAX_ITERATION = config.get('MAX_ITERATION',20)
     HISTORY_SIZE = config.get('HISTORY_SIZE',100)
+    SAVE_GIF = config.get('SAVE_GIF', False)
+    FRAME_INTERVAL = config.get('FRAME_INTERVAL', 20)
 
     seed = config.get("run_id", 0) + idx_net + 1 
     torch.manual_seed(seed)
@@ -83,6 +85,9 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
     jac_shape_iDLG = None
     jac_shape_iDLG_masked = None
 
+    init_frames_by_method = {}
+    recon_frames_by_method = {}
+
     for method in methods_to_run:
         #print(f'[GPU {device_id}] {method}, Try to generate {num_dummy} images')
 
@@ -93,6 +98,10 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
         best_restart_mses = None
         best_restart_early_stop_reason = None
         best_restart_early_stop_iter = None
+
+        if SAVE_GIF:
+            _best_restart_init_np = None
+            _best_restart_frames = []
 
         criterion = nn.CrossEntropyLoss().to(device)
         imidx_list = []
@@ -396,6 +405,11 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
 
             dummy_data = (torch.randn(gt_data.size(), device=device)).requires_grad_(True)
 
+            if SAVE_GIF:
+                _restart_init_np = torch.sigmoid(dummy_data).detach().cpu().numpy()
+                _restart_frames = []
+                _last_gif_iter = -1
+
             scheduler = None
             if OPTIMIZER == "lbfgs":
                 optimizer = torch.optim.LBFGS([dummy_data], lr=lr, max_iter=MAX_ITERATION, history_size=HISTORY_SIZE)
@@ -509,6 +523,15 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
                 current_x = torch.sigmoid(dummy_data).detach().clone()
                 current_mse = torch.mean((current_x - gt_data) ** 2).item()
 
+                if SAVE_GIF and iters % FRAME_INTERVAL == 0:
+                    _restart_frames.append({
+                        'iter': iters,
+                        'dummy': current_x.cpu().numpy(),
+                        'loss': current_loss if np.isfinite(current_loss) else float('inf'),
+                        'mse': current_mse,
+                    })
+                    _last_gif_iter = iters
+
                 if np.isfinite(current_loss):
                     if current_loss < best_loss_value:
                         best_loss_value = current_loss
@@ -569,6 +592,15 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
                     current_lr = optimizer.param_groups[0]["lr"]
                     print(f'[GPU {device_id}] {OPTIMIZER}({phase}) restart {restart_idx+1} iters {iters}, lr = {current_lr:.6g}, loss = {current_loss:.8f}, mse = {current_mse:.8f}')
 
+            if SAVE_GIF and Iteration > 0 and _last_gif_iter != iters:
+                _final_x = torch.sigmoid(dummy_data).detach()
+                _restart_frames.append({
+                    'iter': iters,
+                    'dummy': _final_x.cpu().numpy(),
+                    'loss': losses[-1] if losses else float('inf'),
+                    'mse': torch.mean((_final_x - gt_data) ** 2).item(),
+                })
+
             if best_mse_value is not None:
                 if best_restart_mse_value is None or best_mse_value < best_restart_mse_value:
                     best_restart_mse_value = best_mse_value
@@ -578,6 +610,13 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
                     best_restart_mses = mses[:]
                     best_restart_early_stop_reason = early_stop_reason
                     best_restart_early_stop_iter = early_stop_iter
+                    if SAVE_GIF:
+                        _best_restart_init_np = _restart_init_np
+                        _best_restart_frames = _restart_frames[:]
+
+        if SAVE_GIF:
+            init_frames_by_method[method] = _best_restart_init_np
+            recon_frames_by_method[method] = _best_restart_frames
 
         if best_restart_dummy is not None:
             final_recon[method] = best_restart_dummy
@@ -635,6 +674,8 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
         'imidx_list': imidx_list,
         'early_stop_reason': early_stop_reason_dict,
         'early_stop_iter': early_stop_iter_dict,
+        'init_frames': init_frames_by_method,
+        'recon_frames': recon_frames_by_method,
     }
     
     # print(f"[GPU {device_id}] putting result for experiment {idx_net}", flush=True)
