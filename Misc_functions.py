@@ -449,7 +449,7 @@ def save_recon_panel(params: dict, panel_gt_pil, panel_idlg_pil, panel_masked_pi
         job_id = os.environ.get("LSB_JOBID", "")
     prefix = f"{timestamp_str}_{job_id}" if job_id else timestamp_str
     out_path = os.path.join(save_dir, f"{prefix}_{block_idx}.png")
-    plt.savefig(out_path, dpi=250, bbox_inches='tight')
+    plt.savefig(out_path, dpi=75, bbox_inches='tight')
     plt.close(fig)
 
     try:
@@ -691,7 +691,7 @@ def save_recon_gif(
         plt.tight_layout(rect=(0.04, 0.0, 1.0, 0.96))
 
         buf = io.BytesIO()
-        plt.savefig(buf, format='png', dpi=150, bbox_inches='tight')
+        plt.savefig(buf, format='png', dpi=125, bbox_inches='tight')
         plt.close(fig)
         buf.seek(0)
         gif_frames.append(PILImage.open(buf).copy())
