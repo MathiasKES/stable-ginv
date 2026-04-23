@@ -7,7 +7,7 @@ from datetime import datetime
 import csv
 import torch.multiprocessing as mp
 import argparse
-from Misc_functions import save_recon_panel, save_recon_gif
+from Misc_functions import save_recon_panel, save_recon_gif, paired_summary
 from Dataset import lfw_dataset
 from run_single_exp import run_single_experiment
 from tqdm import tqdm
@@ -549,11 +549,54 @@ def main():
                 methods=METHODS, fps=GIF_FPS,
             )
 
+    # -------- Paired statistics for METHODS == both --------
+    if METHODS == "both":
+        paired_best_mse_idlg = []
+        paired_best_mse_masked = []
+        paired_best_psnr_idlg = []
+        paired_best_psnr_masked = []
+
+        for idx in sorted(all_results_by_idx):
+            result = all_results_by_idx[idx]
+
+            mse_idlg = result.get("best_mse_iDLG")
+            mse_masked = result.get("best_mse_iDLG_masked")
+            psnr_idlg = result.get("best_psnr_idlg")
+            psnr_masked = result.get("best_psnr_masked")
+
+            if mse_idlg is not None and mse_masked is not None and np.isfinite(mse_idlg) and np.isfinite(mse_masked):
+                paired_best_mse_idlg.append(mse_idlg)
+                paired_best_mse_masked.append(mse_masked)
+
+            if psnr_idlg is not None and psnr_masked is not None and np.isfinite(psnr_idlg) and np.isfinite(psnr_masked):
+                paired_best_psnr_idlg.append(psnr_idlg)
+                paired_best_psnr_masked.append(psnr_masked)
+
+        mse_summary = paired_summary(np.array(paired_best_mse_masked), np.array(paired_best_mse_idlg), metric="mse", confidence=0.95, ci_decimals=10)
+        psnr_summary = paired_summary(np.array(paired_best_psnr_masked), np.array(paired_best_psnr_idlg), metric="psnr", confidence=0.95, ci_decimals=5)
+
+        mse_paired_stats = mse_summary["stats"]
+        psnr_paired_stats = psnr_summary["stats"]
+        mse_ci_str = mse_summary["ci_str"]
+        psnr_ci_str = psnr_summary["ci_str"]
+        mse_significant_str = mse_summary["significant_str"]
+        psnr_significant_str = psnr_summary["significant_str"]
+
+    else:
+        empty_stats = {"n": float("nan"), "mean_diff": float("nan"), "std_diff": float("nan"), "ci_low": float("nan"), "ci_high": float("nan"), "t_stat": float("nan"), "p_value": float("nan")}
+
+        mse_paired_stats = empty_stats.copy()
+        psnr_paired_stats = empty_stats.copy()
+        mse_ci_str = ""
+        psnr_ci_str = ""
+        mse_significant_str = ""
+        psnr_significant_str = ""
+
     # -------- Compute statistics --------
     avg_psnr_idlg           = float(np.mean(psnr_idlg_all))             if len(psnr_idlg_all)       else float("nan")
     avg_psnr_masked         = float(np.mean(psnr_masked_all))           if len(psnr_masked_all)     else float("nan")
-    std_psnr_idlg           = float(np.std(psnr_idlg_all)) if len(psnr_idlg_all) else float("nan")
-    std_psnr_masked         = float(np.std(psnr_masked_all)) if len(psnr_masked_all) else float("nan")
+    std_psnr_idlg           = float(np.std(psnr_idlg_all, ddof=1))      if len(psnr_idlg_all) > 1   else float("nan")
+    std_psnr_masked         = float(np.std(psnr_masked_all, ddof=1))    if len(psnr_masked_all) > 1 else float("nan")
 
     avg_final_loss_idlg     = float(np.mean(final_loss_idlg_all))       if final_loss_idlg_all      else float("nan")
     avg_final_mse_idlg      = float(np.mean(final_mse_idlg_all))        if final_mse_idlg_all       else float("nan")
@@ -567,8 +610,8 @@ def main():
 
     avg_best_psnr_idlg         = float(np.mean(best_psnr_idlg_all))         if best_psnr_idlg_all else float("nan")
     avg_best_psnr_masked       = float(np.mean(best_psnr_masked_all))       if best_psnr_masked_all else float("nan")
-    std_best_psnr_idlg         = float(np.std(best_psnr_idlg_all))          if best_psnr_idlg_all else float("nan")
-    std_best_psnr_masked       = float(np.std(best_psnr_masked_all))        if best_psnr_masked_all else float("nan")
+    std_best_psnr_idlg = float(np.std(best_psnr_idlg_all, ddof=1)) if len(best_psnr_idlg_all) > 1 else float("nan")
+    std_best_psnr_masked = float(np.std(best_psnr_masked_all, ddof=1)) if len(best_psnr_masked_all) > 1 else float("nan")
 
     avg_best_loss_idlg         = float(np.mean(best_loss_idlg_all))         if best_loss_idlg_all else float("nan")
     avg_best_mse_idlg          = float(np.mean(best_mse_idlg_all))          if best_mse_idlg_all else float("nan")
@@ -653,6 +696,10 @@ def main():
             "mask_mode": MASK_MODE, #if MASK_MODE != 'prefix' else args.prefixes,
             "prefixes": args.prefixes if "prefix" in MASK_MODE else "",
             "grad_param": grad_value,
+            "mse_ci": mse_ci_str if METHODS == "both" else "",
+            "mse_significant": mse_significant_str if METHODS == "both" else "",
+            "psnr_ci": psnr_ci_str if METHODS == "both" else "",
+            "psnr_significant": psnr_significant_str if METHODS == "both" else "",
             # "med_final_loss": med_final_loss_masked,
             # "avg_final_loss": avg_final_loss_masked,
             # "med_final_mse": med_final_mse_masked,
@@ -672,6 +719,7 @@ def main():
     "mask_mode", "prefixes", "grad_param",
     # "med_final_loss", "avg_final_loss", "med_final_mse", "avg_final_mse", "avg_psnr", "std_psnr",
     "med_best_loss", "avg_best_loss", "med_best_mse", "avg_best_mse", "avg_best_psnr", "std_best_psnr",
+    "mse_ci", "mse_significant", "psnr_ci", "psnr_significant",
     "png_path"]
 
     with open(csv_path, "a", newline="") as f:
@@ -701,5 +749,15 @@ def main():
     print(f"Median best loss iDLG: {med_best_loss_idlg:.6f} | masked: {med_best_loss_masked:.6f}")
     print(f"Median best mse  iDLG: {med_best_mse_idlg:.10f} | masked: {med_best_mse_masked:.10f}")
     print(f"Average best PSNR iDLG: {avg_best_psnr_idlg:.4f} ± {std_best_psnr_idlg:.4f} dB | masked: {avg_best_psnr_masked:.4f} ± {std_best_psnr_masked:.4f} dB")
+    if METHODS == "both":
+        print(
+            f"Paired best MSE diff (masked - iDLG): {mse_paired_stats['mean_diff']:.10f} "
+            f"| 95% CI: {mse_ci_str} "
+            f"| significant: {mse_significant_str}")
+        print(
+            f"Paired best PSNR diff (masked - iDLG): {psnr_paired_stats['mean_diff']:.5f} dB "
+            f"| 95% CI: {psnr_ci_str} "
+            f"| significant: {psnr_significant_str}")
+        
 if __name__ == '__main__':
     main()

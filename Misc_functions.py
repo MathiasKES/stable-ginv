@@ -3,6 +3,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import os
 import math
+from scipy import stats
 from Network import LeNet, LeNet_bigger, MediumCNN, BiggerCNN, get_model
 #from skimage.metrics import structural_similarity as ssim
 import torch
@@ -935,3 +936,75 @@ def compute_grad_match_loss(dummy_dy_dx, selected_original, selected_entry_masks
         )
 
         return 1.0 - cos_sim[0], gx_cat.numel()
+
+def paired_t_ci(x, y, confidence=0.95):
+    """
+    Paired t-test confidence interval for mean(x - y).
+    Returns mean difference, std of differences, CI, t-stat, and p-value.
+    """
+    x = np.asarray(x, dtype=np.float64)
+    y = np.asarray(y, dtype=np.float64)
+
+    if len(x) != len(y):
+        raise ValueError("Paired CI requires arrays of equal length.")
+    if len(x) < 2:
+        return {
+            "n": len(x),
+            "mean_diff": float("nan"),
+            "std_diff": float("nan"),
+            "ci_low": float("nan"),
+            "ci_high": float("nan"),
+            "t_stat": float("nan"),
+            "p_value": float("nan"),
+        }
+
+    d = x - y
+    n = len(d)
+    mean_diff = float(np.mean(d))
+    std_diff = float(np.std(d, ddof=1))
+    se = std_diff / math.sqrt(n)
+
+    alpha = 1.0 - confidence
+    tcrit = stats.t.ppf(1.0 - alpha / 2.0, df=n - 1)
+
+    ci_low = mean_diff - tcrit * se
+    ci_high = mean_diff + tcrit * se
+
+    t_stat, p_value = stats.ttest_rel(x, y)
+
+    return {
+        "n": n,
+        "mean_diff": mean_diff,
+        "std_diff": std_diff,
+        "ci_low": float(ci_low),
+        "ci_high": float(ci_high),
+        "t_stat": float(t_stat),
+        "p_value": float(p_value),
+    }
+
+def paired_summary(x_masked, x_idlg, metric, confidence=0.95, ci_decimals=5):
+    stats = paired_t_ci(x_masked, x_idlg, confidence=confidence)
+
+    if np.isnan(stats["ci_low"]) or np.isnan(stats["ci_high"]):
+        return {
+            "stats": stats,
+            "ci_str": "",
+            "significant_str": "",
+        }
+
+    significant = not (stats["ci_low"] <= 0 <= stats["ci_high"])
+
+    if not significant:
+        better = ""
+    elif metric == "mse":
+        better = "masked" if stats["mean_diff"] < 0 else "idlg"
+    elif metric == "psnr":
+        better = "masked" if stats["mean_diff"] > 0 else "idlg"
+    else:
+        raise ValueError(f"Unknown metric: {metric}")
+
+    return {
+        "stats": stats,
+        "ci_str": f"[{stats['ci_low']:.{ci_decimals}f}, {stats['ci_high']:.{ci_decimals}f}]",
+        "significant_str": f"True, {better}" if significant else "False",
+    }
