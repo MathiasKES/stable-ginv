@@ -621,7 +621,7 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
                 losses.append(current_loss)
                 mses.append(current_mse)
 
-                if iters % 100 == 0:
+                if iters % 1000 == 0:
                     current_lr = optimizer.param_groups[0]["lr"]
                     print(f'[GPU {device_id}] {OPTIMIZER}({phase}) restart {restart_idx+1} iters {iters}, lr = {current_lr:.6g}, loss = {current_loss:.8f}, mse = {current_mse:.8f}')
 
