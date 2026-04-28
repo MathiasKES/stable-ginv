@@ -267,8 +267,8 @@ def main():
     run_id = args.run_id
     timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-    loss_tol = 1e-8
-    patience = 1000
+    loss_tol = 1e-6
+    patience = 100000
     min_rel_improve = 1e-6
     explode_factor = 20.0
     warmup = 300

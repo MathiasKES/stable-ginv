@@ -10,7 +10,7 @@ import consts # Local file
 #from skimage.metrics import structural_similarity as ssim
 
 from Misc_functions import (get_keep_ids, compute_psnr_from_mse, build_network, get_keep_ids_by_gradsize, 
-get_entry_masks_by_gradsize, get_prefix_keep_ids, compute_jacobian_rank, total_variation, get_entry_masks_by_prefix_group, get_keep_ids_by_prefix_group, compute_grad_match_loss)
+get_entry_masks_by_gradsize, get_prefix_keep_ids, compute_jacobian_rank, total_variation, get_entry_masks_by_prefix_group, get_keep_ids_by_prefix_group, compute_grad_match_loss, scheduler)
 from Network import weights_init
 
 def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_queue):
@@ -424,29 +424,26 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
                 _last_gif_iter = -1
 
             scheduler = None
+
             if OPTIMIZER == "lbfgs":
-                optimizer = torch.optim.LBFGS([dummy_data], lr=lr, max_iter=MAX_ITERATION, history_size=HISTORY_SIZE)
+                optimizer = torch.optim.LBFGS(
+                    [dummy_data],
+                    lr=lr,
+                    max_iter=MAX_ITERATION,
+                    history_size=HISTORY_SIZE,
+                )
                 phase = "lbfgs"
-            elif OPTIMIZER == "adam":
+
+            elif OPTIMIZER in ["adam", "signed_adam"]:
                 optimizer = torch.optim.Adam([dummy_data], lr=lr)
-                scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1000, gamma=0.6)
-                phase = "adam"
-            elif OPTIMIZER == "adamw":
+                scheduler = scheduler(optimizer, Iteration)
+                phase = OPTIMIZER
+
+            elif OPTIMIZER in ["adamw", "signed_adamw", "adamw_lbfgs"]:
                 optimizer = torch.optim.AdamW([dummy_data], lr=lr, weight_decay=1e-5)
-                scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1000, gamma=0.6)
-                phase = "adamw"
-            elif OPTIMIZER == "signed_adam":
-                optimizer = torch.optim.Adam([dummy_data], lr=lr)
-                scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1000, gamma=0.6)
-                phase = "signed_adam"
-            elif OPTIMIZER == "signed_adamw":
-                optimizer = torch.optim.AdamW([dummy_data], lr=lr, weight_decay=1e-5)
-                scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1000, gamma=0.6)
-                phase = "signed_adamw"
-            elif OPTIMIZER == "adamw_lbfgs":
-                optimizer = torch.optim.AdamW([dummy_data], lr=lr, weight_decay=1e-5)
-                scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1000, gamma=0.6)
-                phase = "adamw"
+                scheduler = scheduler(optimizer, Iteration)
+                phase = "adamw" if OPTIMIZER == "adamw_lbfgs" else OPTIMIZER
+
             else:
                 raise ValueError(f"Unknown optimizer: {OPTIMIZER}")
 
@@ -624,7 +621,7 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
                 losses.append(current_loss)
                 mses.append(current_mse)
 
-                if iters % 500 == 0:
+                if iters % 100 == 0:
                     current_lr = optimizer.param_groups[0]["lr"]
                     print(f'[GPU {device_id}] {OPTIMIZER}({phase}) restart {restart_idx+1} iters {iters}, lr = {current_lr:.6g}, loss = {current_loss:.8f}, mse = {current_mse:.8f}')
 
