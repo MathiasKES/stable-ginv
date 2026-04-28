@@ -213,7 +213,7 @@ def get_entry_masks_by_prefix_group(
         pieces = []
 
         for i, (name, _) in enumerate(named_params):
-            if not name.startswith(prefix):
+            if not (name == prefix or name.startswith(prefix + ".")):
                 continue
 
             g = original_dy_dx[i]
@@ -307,7 +307,7 @@ def get_keep_ids_by_gradsize(original_dy_dx, mode="topk", topk=10, top_frac=None
 
     return sorted(keep), sizes_sorted
 
-def build_network(name: str, channel: int, num_classes: int, input_size):
+def build_network(name: str, channel: int, num_classes: int, input_size, pretrained=False):
     if name == "LeNet":
         return LeNet(channel=channel, num_classes=num_classes, input_size=input_size)
     if name == "LeNet_bigger":
@@ -316,19 +316,20 @@ def build_network(name: str, channel: int, num_classes: int, input_size):
         return MediumCNN(channel=channel, num_classes=num_classes, input_size=input_size)
     if name == "BiggerCNN":
         return BiggerCNN(channel=channel, num_classes=num_classes, input_size=input_size)
-    if name.lower().startswith("resnet") or name.lower().startswith("wide_resnet") or name.lower().startswith("vgg"):
+    if name.lower().startswith(("resnet", "resnext", "wide_resnet", "vgg", "densenet")):
         return get_model(
             network=name.lower(),
             channel=channel,
             num_classes=num_classes,
             input_size=input_size,
+            pretrained=pretrained
         )
     raise ValueError(f"Unknown NETWORK_NAME: {name}")
 
 def get_prefix_keep_ids(net, prefixes):
     keep = set()
     for idx, (name, _) in enumerate(net.named_parameters()):
-        if any(name.startswith(p) for p in prefixes):
+        if any(name == p or name.startswith(p + ".") for p in prefixes):
             keep.add(idx)
     if len(keep) == 0:
         raise ValueError(f"No parameters matched prefixes={prefixes}")
@@ -352,7 +353,7 @@ def get_keep_ids(mask_mode: str, net=None, prefixes=None):
             raise ValueError("prefix-based keep_ids requires 'net'")
         keep = set()
         for idx, (name, _) in enumerate(net.named_parameters()):
-            if any(name.startswith(p) for p in prefixes):
+            if any(name == p or name.startswith(p + ".") for p in prefixes):
                 keep.add(idx)
         if len(keep) == 0:
             raise ValueError(f"No parameters matched prefixes={prefixes}")
@@ -766,7 +767,7 @@ def get_keep_ids_by_prefix_group(
         sizes = []
 
         for i, (name, _) in enumerate(named_params):
-            if not name.startswith(prefix):
+            if not (name == prefix or name.startswith(prefix + ".")):
                 continue
 
             g = original_dy_dx[i]

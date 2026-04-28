@@ -33,6 +33,7 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
     GRADSIZE_THRESHOLD = config['GRADSIZE_THRESHOLD']
     GRADSIZE_METRIC = config['GRADSIZE_METRIC']
     NETWORK_NAME = config['NETWORK_NAME']
+    NETWORK_TRAINED = config['NETWORK_TRAINED']
     METHODS = config.get('METHODS', 'both')
     COMPUTE_JACOBIAN_RANK = config.get('COMPUTE_JACOBIAN_RANK', False)
     JACOBIAN_MAX_ENTRIES = config.get('JACOBIAN_MAX_ENTRIES', 4000)
@@ -51,15 +52,20 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
     torch.cuda.manual_seed_all(seed)
     np.random.seed(seed)
 
-    net = build_network(NETWORK_NAME, channel=channel, num_classes=num_classes, input_size=shape_img)
-    if NETWORK_NAME in ["LeNet", "LeNet_bigger", "MediumCNN", "BiggerCNN"]:
-        net.apply(weights_init)
+    OPTIMIZE_NORM_SPACE = NETWORK_TRAINED
+
+    net = build_network(NETWORK_NAME, channel=channel, num_classes=num_classes, input_size=shape_img, pretrained=NETWORK_TRAINED)
+    if NETWORK_TRAINED:
+        print(f"[GPU {device_id}] Loaded ImageNet-pretrained weights for {NETWORK_NAME}")
+    elif NETWORK_NAME in ["LeNet", "LeNet_bigger", "MediumCNN", "BiggerCNN"]:
+            net.apply(weights_init)
+
     net = net.to(device)
     net.eval()
 
     if idx_net == 0 and device_id == 0:
-        for i, (name, param) in enumerate(net.named_parameters()):
-            print(i, name, tuple(param.shape))
+        # for i, (name, param) in enumerate(net.named_parameters()):
+        #     print(i, name, tuple(param.shape))
         print(f'[GPU {device_id}] Running {idx_net} experiment')
     
     idx_shuffle = np.random.permutation(len(dst))
@@ -124,8 +130,15 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
                 gt_data = torch.cat((gt_data, tmp_datum), dim=0)
                 gt_label = torch.cat((gt_label, tmp_label), dim=0)
 
-        dm = torch.tensor(getattr(consts, f'{dataset_name.lower()}_mean'), device=device).view(1,channel,1,1)
-        ds = torch.tensor(getattr(consts, f'{dataset_name.lower()}_std'), device=device).view(1,channel,1,1)
+        if NETWORK_TRAINED and channel == 3:
+            dm = torch.tensor([0.485, 0.456, 0.406], device=device).view(1, channel, 1, 1)
+            ds = torch.tensor([0.229, 0.224, 0.225], device=device).view(1, channel, 1, 1)
+        else:
+            dm = torch.tensor(getattr(consts, f'{dataset_name.lower()}_mean'), device=device).view(1, channel, 1, 1)
+            ds = torch.tensor(getattr(consts, f'{dataset_name.lower()}_std'), device=device).view(1, channel, 1, 1)
+
+        lower_bound = -dm / ds
+        upper_bound = (1.0 - dm) / ds
 
         # ---- compute original gradients ----
         gt_data_norm = (gt_data - dm) / ds # normalize gt data
@@ -298,7 +311,7 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
                 kept = 0
                 total = 0
                 for i, (name, _) in enumerate(net.named_parameters()):
-                    if name.startswith(prefix) and entry_masks[i] is not None:
+                    if (name == prefix or name.startswith(prefix + ".")) and entry_masks[i] is not None:
                         kept += int(entry_masks[i].sum().item())
                         total += entry_masks[i].numel()
                 if total > 0:
@@ -313,7 +326,7 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
                 total = 0
                 kept = 0
                 for i, (name, _) in enumerate(named_params):
-                    if name.startswith(prefix):
+                    if name == prefix or name.startswith(prefix + "."):
                         total += 1
                         if i in keep_ids_set:
                             kept += 1
@@ -393,11 +406,20 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
             print(f"[GPU {device_id}] {method}: restart {restart_idx+1}/{NUM_RESTARTS}")
 
             #dummy_data = (torch.randn(gt_data.size(), device=device)).requires_grad_(True)
-            dummy_data = torch.rand(gt_data.size(), device=device, requires_grad=True)
+            #dummy_data = torch.rand(gt_data.size(), device=device, requires_grad=True)
+            if OPTIMIZE_NORM_SPACE:
+                dummy_raw_init = torch.rand(gt_data.size(), device=device)
+                dummy_data = ((dummy_raw_init - dm) / ds).detach().requires_grad_(True)
+            else:
+                dummy_data = torch.rand(gt_data.size(), device=device, requires_grad=True)
 
             if SAVE_GIF:
-                #_restart_init_np = torch.sigmoid(dummy_data).detach().cpu().numpy()
-                _restart_init_np = dummy_data.detach().cpu().numpy()
+                #_restart_init_np = torch.sigfmoid(dummy_data).detach().cpu().numpy()
+                #_restart_init_np = dummy_data.detach().cpu().numpy()
+                if OPTIMIZE_NORM_SPACE:
+                    _restart_init_np = (dummy_data.detach() * ds + dm).clamp(0.0, 1.0).cpu().numpy()
+                else:
+                    _restart_init_np = dummy_data.detach().cpu().numpy()
                 _restart_frames = []
                 _last_gif_iter = -1
 
@@ -407,23 +429,23 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
                 phase = "lbfgs"
             elif OPTIMIZER == "adam":
                 optimizer = torch.optim.Adam([dummy_data], lr=lr)
-                scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=300, gamma=0.5)
+                scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1000, gamma=0.7)
                 phase = "adam"
             elif OPTIMIZER == "adamw":
                 optimizer = torch.optim.AdamW([dummy_data], lr=lr, weight_decay=1e-5)
-                scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=300, gamma=0.5)
+                scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1000, gamma=0.7)
                 phase = "adamw"
             elif OPTIMIZER == "signed_adam":
                 optimizer = torch.optim.Adam([dummy_data], lr=lr)
-                scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=300, gamma=0.5)
+                scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1000, gamma=0.7)
                 phase = "signed_adam"
             elif OPTIMIZER == "signed_adamw":
                 optimizer = torch.optim.AdamW([dummy_data], lr=lr, weight_decay=1e-5)
-                scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=300, gamma=0.5)
+                scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1000, gamma=0.7)
                 phase = "signed_adamw"
             elif OPTIMIZER == "adamw_lbfgs":
                 optimizer = torch.optim.AdamW([dummy_data], lr=lr, weight_decay=1e-5)
-                scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=300, gamma=0.5)
+                scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1000, gamma=0.7)
                 phase = "adamw"
             else:
                 raise ValueError(f"Unknown optimizer: {OPTIMIZER}")
@@ -455,8 +477,15 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
                         optimizer.zero_grad()
 
                         #x = torch.sigmoid(dummy_data)
-                        x = dummy_data
-                        x_norm = (x - dm) / ds
+                        # x = dummy_data
+                        # x_norm = (x - dm) / ds
+
+                        if OPTIMIZE_NORM_SPACE:
+                            x_norm = dummy_data
+                            x_raw = (dummy_data * ds + dm).clamp(0.0, 1.0)
+                        else:
+                            x_raw = dummy_data
+                            x_norm = (x_raw - dm) / ds
 
                         pred = net(x_norm)
                         dummy_loss = criterion(pred, label_pred)
@@ -464,21 +493,33 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
 
                         grad_diff, _ = compute_grad_match_loss(dummy_dy_dx, selected_original, selected_entry_masks=selected_entry_masks, grad_loss=GRAD_LOSS)
 
-                        tv_loss = total_variation(x)
+                        #tv_loss = total_variation(x)
+                        tv_loss = total_variation(x_raw)
                         total_loss = grad_diff + TV_WEIGHT * tv_loss
                         total_loss.backward()
                         return total_loss
 
                     current_loss = optimizer.step(closure).item()
                     with torch.no_grad():
-                        dummy_data.clamp_(0.0, 1.0)
+                        #dummy_data.clamp_(0.0, 1.0)
+                        if OPTIMIZE_NORM_SPACE:
+                            dummy_data.clamp_(lower_bound, upper_bound)
+                        else:
+                            dummy_data.clamp_(0.0, 1.0)
 
                 elif phase in ["adam", "adamw", "signed_adam", "signed_adamw"]:
                     optimizer.zero_grad()
 
                     #x = torch.sigmoid(dummy_data)
-                    x = dummy_data
-                    x_norm = (x - dm) / ds
+                    # x = dummy_data
+                    # x_norm = (x - dm) / ds
+
+                    if OPTIMIZE_NORM_SPACE:
+                        x_norm = dummy_data
+                        x_raw = (dummy_data * ds + dm).clamp(0.0, 1.0)
+                    else:
+                        x_raw = dummy_data
+                        x_norm = (x_raw - dm) / ds
 
                     pred = net(x_norm)
                     dummy_loss = criterion(pred, label_pred)
@@ -486,7 +527,8 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
 
                     grad_diff, num_terms = compute_grad_match_loss(dummy_dy_dx, selected_original, selected_entry_masks=selected_entry_masks, grad_loss=GRAD_LOSS)
                     
-                    tv_loss = total_variation(x)
+                    #tv_loss = total_variation(x)
+                    tv_loss = total_variation(x_raw)
                     total_loss = grad_diff + TV_WEIGHT * tv_loss
                     total_loss.backward()
 
@@ -496,7 +538,11 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
 
                     optimizer.step()
                     with torch.no_grad():
-                        dummy_data.clamp_(0.0, 1.0)
+                        #dummy_data.clamp_(0.0, 1.0)
+                        if OPTIMIZE_NORM_SPACE:
+                            dummy_data.clamp_(lower_bound, upper_bound)
+                        else:
+                            dummy_data.clamp_(0.0, 1.0)
 
                     if scheduler is not None:
                         scheduler.step()
@@ -507,7 +553,12 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
                     raise ValueError(f"Unknown optimizer: {OPTIMIZER}")
 
                 #current_x = torch.sigmoid(dummy_data).detach().clone()
-                current_x = dummy_data.detach().clone()
+                # current_x = dummy_data.detach().clone()
+                if OPTIMIZE_NORM_SPACE:
+                    current_x = (dummy_data.detach() * ds + dm).clamp(0.0, 1.0)
+                else:
+                    current_x = dummy_data.detach().clone()
+                
                 current_mse = torch.mean((current_x - gt_data) ** 2).item()
 
                 if SAVE_GIF and iters % FRAME_INTERVAL == 0:
@@ -522,10 +573,8 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
                 if np.isfinite(current_loss):
                     if current_loss < best_loss_value:
                         best_loss_value = current_loss
-
-                    if best_mse_value is None or current_mse < best_mse_value:
                         best_mse_value = current_mse
-                        best_dummy = current_x
+                        best_dummy = current_x.detach().clone()
 
                 if not np.isfinite(current_loss):
                     nan_count += 1
@@ -575,13 +624,17 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
                 losses.append(current_loss)
                 mses.append(current_mse)
 
-                if iters % 250 == 0:
+                if iters % 500 == 0:
                     current_lr = optimizer.param_groups[0]["lr"]
                     print(f'[GPU {device_id}] {OPTIMIZER}({phase}) restart {restart_idx+1} iters {iters}, lr = {current_lr:.6g}, loss = {current_loss:.8f}, mse = {current_mse:.8f}')
 
             if SAVE_GIF and Iteration > 0 and _last_gif_iter != iters:
                 #_final_x = torch.sigmoid(dummy_data).detach()
-                _final_x = dummy_data.detach()
+                #_final_x = dummy_data.detach()
+                if OPTIMIZE_NORM_SPACE:
+                    _final_x = (dummy_data.detach() * ds + dm).clamp(0.0, 1.0)
+                else:
+                    _final_x = dummy_data.detach().clone()
                 _restart_frames.append({
                     'iter': iters,
                     'dummy': _final_x.cpu().numpy(),
@@ -589,12 +642,25 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
                     'mse': torch.mean((_final_x - gt_data) ** 2).item(),
                 })
 
-            if best_mse_value is not None:
-                if best_restart_mse_value is None or best_mse_value < best_restart_mse_value:
+            # if best_mse_value is not None:
+            #     if best_restart_mse_value is None or best_mse_value < best_restart_mse_value:
+            #         best_restart_mse_value = best_mse_value
+            #         best_restart_loss_value = best_loss_value
+            #         #best_restart_dummy = best_dummy.clone() if best_dummy is not None else torch.sigmoid(dummy_data).detach().clone()
+            #         best_restart_dummy = best_dummy.clone() if best_dummy is not None else dummy_data.detach().clone()
+            #         best_restart_losses = losses[:]
+            #         best_restart_mses = mses[:]
+            #         best_restart_early_stop_reason = early_stop_reason
+            #         best_restart_early_stop_iter = early_stop_iter
+            #         if SAVE_GIF:
+            #             _best_restart_init_np = _restart_init_np
+            #             _best_restart_frames = _restart_frames[:]
+
+            if best_dummy is not None:
+                if best_restart_losses is None or best_loss_value < best_restart_loss_value:
                     best_restart_mse_value = best_mse_value
                     best_restart_loss_value = best_loss_value
-                    #best_restart_dummy = best_dummy.clone() if best_dummy is not None else torch.sigmoid(dummy_data).detach().clone()
-                    best_restart_dummy = best_dummy.clone() if best_dummy is not None else dummy_data.detach().clone()
+                    best_restart_dummy = best_dummy.clone()
                     best_restart_losses = losses[:]
                     best_restart_mses = mses[:]
                     best_restart_early_stop_reason = early_stop_reason

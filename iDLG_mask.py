@@ -212,6 +212,9 @@ def main():
 
     parser.add_argument("--gif_fps", type=int, default=8,
         help="Frames per second for the output GIF. Only used with --save_gif.")
+    
+    parser.add_argument("--pretrained", action="store_true", 
+        help="Load ImageNet-pretrained torchvision weights for supported networks.")
 
     args = parser.parse_args()
 
@@ -259,12 +262,13 @@ def main():
     NUM_RESTARTS = args.num_restarts
     MAX_ITERATION = args.max_iteration
     HISTORY_SIZE = args.history_size
+    NETWORK_TRAINED = args.pretrained
     dataset = args.dataset
     run_id = args.run_id
     timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-    loss_tol = 1e-9
-    patience = 100
+    loss_tol = 1e-8
+    patience = 1000
     min_rel_improve = 1e-6
     explode_factor = 20.0
     warmup = 300
@@ -354,7 +358,7 @@ def main():
         'lr': lr,
         'num_dummy': num_dummy,
         'Iteration': Iteration,
-        'run_id': args.run_id,
+        'run_id': run_id,
         'MASK_MODE': MASK_MODE,
         'PREFIXES': PREFIXES,
         'PREFIX_LAYER_FRACS': PREFIX_LAYER_FRACS,
@@ -374,7 +378,7 @@ def main():
         "NUM_RESTARTS": NUM_RESTARTS,
         'MAX_ITERATION': MAX_ITERATION,
         'HISTORY_SIZE': HISTORY_SIZE,
-        'run_id': run_id,
+        'NETWORK_TRAINED': NETWORK_TRAINED,
         'EarlyStop': {
             'loss_tol': loss_tol,
             'patience': patience,
@@ -639,6 +643,7 @@ def main():
         "cmd": "python " + " ".join(sys.argv),
         "dataset": dataset,
         "network": NETWORK_NAME,
+        "pretrained": NETWORK_TRAINED,
         "restarts": NUM_RESTARTS,
         "lr": lr,
         "iteration": Iteration,

@@ -3,8 +3,9 @@ import torch
 from torchvision import models
 
 
-def get_model(network, channel=3, num_classes=10, input_size=(32, 32)):
-    model = getattr(models, network)(weights=None)
+def get_model(network, channel=3, num_classes=10, input_size=(32, 32), pretrained=False):
+    weights = "DEFAULT" if pretrained else None
+    model = getattr(models, network)(weights=weights)
 
     # ResNet-like
     if network.startswith(("resnet", "resnext", "wide_resnet")):
@@ -30,19 +31,29 @@ def get_model(network, channel=3, num_classes=10, input_size=(32, 32)):
                 padding=first_conv.padding,
                 bias=(first_conv.bias is not None)
             )
-
         # replace final classifier layer
         last_linear_idx = None
         for i in range(len(model.classifier) - 1, -1, -1):
             if isinstance(model.classifier[i], nn.Linear):
                 last_linear_idx = i
                 break
-
         if last_linear_idx is None:
             raise ValueError(f"Could not find final Linear layer in VGG classifier for {network}")
-
         in_features = model.classifier[last_linear_idx].in_features
         model.classifier[last_linear_idx] = nn.Linear(in_features, num_classes)
+
+    # DenseNet
+    elif network.startswith("densenet"):
+        if channel != 3:
+            first_conv = model.features.conv0
+            model.features.conv0 = nn.Conv2d(
+                channel,
+                first_conv.out_channels,
+                kernel_size=first_conv.kernel_size,
+                stride=first_conv.stride,
+                padding=first_conv.padding,
+                bias=(first_conv.bias is not None))
+        model.classifier = nn.Linear(model.classifier.in_features, num_classes)
 
     else:
         raise ValueError(f"Unsupported torchvision model: {network}")
