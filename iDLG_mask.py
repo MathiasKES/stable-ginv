@@ -242,6 +242,7 @@ def main():
     GRAD_LOSS = args.grad_loss
     METHODS = args.methods
     SAVE_GIF = args.save_gif
+    Iteration = args.iteration
     FRAME_INTERVAL = max(1, (Iteration + 79) // 80)  # target ≤80 frames → ≤10 s at 8 fps
     GIF_FPS = 8
     COMPUTE_JACOBIAN_RANK = args.compute_jacobian_rank
@@ -251,7 +252,6 @@ def main():
     OPTIMIZER = args.optimizer
     lr = args.lr
     num_dummy = args.num_dummy
-    Iteration = args.iteration
     num_exp = args.num_exp
     NETWORK_NAME = args.network
     NUM_RESTARTS = args.num_restarts
