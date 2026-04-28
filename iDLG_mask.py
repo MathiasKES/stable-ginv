@@ -207,11 +207,6 @@ def main():
     parser.add_argument("--save_gif", action="store_true",
         help="Save an animated GIF showing reconstruction progress per experiment.")
 
-    parser.add_argument("--frame_interval", type=int, default=20,
-        help="Capture a GIF frame every N optimisation iterations. Only used with --save_gif.")
-
-    parser.add_argument("--gif_fps", type=int, default=8,
-        help="Frames per second for the output GIF. Only used with --save_gif.")
     
     parser.add_argument("--pretrained", action="store_true", 
         help="Load ImageNet-pretrained torchvision weights for supported networks.")
@@ -247,8 +242,8 @@ def main():
     GRAD_LOSS = args.grad_loss
     METHODS = args.methods
     SAVE_GIF = args.save_gif
-    FRAME_INTERVAL = args.frame_interval
-    GIF_FPS = args.gif_fps
+    FRAME_INTERVAL = max(1, (Iteration + 79) // 80)  # target ≤80 frames → ≤10 s at 8 fps
+    GIF_FPS = 8
     COMPUTE_JACOBIAN_RANK = args.compute_jacobian_rank
     JACOBIAN_MAX_ENTRIES = args.jacobian_max_entries
     JACOBIAN_SELECT_MODE = args.jacobian_select_mode
