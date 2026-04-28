@@ -429,23 +429,23 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
                 phase = "lbfgs"
             elif OPTIMIZER == "adam":
                 optimizer = torch.optim.Adam([dummy_data], lr=lr)
-                scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1000, gamma=0.7)
+                scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1000, gamma=0.6)
                 phase = "adam"
             elif OPTIMIZER == "adamw":
                 optimizer = torch.optim.AdamW([dummy_data], lr=lr, weight_decay=1e-5)
-                scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1000, gamma=0.7)
+                scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1000, gamma=0.6)
                 phase = "adamw"
             elif OPTIMIZER == "signed_adam":
                 optimizer = torch.optim.Adam([dummy_data], lr=lr)
-                scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1000, gamma=0.7)
+                scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1000, gamma=0.6)
                 phase = "signed_adam"
             elif OPTIMIZER == "signed_adamw":
                 optimizer = torch.optim.AdamW([dummy_data], lr=lr, weight_decay=1e-5)
-                scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1000, gamma=0.7)
+                scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1000, gamma=0.6)
                 phase = "signed_adamw"
             elif OPTIMIZER == "adamw_lbfgs":
                 optimizer = torch.optim.AdamW([dummy_data], lr=lr, weight_decay=1e-5)
-                scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1000, gamma=0.7)
+                scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1000, gamma=0.6)
                 phase = "adamw"
             else:
                 raise ValueError(f"Unknown optimizer: {OPTIMIZER}")
