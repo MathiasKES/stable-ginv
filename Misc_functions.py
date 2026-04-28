@@ -1010,7 +1010,7 @@ def paired_summary(x_masked, x_idlg, metric, confidence=0.95, ci_decimals=5):
         "significant_str": f"True, {better}" if significant else "False",
     }
 
-def scheduler(optimizer, iteration):
+def make_scheduler(optimizer, iteration):
     return torch.optim.lr_scheduler.MultiStepLR(
         optimizer,
         milestones=[

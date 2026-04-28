@@ -10,7 +10,7 @@ import consts # Local file
 #from skimage.metrics import structural_similarity as ssim
 
 from Misc_functions import (get_keep_ids, compute_psnr_from_mse, build_network, get_keep_ids_by_gradsize, 
-get_entry_masks_by_gradsize, get_prefix_keep_ids, compute_jacobian_rank, total_variation, get_entry_masks_by_prefix_group, get_keep_ids_by_prefix_group, compute_grad_match_loss, scheduler)
+get_entry_masks_by_gradsize, get_prefix_keep_ids, compute_jacobian_rank, total_variation, get_entry_masks_by_prefix_group, get_keep_ids_by_prefix_group, compute_grad_match_loss, make_scheduler)
 from Network import weights_init
 
 def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_queue):
@@ -436,12 +436,12 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
 
             elif OPTIMIZER in ["adam", "signed_adam"]:
                 optimizer = torch.optim.Adam([dummy_data], lr=lr)
-                scheduler = scheduler(optimizer, Iteration)
+                scheduler = make_scheduler(optimizer, Iteration)
                 phase = OPTIMIZER
 
             elif OPTIMIZER in ["adamw", "signed_adamw", "adamw_lbfgs"]:
                 optimizer = torch.optim.AdamW([dummy_data], lr=lr, weight_decay=1e-5)
-                scheduler = scheduler(optimizer, Iteration)
+                scheduler = make_scheduler(optimizer, Iteration)
                 phase = "adamw" if OPTIMIZER == "adamw_lbfgs" else OPTIMIZER
 
             else:
