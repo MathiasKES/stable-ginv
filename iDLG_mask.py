@@ -758,6 +758,14 @@ def main():
             f"Paired best PSNR diff (masked - iDLG): {psnr_paired_stats['mean_diff']:.5f} dB "
             f"| 95% CI: {psnr_ci_str} "
             f"| significant: {psnr_significant_str}")
+
+    print("Job resource usage:")
+    print("Max memory allocated:", torch.cuda.memory.max_memory_allocated() / (1024 ** 3), "GB")
+    print("Max memory reserved:", torch.cuda.memory.max_memory_reserved() / (1024 ** 3), "GB")
+
+    print("Memory summary:")
+    print(torch.cuda.memory.memory_summary())
+
         
 if __name__ == '__main__':
     main()
