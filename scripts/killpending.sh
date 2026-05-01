@@ -1,0 +1,1 @@
+bstat | awk 'NR>1 && $6=="PEND" {print $1}' | xargs bkill
