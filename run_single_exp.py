@@ -450,20 +450,26 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
             losses = []
             mses = []
 
-            es = config.get("EarlyStop", {})
-            best_loss = float("inf")
-            no_improve = 0
+            # es = config.get("EarlyStop", {})
+            # best_loss = float("inf")
+            # no_improve = 0
 
-            patience = int(es.get("patience", 100))
-            min_rel_improve = float(es.get("min_rel_improve", 1e-6))
-            explode_factor = float(es.get("explode_factor", 30.0))
-            warmup = int(es.get("warmup", 100))
-            loss_tol = float(es.get("loss_tol", 1e-6))
-            max_nan = int(es.get("max_nan", 1))
+            # patience = int(es.get("patience", 100))
+            # min_rel_improve = float(es.get("min_rel_improve", 1e-6))
+            # explode_factor = float(es.get("explode_factor", 30.0))
+            # warmup = int(es.get("warmup", 100))
+            # loss_tol = float(es.get("loss_tol", 1e-6))
+            # max_nan = int(es.get("max_nan", 1))
 
-            nan_count = 0
-            early_stop_reason = None
-            early_stop_iter = None
+            # nan_count = 0
+            # early_stop_reason = None
+            # early_stop_iter = None
+            # best_loss_value = float("inf")
+            # best_dummy = None
+            # best_mse_value = None
+
+            early_stop_reason = "fixed_iterations"
+            early_stop_iter = Iteration
             best_loss_value = float("inf")
             best_dummy = None
             best_mse_value = None
@@ -573,50 +579,50 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
                         best_mse_value = current_mse
                         best_dummy = current_x.detach().clone()
 
-                if not np.isfinite(current_loss):
-                    nan_count += 1
-                    early_stop_reason = "nan_or_inf"
-                    early_stop_iter = iters
-                    print(f"[GPU {device_id}] Early stop ({method}, restart {restart_idx+1}): NaN/Inf at iter {iters}")
-                    if nan_count >= max_nan:
-                        break
-                else:
-                    if best_loss == float("inf"):
-                        best_loss = current_loss
-                        no_improve = 0
-                    else:
-                        rel_improve = (best_loss - current_loss) / max(abs(best_loss), 1e-12)
-                        if rel_improve > min_rel_improve:
-                            best_loss = current_loss
-                            no_improve = 0
-                        elif iters >= warmup:
-                            no_improve += 1
+                # if not np.isfinite(current_loss):
+                #     nan_count += 1
+                #     early_stop_reason = "nan_or_inf"
+                #     early_stop_iter = iters
+                #     print(f"[GPU {device_id}] Early stop ({method}, restart {restart_idx+1}): NaN/Inf at iter {iters}")
+                #     if nan_count >= max_nan:
+                #         break
+                # else:
+                #     if best_loss == float("inf"):
+                #         best_loss = current_loss
+                #         no_improve = 0
+                #     else:
+                #         rel_improve = (best_loss - current_loss) / max(abs(best_loss), 1e-12)
+                #         if rel_improve > min_rel_improve:
+                #             best_loss = current_loss
+                #             no_improve = 0
+                #         elif iters >= warmup:
+                #             no_improve += 1
 
-                if iters >= warmup and current_loss < loss_tol:
-                    early_stop_reason = "loss_tol"
-                    early_stop_iter = iters
-                    print(f"[GPU {device_id}] Early stop ({method}, restart {restart_idx+1}): loss_tol reached at iter {iters} (loss={current_loss:.3e})")
-                    break
+                # if iters >= warmup and current_loss < loss_tol:
+                #     early_stop_reason = "loss_tol"
+                #     early_stop_iter = iters
+                #     print(f"[GPU {device_id}] Early stop ({method}, restart {restart_idx+1}): loss_tol reached at iter {iters} (loss={current_loss:.3e})")
+                #     break
 
-                if iters >= warmup and best_loss < float("inf") and current_loss > explode_factor * best_loss:
-                    early_stop_reason = "explosion"
-                    early_stop_iter = iters
-                    print(f"[GPU {device_id}] Early stop ({method}, restart {restart_idx+1}): exploded at iter {iters} (loss={current_loss:.3e}, best={best_loss:.3e})")
-                    break
+                # if iters >= warmup and best_loss < float("inf") and current_loss > explode_factor * best_loss:
+                #     early_stop_reason = "explosion"
+                #     early_stop_iter = iters
+                #     print(f"[GPU {device_id}] Early stop ({method}, restart {restart_idx+1}): exploded at iter {iters} (loss={current_loss:.3e}, best={best_loss:.3e})")
+                #     break
 
-                if iters >= warmup and no_improve >= patience:
-                    if OPTIMIZER == "adamw_lbfgs" and phase == "adamw":
-                        print(f"[GPU {device_id}] Switching AdamW -> L-BFGS at iter {iters} (best={best_loss:.3e})")
-                        scheduler = None
-                        optimizer = torch.optim.LBFGS([dummy_data], lr=1, max_iter=MAX_ITERATION, history_size=HISTORY_SIZE)
-                        phase = "lbfgs"
-                        no_improve = 0
-                        best_loss = float("inf")
-                    else:
-                        early_stop_reason = "plateau"
-                        early_stop_iter = iters
-                        print(f"[GPU {device_id}] Early stop ({method}, restart {restart_idx+1}): plateau at iter {iters} (best={best_loss:.3e})")
-                        break
+                # if iters >= warmup and no_improve >= patience:
+                #     if OPTIMIZER == "adamw_lbfgs" and phase == "adamw":
+                #         print(f"[GPU {device_id}] Switching AdamW -> L-BFGS at iter {iters} (best={best_loss:.3e})")
+                #         scheduler = None
+                #         optimizer = torch.optim.LBFGS([dummy_data], lr=1, max_iter=MAX_ITERATION, history_size=HISTORY_SIZE)
+                #         phase = "lbfgs"
+                #         no_improve = 0
+                #         best_loss = float("inf")
+                #     else:
+                #         early_stop_reason = "plateau"
+                #         early_stop_iter = iters
+                #         print(f"[GPU {device_id}] Early stop ({method}, restart {restart_idx+1}): plateau at iter {iters} (best={best_loss:.3e})")
+                #         break
 
                 losses.append(current_loss)
                 mses.append(current_mse)

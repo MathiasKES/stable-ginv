@@ -5,9 +5,10 @@ import torch
 from torchvision import datasets, transforms
 from datetime import datetime
 import csv
+
 import torch.multiprocessing as mp
 import argparse
-from Misc_functions import save_recon_panel, save_recon_gif, paired_summary
+from Misc_functions import save_recon_panel, save_recon_gif, paired_summary, baseline_key_from_args, load_baseline_registry, save_baseline_registry, update_idlg_baseline,write_baseline_summary_csv
 from Dataset import lfw_dataset
 from run_single_exp import run_single_experiment
 from tqdm import tqdm
@@ -285,6 +286,10 @@ def main():
         os.makedirs(save_path, mode=0o770, exist_ok=True)
     except Exception as e:
         print(f"Warning: failed to set permissions for directories: {e}")
+    
+    baseline_dir = os.path.join(save_path, "baselines")
+    baseline_registry_path = os.path.join(baseline_dir, "idlg_baselines_registry.json")
+    baseline_summary_csv_path = os.path.join(baseline_dir, "idlg_baselines_summary.csv")
 
     print(dataset, 'root_path:', root_path)
     print(dataset, 'data_path:', data_path)
@@ -548,7 +553,26 @@ def main():
                 methods=METHODS, fps=GIF_FPS,
             )
 
-    # -------- Paired statistics for METHODS == both --------
+    # -------- Paired statistics --------
+    empty_stats = {
+        "n": float("nan"),
+        "mean_diff": float("nan"),
+        "std_diff": float("nan"),
+        "ci_low": float("nan"),
+        "ci_high": float("nan"),
+        "t_stat": float("nan"),
+        "p_value": float("nan"),
+    }
+
+    mse_paired_stats = empty_stats.copy()
+    psnr_paired_stats = empty_stats.copy()
+    mse_ci_str = ""
+    psnr_ci_str = ""
+    mse_significant_str = ""
+    psnr_significant_str = ""
+
+    baseline_key, comparable_args = baseline_key_from_args(args)
+
     if METHODS == "both":
         paired_best_mse_idlg = []
         paired_best_mse_masked = []
@@ -571,8 +595,21 @@ def main():
                 paired_best_psnr_idlg.append(psnr_idlg)
                 paired_best_psnr_masked.append(psnr_masked)
 
-        mse_summary = paired_summary(np.array(paired_best_mse_masked), np.array(paired_best_mse_idlg), metric="mse", confidence=0.95, ci_decimals=10)
-        psnr_summary = paired_summary(np.array(paired_best_psnr_masked), np.array(paired_best_psnr_idlg), metric="psnr", confidence=0.95, ci_decimals=5)
+        mse_summary = paired_summary(
+            np.array(paired_best_mse_masked),
+            np.array(paired_best_mse_idlg),
+            metric="mse",
+            confidence=0.95,
+            ci_decimals=10,
+        )
+
+        psnr_summary = paired_summary(
+            np.array(paired_best_psnr_masked),
+            np.array(paired_best_psnr_idlg),
+            metric="psnr",
+            confidence=0.95,
+            ci_decimals=5,
+        )
 
         mse_paired_stats = mse_summary["stats"]
         psnr_paired_stats = psnr_summary["stats"]
@@ -581,15 +618,73 @@ def main():
         mse_significant_str = mse_summary["significant_str"]
         psnr_significant_str = psnr_summary["significant_str"]
 
-    else:
-        empty_stats = {"n": float("nan"), "mean_diff": float("nan"), "std_diff": float("nan"), "ci_low": float("nan"), "ci_high": float("nan"), "t_stat": float("nan"), "p_value": float("nan")}
+    elif METHODS == "masked":
+        registry = load_baseline_registry(baseline_registry_path)
 
-        mse_paired_stats = empty_stats.copy()
-        psnr_paired_stats = empty_stats.copy()
-        mse_ci_str = ""
-        psnr_ci_str = ""
-        mse_significant_str = ""
-        psnr_significant_str = ""
+        if baseline_key not in registry:
+            print("\nWARNING: No matching iDLG baseline found for this masked run.")
+            print("Run the same command with --methods idlg first, using the same non-mask arguments.")
+            print(f"Expected baseline key: {baseline_key}")
+        else:
+            baseline_entry = registry[baseline_key]
+
+            paired_best_psnr_idlg = baseline_entry["avg_best_psnr_list"]
+            paired_best_mse_idlg = baseline_entry["avg_best_mse_list"]
+
+            paired_best_psnr_masked = []
+            paired_best_mse_masked = []
+
+            for idx in sorted(all_results_by_idx):
+                result = all_results_by_idx[idx]
+
+                psnr_masked = result.get("best_psnr_masked")
+                mse_masked = result.get("best_mse_iDLG_masked")
+
+                if psnr_masked is not None and np.isfinite(psnr_masked):
+                    paired_best_psnr_masked.append(psnr_masked)
+
+                if mse_masked is not None and np.isfinite(mse_masked):
+                    paired_best_mse_masked.append(mse_masked)
+
+            if len(paired_best_psnr_idlg) != len(paired_best_psnr_masked):
+                raise ValueError(
+                    f"Saved baseline and masked run have different number of PSNR values: "
+                    f"baseline={len(paired_best_psnr_idlg)}, masked={len(paired_best_psnr_masked)}"
+                )
+
+            if len(paired_best_mse_idlg) != len(paired_best_mse_masked):
+                raise ValueError(
+                    f"Saved baseline and masked run have different number of MSE values: "
+                    f"baseline={len(paired_best_mse_idlg)}, masked={len(paired_best_mse_masked)}"
+                )
+
+            mse_summary = paired_summary(
+                np.array(paired_best_mse_masked),
+                np.array(paired_best_mse_idlg),
+                metric="mse",
+                confidence=0.95,
+                ci_decimals=10,
+            )
+
+            psnr_summary = paired_summary(
+                np.array(paired_best_psnr_masked),
+                np.array(paired_best_psnr_idlg),
+                metric="psnr",
+                confidence=0.95,
+                ci_decimals=5,
+            )
+
+            mse_paired_stats = mse_summary["stats"]
+            psnr_paired_stats = psnr_summary["stats"]
+            mse_ci_str = mse_summary["ci_str"]
+            psnr_ci_str = psnr_summary["ci_str"]
+            mse_significant_str = mse_summary["significant_str"]
+            psnr_significant_str = psnr_summary["significant_str"]
+
+            print(
+                f"\nLoaded iDLG baseline averaged over "
+                f"{baseline_entry['num_runs_averaged']} run(s)."
+            )
 
     # -------- Compute statistics --------
     avg_psnr_idlg           = float(np.mean(psnr_idlg_all))             if len(psnr_idlg_all)       else float("nan")
@@ -621,6 +716,44 @@ def main():
     med_best_mse_idlg          = float(np.median(best_mse_idlg_all))        if best_mse_idlg_all else float("nan")
     med_best_loss_masked       = float(np.median(best_loss_masked_all))     if best_loss_masked_all else float("nan")
     med_best_mse_masked        = float(np.median(best_mse_masked_all))      if best_mse_masked_all else float("nan")
+
+    # -------- Save/update iDLG baseline registry --------
+    if METHODS == "idlg":
+        baseline_key, comparable_args = baseline_key_from_args(args)
+
+        ordered_best_psnr_idlg = []
+        ordered_best_mse_idlg = []
+
+        for idx in sorted(all_results_by_idx):
+            result = all_results_by_idx[idx]
+
+            psnr = result.get("best_psnr_idlg")
+            mse = result.get("best_mse_iDLG")
+
+            if psnr is None or mse is None or not np.isfinite(psnr) or not np.isfinite(mse):
+                raise ValueError(f"Missing or invalid iDLG baseline result for experiment idx={idx}")
+
+            ordered_best_psnr_idlg.append(float(psnr))
+            ordered_best_mse_idlg.append(float(mse))
+
+        registry = load_baseline_registry(baseline_registry_path)
+
+        updated_entry = update_idlg_baseline(
+            registry,
+            baseline_key,
+            comparable_args,
+            ordered_best_psnr_idlg,
+            ordered_best_mse_idlg,
+        )
+
+        save_baseline_registry(baseline_registry_path, registry)
+        write_baseline_summary_csv(baseline_summary_csv_path, registry)
+
+        print(f"\nSaved/updated iDLG baseline:")
+        print(f"baseline_key: {baseline_key}")
+        print(f"num_runs_averaged: {updated_entry['num_runs_averaged']}")
+        print(f"registry: {baseline_registry_path}")
+        print(f"summary csv: {baseline_summary_csv_path}")
 
     csv_path = os.path.join(save_path, "exp_results.csv")
     file_exists = os.path.isfile(csv_path)
@@ -749,7 +882,7 @@ def main():
     print(f"Median best loss iDLG: {med_best_loss_idlg:.6f} | masked: {med_best_loss_masked:.6f}")
     print(f"Median best mse  iDLG: {med_best_mse_idlg:.10f} | masked: {med_best_mse_masked:.10f}")
     print(f"Average best PSNR iDLG: {avg_best_psnr_idlg:.4f} ± {std_best_psnr_idlg:.4f} dB | masked: {avg_best_psnr_masked:.4f} ± {std_best_psnr_masked:.4f} dB")
-    if METHODS == "both":
+    if METHODS in ["both", "masked"]:
         print(
             f"Paired best MSE diff (masked - iDLG): {mse_paired_stats['mean_diff']:.10f} "
             f"| 95% CI: {mse_ci_str} "
