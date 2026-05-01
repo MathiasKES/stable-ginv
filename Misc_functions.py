@@ -10,6 +10,9 @@ import torch
 import torch.nn as nn
 import numpy as np
 import torch.nn.functional as F
+import csv
+import json
+import hashlib
 
 def flatten_observed_gradients(grad_list, keep_ids=None, entry_masks=None):
     """
@@ -1020,3 +1023,133 @@ def make_scheduler(optimizer, iteration):
         ],
         gamma=0.1,
     )
+
+def baseline_key_from_args(args):
+    """
+    Key for comparing masked runs to saved iDLG baselines.
+
+    IMPORTANT:
+    This excludes mask-specific arguments, because the baseline iDLG run does not use masking.
+    It includes all reconstruction/data/model hyperparameters that must match for a fair paired comparison.
+    """
+    comparable = {
+        "dataset": args.dataset,
+        "network": args.network,
+        "pretrained": bool(args.pretrained),
+        "lr": args.lr,
+        "grad_loss": args.grad_loss,
+        "num_dummy": args.num_dummy,
+        "iteration": args.iteration,
+        "num_exp": args.num_exp,
+        "run_id": args.run_id,
+        "tv_weight": args.tv_weight,
+        "optimizer": args.optimizer,
+        "num_restarts": args.num_restarts,
+        "max_iteration": args.max_iteration,
+        "history_size": args.history_size,
+    }
+
+    key_json = json.dumps(comparable, sort_keys=True)
+    key_hash = hashlib.md5(key_json.encode("utf-8")).hexdigest()
+    return key_hash, comparable
+
+
+def load_baseline_registry(path):
+    if not os.path.isfile(path):
+        return {}
+    with open(path, "r") as f:
+        return json.load(f)
+
+
+def save_baseline_registry(path, registry):
+    os.makedirs(os.path.dirname(path), mode=0o770, exist_ok=True)
+    with open(path, "w") as f:
+        json.dump(registry, f, indent=2)
+
+
+def update_idlg_baseline(registry, key, comparable_args, best_psnr_list, best_mse_list):
+    """
+    Stores one row per unique argument set.
+    If the same argument set is run multiple times, averages elementwise over runs.
+    """
+    if key not in registry:
+        registry[key] = {
+            "args": comparable_args,
+            "num_runs_averaged": 1,
+            "avg_best_psnr_list": best_psnr_list,
+            "avg_best_mse_list": best_mse_list,
+        }
+        return registry[key]
+
+    entry = registry[key]
+
+    old_n = entry["num_runs_averaged"]
+    new_n = old_n + 1
+
+    old_psnr = np.array(entry["avg_best_psnr_list"], dtype=float)
+    old_mse = np.array(entry["avg_best_mse_list"], dtype=float)
+
+    new_psnr = np.array(best_psnr_list, dtype=float)
+    new_mse = np.array(best_mse_list, dtype=float)
+
+    if len(old_psnr) != len(new_psnr):
+        raise ValueError(
+            f"Baseline with same arguments has different num_exp length: "
+            f"old={len(old_psnr)}, new={len(new_psnr)}"
+        )
+
+    entry["avg_best_psnr_list"] = ((old_psnr * old_n + new_psnr) / new_n).tolist()
+    entry["avg_best_mse_list"] = ((old_mse * old_n + new_mse) / new_n).tolist()
+    entry["num_runs_averaged"] = new_n
+
+    return entry
+
+
+def write_baseline_summary_csv(path, registry):
+    os.makedirs(os.path.dirname(path), mode=0o770, exist_ok=True)
+
+    fieldnames = [
+        "baseline_key",
+        "num_runs_averaged",
+        "dataset",
+        "network",
+        "pretrained",
+        "lr",
+        "grad_loss",
+        "num_dummy",
+        "iteration",
+        "num_exp",
+        "run_id",
+        "tv_weight",
+        "optimizer",
+        "num_restarts",
+        "max_iteration",
+        "history_size",
+        "avg_best_psnr",
+        "std_best_psnr",
+        "avg_best_mse",
+        "avg_best_psnr_list",
+        "avg_best_mse_list",
+    ]
+
+    rows = []
+    for key, entry in registry.items():
+        a = entry["args"]
+        psnr = np.array(entry["avg_best_psnr_list"], dtype=float)
+        mse = np.array(entry["avg_best_mse_list"], dtype=float)
+
+        rows.append({
+            "baseline_key": key,
+            "num_runs_averaged": entry["num_runs_averaged"],
+            **a,
+            "avg_best_psnr": float(np.mean(psnr)) if len(psnr) else float("nan"),
+            "std_best_psnr": float(np.std(psnr, ddof=1)) if len(psnr) > 1 else float("nan"),
+            "avg_best_mse": float(np.mean(mse)) if len(mse) else float("nan"),
+            "avg_best_psnr_list": json.dumps(entry["avg_best_psnr_list"]),
+            "avg_best_mse_list": json.dumps(entry["avg_best_mse_list"]),
+        })
+
+    with open(path, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
