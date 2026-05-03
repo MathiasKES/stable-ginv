@@ -9,7 +9,7 @@ import csv
 
 import torch.multiprocessing as mp
 import argparse
-from Misc_functions import save_recon_panel, save_recon_gif, paired_summary, baseline_key_from_args, load_baseline_registry, save_baseline_registry, update_idlg_baseline,write_baseline_summary_csv
+from Misc_functions import save_recon_panel, save_recon_gif, paired_summary, baseline_key_from_args, load_baseline_registry, save_baseline_registry, update_idlg_baseline,write_baseline_summary_csv, make_scheduler
 from Dataset import lfw_dataset
 from run_single_exp import run_single_experiment
 from tqdm import tqdm
@@ -212,6 +212,8 @@ def main():
     
     parser.add_argument("--pretrained", action="store_true", 
         help="Load ImageNet-pretrained torchvision weights for supported networks.")
+    
+    parser.add_argument("--gamma", type=float, default=0.5, help="gamma for learning rate scheduler")
 
     args = parser.parse_args()
 
@@ -252,6 +254,7 @@ def main():
     JACOBIAN_SELECT_MODE = args.jacobian_select_mode
     TV_WEIGHT = args.tv_weight
     OPTIMIZER = args.optimizer
+    GAMMA = args.gamma
     lr = args.lr
     num_dummy = args.num_dummy
     num_exp = args.num_exp
@@ -368,6 +371,7 @@ def main():
         'GRADSIZE_THRESHOLD': GRADSIZE_THRESHOLD,
         'GRADSIZE_METRIC': GRADSIZE_METRIC,
         'GRAD_LOSS': GRAD_LOSS,
+        "GAMMA": GAMMA,
         'NETWORK_NAME': NETWORK_NAME,
         'USE_INVERSEFED_IDLG': NETWORK_NAME.lower() == "resnet18",
         'METHODS': METHODS,
@@ -775,6 +779,7 @@ def main():
         "pretrained": NETWORK_TRAINED,
         "restarts": NUM_RESTARTS,
         "lr": lr,
+        "gamma": GAMMA,
         "iteration": Iteration,
         "num_exp": num_exp,
         "tv_weight": TV_WEIGHT,
@@ -869,6 +874,7 @@ def main():
 
     print("\n=== Average PSNR over all experiments ===")
     print(f"\nSaved CSV rows to: {csv_path}")
+    print(f"Gamma for lr scheduler was: {GAMMA}")
     if MASK_MODE == "gradsize_topfrac":
         print(f"top fraction of gradient sizes kept: {GRADSIZE_TOPFRAC*100}%")
     elif MASK_MODE == "gradsize_topk":

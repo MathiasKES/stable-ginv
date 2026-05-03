@@ -1013,7 +1013,7 @@ def paired_summary(x_masked, x_idlg, metric, confidence=0.95, ci_decimals=5):
         "significant_str": f"True, {better}" if significant else "False",
     }
 
-def make_scheduler(optimizer, iteration):
+def make_scheduler(optimizer, iteration, gamma):
     return torch.optim.lr_scheduler.MultiStepLR(
         optimizer,
         milestones=[
@@ -1021,7 +1021,7 @@ def make_scheduler(optimizer, iteration):
             int(iteration * 5 / 8),
             int(iteration * 7 / 8),
         ],
-        gamma=0.1,
+        gamma=gamma,
     )
 
 def baseline_key_from_args(args):
@@ -1037,6 +1037,7 @@ def baseline_key_from_args(args):
         "network": args.network,
         "pretrained": bool(args.pretrained),
         "lr": args.lr,
+        "gamma": args.gamma,
         "grad_loss": args.grad_loss,
         "num_dummy": args.num_dummy,
         "iteration": args.iteration,

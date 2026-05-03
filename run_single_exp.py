@@ -24,6 +24,7 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
     num_classes = config['num_classes']
     shape_img = config['shape_img']
     lr = config['lr']
+    GAMMA = config['GAMMA']
     num_dummy = config['num_dummy']
     Iteration = config['Iteration']
     MASK_MODE = config['MASK_MODE']
@@ -437,12 +438,12 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
 
             elif OPTIMIZER in ["adam", "signed_adam"]:
                 optimizer = torch.optim.Adam([dummy_data], lr=lr)
-                scheduler = make_scheduler(optimizer, Iteration)
+                scheduler = make_scheduler(optimizer, Iteration,gamma=GAMMA)
                 phase = OPTIMIZER
 
             elif OPTIMIZER in ["adamw", "signed_adamw", "adamw_lbfgs"]:
                 optimizer = torch.optim.AdamW([dummy_data], lr=lr, weight_decay=1e-5)
-                scheduler = make_scheduler(optimizer, Iteration)
+                scheduler = make_scheduler(optimizer, Iteration, gamma=GAMMA)
                 phase = "adamw" if OPTIMIZER == "adamw_lbfgs" else OPTIMIZER
 
             else:
