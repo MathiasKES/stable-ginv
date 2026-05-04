@@ -1116,6 +1116,7 @@ def write_baseline_summary_csv(path, registry):
         "network",
         "pretrained",
         "lr",
+        "gamma",
         "grad_loss",
         "num_dummy",
         "iteration",
