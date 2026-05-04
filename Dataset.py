@@ -24,16 +24,24 @@ class Dataset_from_Image(Dataset):
 
 
 def lfw_dataset(lfw_path, shape_img):
+    images_root = os.path.join(lfw_path, 'lfw-deepfunneled')
+    # Kaggle zip extracts with an extra nesting level
+    inner = os.path.join(images_root, 'lfw-deepfunneled')
+    if os.path.isdir(inner):
+        images_root = inner
     images_all = []
     labels_all = []
-    folders = os.listdir(lfw_path)
+    folders = sorted(
+        f for f in os.listdir(images_root)
+        if os.path.isdir(os.path.join(images_root, f))
+    )
     for foldidx, fold in enumerate(folders):
-        files = os.listdir(os.path.join(lfw_path, fold))
-        for f in files:
-            if len(f) > 4 and f[-4:] == '.jpg':
-                images_all.append(os.path.join(lfw_path, fold, f))
+        fold_path = os.path.join(images_root, fold)
+        for f in os.listdir(fold_path):
+            if f.lower().endswith('.jpg'):
+                images_all.append(os.path.join(fold_path, f))
                 labels_all.append(foldidx)
 
-    transform = transforms.Compose([transforms.Resize(size=shape_img)])
+    transform = transforms.Compose([transforms.Resize(shape_img)])
     dst = Dataset_from_Image(images_all, np.asarray(labels_all, dtype=int), transform=transform)
     return dst
