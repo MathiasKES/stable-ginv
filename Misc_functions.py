@@ -5,7 +5,7 @@ import os
 import math
 from scipy import stats
 from Network import LeNet, LeNet_bigger, MediumCNN, BiggerCNN, get_model
-#from skimage.metrics import structural_similarity as ssim
+from skimage.metrics import structural_similarity as ssim
 import torch
 import torch.nn as nn
 import numpy as np
@@ -376,66 +376,60 @@ def compute_psnr_from_mse(mse: float, max_val: float = 1.0, eps: float = 1e-12) 
         return float('inf')
     return 10.0 * math.log10((max_val * max_val) / (mse + eps))
 
-# def compute_ssim_batch(x, y):
-#     """
-#     x, y: torch tensors of shape [N, C, H, W] in [0, 1]
-#     Returns mean SSIM over the batch.
-#     """
-#     x_np = x.detach().cpu().numpy()
-#     y_np = y.detach().cpu().numpy()
+def compute_ssim_batch(x, y):
+    """
+    x, y: torch tensors of shape [N, C, H, W] in [0, 1]
+    Returns mean SSIM over the batch.
+    """
+    x_np = x.detach().cpu().numpy()
+    y_np = y.detach().cpu().numpy()
 
-#     scores = []
-#     for i in range(x_np.shape[0]):
-#         img_x = np.transpose(x_np[i], (1, 2, 0))  # C,H,W -> H,W,C
-#         img_y = np.transpose(y_np[i], (1, 2, 0))
+    scores = []
+    for i in range(x_np.shape[0]):
+        img_x = np.transpose(x_np[i], (1, 2, 0))  # C,H,W -> H,W,C
+        img_y = np.transpose(y_np[i], (1, 2, 0))
 
-#         if img_x.shape[2] == 1:
-#             score = ssim(
-#                 img_x.squeeze(-1),
-#                 img_y.squeeze(-1),
-#                 data_range=1.0,
-#                 win_size=7
-#             )
-#         else:
-#             score = ssim(
-#                 img_x,
-#                 img_y,
-#                 channel_axis=2,
-#                 data_range=1.0,
-#                 win_size=7
-#             )
-#         scores.append(score)
+        if img_x.shape[2] == 1:
+            score = ssim(
+                img_x.squeeze(-1),
+                img_y.squeeze(-1),
+                data_range=1.0,
+                win_size=7
+            )
+        else:
+            score = ssim(
+                img_x,
+                img_y,
+                channel_axis=2,
+                data_range=1.0,
+                win_size=7
+            )
+        scores.append(score)
 
-#     return float(np.mean(scores))
+    return float(np.mean(scores))
 
 def save_recon_panel(params: dict, panel_gt_pil, panel_idlg_pil, panel_masked_pil,
                      save_dir, block_idx, dataset, mask_desc: str, timestamp_str: str,
-                     methods: str = "both"):
-    """
-    Save a panel with dynamic rows depending on methods:
+                     methods: str = "both",
+                     psnr_idlg=None, ssim_idlg=None,
+                     psnr_masked=None, ssim_masked=None):
 
-    methods="both"   -> rows: GT, iDLG, iDLG_masked
-    methods="idlg"   -> rows: GT, iDLG
-    methods="masked" -> rows: GT, iDLG_masked
-    """
     n = len(panel_gt_pil)
     if n == 0:
         return
 
-    rows = [("GT", panel_gt_pil)]
+    rows = [("GT", panel_gt_pil, None, None)]
 
     if methods in ["idlg", "both"]:
-        rows.append(("iDLG", panel_idlg_pil))
+        rows.append(("iDLG", panel_idlg_pil, psnr_idlg, ssim_idlg))
 
     if methods in ["masked", "both"]:
-        rows.append(("iDLG_masked", panel_masked_pil))
+        rows.append(("iDLG_masked", panel_masked_pil, psnr_masked, ssim_masked))
 
     num_rows = len(rows)
-    fig = plt.figure(figsize=(2.2 * n + 1.6, 2.1 * num_rows))
+    fig = plt.figure(figsize=(2.2 * n + 1.6, 2.5 * num_rows))  # slightly taller for text
 
-    # Row labels + images
-    for r, (row_name, row_imgs) in enumerate(rows):
-        # y-position for label from top to bottom
+    for r, (row_name, row_imgs, row_psnr, row_ssim) in enumerate(rows):
         y = 1.0 - (r + 0.5) / num_rows
         fig.text(0.01, y, row_name, va='center', ha='left',
                  fontsize=14, fontweight='bold')
@@ -444,8 +438,27 @@ def save_recon_panel(params: dict, panel_gt_pil, panel_idlg_pil, panel_masked_pi
             ax = plt.subplot(num_rows, n, r * n + 1 + j)
             ax.imshow(row_imgs[j], cmap='gray' if dataset == 'MNIST' else None)
             if r == 0:
-                ax.set_title(f"exp {j}")
+                ax.set_title(f"exp {j}", fontsize=8)
+
+            # Add PSNR/SSIM under image
+            if row_psnr is not None or row_ssim is not None:
+                parts = []
+                if row_psnr is not None and row_psnr[j] is not None:
+                    parts.append(f"PSNR:{row_psnr[j]:.2f}dB")
+                if row_ssim is not None and row_ssim[j] is not None:
+                    parts.append(f"SSIM:{row_ssim[j]:.3f}")
+                ax.set_xlabel("\n".join(parts), fontsize=7, labelpad=2)
+
             ax.axis('off')
+            # axis('off') removes xlabel too, so re-add it
+            if row_psnr is not None or row_ssim is not None:
+                parts = []
+                if row_psnr is not None and row_psnr[j] is not None:
+                    parts.append(f"PSNR:{row_psnr[j]:.2f}dB")
+                if row_ssim is not None and row_ssim[j] is not None:
+                    parts.append(f"SSIM:{row_ssim[j]:.3f}")
+                ax.text(0.5, -0.05, "\n".join(parts), transform=ax.transAxes,
+                        fontsize=7, ha='center', va='top')
 
     plt.tight_layout(rect=(0.08, 0.0, 1.0, 1.0))
     if os.environ.get("LSB_INTERACTIVE") == "Y":

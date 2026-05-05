@@ -336,6 +336,10 @@ def main():
     panel_idlg_pil = []
     panel_masked_pil = []
     panel_png_paths = []
+    panel_psnr_idlg = []
+    panel_ssim_idlg = []
+    panel_psnr_masked = []
+    panel_ssim_masked = []
 
     psnr_idlg_all = []
     psnr_masked_all = []
@@ -350,6 +354,8 @@ def main():
     best_mse_idlg_all = []
     best_loss_masked_all = []
     best_mse_masked_all = []
+    best_ssim_idlg_all = []
+    best_ssim_masked_all = []
 
     mask_desc = MASK_MODE
     params = {"num-exp": num_exp, "lr": lr, "batchsize": num_dummy, "iters": Iteration}
@@ -437,6 +443,10 @@ def main():
             finished_device = result['device_id']
             all_results_by_idx[idx_net] = result
 
+            if result.get('best_ssim_idlg') is not None:
+                best_ssim_idlg_all.append(result['best_ssim_idlg'])
+            if result.get('best_ssim_masked') is not None:
+                best_ssim_masked_all.append(result['best_ssim_masked'])
             if result.get('last_psnr_idlg') is not None:
                 psnr_idlg_all.append(result['last_psnr_idlg'])
             if result.get('last_psnr_masked') is not None:
@@ -481,17 +491,29 @@ def main():
                 masked_pil = gt_pil
             panel_masked_pil.append(masked_pil)
 
+            panel_psnr_idlg.append(result.get('best_psnr_idlg'))
+            panel_ssim_idlg.append(result.get('best_ssim_idlg'))
+            panel_psnr_masked.append(result.get('best_psnr_masked'))
+            panel_ssim_masked.append(result.get('best_ssim_masked'))
+
             if len(panel_gt_pil) == panel_block_size:
                 panel_path = save_recon_panel(
-                    params, panel_gt_pil, panel_idlg_pil, panel_masked_pil,
-                    save_path, panel_block_idx, dataset, mask_desc, timestamp_str, methods=METHODS
-                )
+                params, panel_gt_pil, panel_idlg_pil, panel_masked_pil,
+                save_path, panel_block_idx, dataset, mask_desc, timestamp_str,
+                methods=METHODS,
+                psnr_idlg=panel_psnr_idlg, ssim_idlg=panel_ssim_idlg,
+                psnr_masked=panel_psnr_masked, ssim_masked=panel_ssim_masked,
+            )
                 if panel_path:
                     panel_png_paths.append(panel_path)
                 panel_block_idx += 1
                 panel_gt_pil.clear()
                 panel_idlg_pil.clear()
                 panel_masked_pil.clear()
+                panel_psnr_idlg.clear()
+                panel_ssim_idlg.clear()
+                panel_psnr_masked.clear()
+                panel_ssim_masked.clear()
 
             es_r = result.get("early_stop_reason", {})
             es_i = result.get("early_stop_iter", {})
@@ -542,8 +564,13 @@ def main():
         p.join()
     # save any remaining
     if len(panel_gt_pil) > 0:
-        panel_path = save_recon_panel(params, panel_gt_pil, panel_idlg_pil, panel_masked_pil,
-                         save_path, panel_block_idx, dataset, mask_desc, timestamp_str, methods=METHODS)
+        panel_path = save_recon_panel(
+        params, panel_gt_pil, panel_idlg_pil, panel_masked_pil,
+        save_path, panel_block_idx, dataset, mask_desc, timestamp_str,
+        methods=METHODS,
+        psnr_idlg=panel_psnr_idlg, ssim_idlg=panel_ssim_idlg,
+        psnr_masked=panel_psnr_masked, ssim_masked=panel_ssim_masked,
+    )
         if panel_path:
             panel_png_paths.append(panel_path)
 
@@ -722,6 +749,11 @@ def main():
     med_best_loss_masked       = float(np.median(best_loss_masked_all))     if best_loss_masked_all else float("nan")
     med_best_mse_masked        = float(np.median(best_mse_masked_all))      if best_mse_masked_all else float("nan")
 
+
+    avg_best_ssim_idlg   = float(np.mean(best_ssim_idlg_all))   if best_ssim_idlg_all   else float("nan")
+    avg_best_ssim_masked = float(np.mean(best_ssim_masked_all)) if best_ssim_masked_all else float("nan")
+    std_best_ssim_idlg   = float(np.std(best_ssim_idlg_all, ddof=1))   if len(best_ssim_idlg_all) > 1   else float("nan")
+    std_best_ssim_masked = float(np.std(best_ssim_masked_all, ddof=1)) if len(best_ssim_masked_all) > 1 else float("nan")
     # -------- Save/update iDLG baseline registry --------
     if METHODS == "idlg":
         baseline_key, comparable_args = baseline_key_from_args(args)
@@ -813,18 +845,14 @@ def main():
             **common,
             "mask_mode": "",
             "grad_param": "",
-            # "med_final_loss": med_final_loss_idlg,
-            # "avg_final_loss": avg_final_loss_idlg,
-            # "med_final_mse": med_final_mse_idlg,
-            # "avg_final_mse": avg_final_mse_idlg,
-            # "avg_psnr": avg_psnr_idlg,
-            # "std_psnr": std_psnr_idlg,
             "med_best_loss": round(med_best_loss_idlg,5),
             "avg_best_loss": round(avg_best_loss_idlg,5),
             "med_best_mse": round(med_best_mse_idlg,10),
             "avg_best_mse": round(avg_best_mse_idlg,10),
             "avg_best_psnr": round(avg_best_psnr_idlg,5),
             "std_best_psnr": round(std_best_psnr_idlg,5),
+            "avg_best_ssim": round(avg_best_ssim_idlg,5),
+            "std_best_ssim": round(std_best_ssim_idlg,5),
             "png_path": png_path_str,
         })
 
@@ -832,34 +860,32 @@ def main():
         rows.append({
             "method": "iDLG_masked",
             **common,
-            "mask_mode": MASK_MODE, #if MASK_MODE != 'prefix' else args.prefixes,
+            "mask_mode": MASK_MODE,
             "prefixes": args.prefixes if "prefix" in MASK_MODE else "",
             "grad_param": grad_value,
             "mse_ci": mse_ci_str if METHODS in ["both", "masked"] else "",
             "mse_significant": mse_significant_str if METHODS in ["both", "masked"] else "",
             "psnr_ci": psnr_ci_str if METHODS in ["both", "masked"] else "",
             "psnr_significant": psnr_significant_str if METHODS in ["both", "masked"] else "",
-            # "med_final_loss": med_final_loss_masked,
-            # "avg_final_loss": avg_final_loss_masked,
-            # "med_final_mse": med_final_mse_masked,
-            # "avg_final_mse": avg_final_mse_masked,
-            # "avg_psnr": avg_psnr_masked,
-            # "std_psnr": std_psnr_masked,
             "med_best_loss": round(med_best_loss_masked,5),
             "avg_best_loss": round(avg_best_loss_masked,5),
             "med_best_mse": round(med_best_mse_masked,10),
             "avg_best_mse": round(avg_best_mse_masked,10),
             "avg_best_psnr": round(avg_best_psnr_masked,5),
-            "std_best_psnr": round(std_best_psnr_masked,5,),
+            "std_best_psnr": round(std_best_psnr_masked,5),
+            "avg_best_ssim": round(avg_best_ssim_masked,5),
+            "std_best_ssim": round(std_best_ssim_masked,5),
             "png_path": png_path_str,
         })
 
     fieldnames = ["method"] + list(common.keys()) + [
-    "mask_mode", "prefixes", "grad_param",
-    # "med_final_loss", "avg_final_loss", "med_final_mse", "avg_final_mse", "avg_psnr", "std_psnr",
-    "med_best_loss", "avg_best_loss", "med_best_mse", "avg_best_mse", "avg_best_psnr", "std_best_psnr",
-    "mse_ci", "mse_significant", "psnr_ci", "psnr_significant",
-    "png_path"]
+        "mask_mode", "prefixes", "grad_param",
+        "med_best_loss", "avg_best_loss", "med_best_mse", "avg_best_mse",
+        "avg_best_psnr", "std_best_psnr",
+        "avg_best_ssim", "std_best_ssim",
+        "mse_ci", "mse_significant", "psnr_ci", "psnr_significant",
+        "png_path",
+    ]
 
     with open(csv_path, "a", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
@@ -889,6 +915,7 @@ def main():
     print(f"Median best loss iDLG: {med_best_loss_idlg:.6f} | masked: {med_best_loss_masked:.6f}")
     print(f"Median best mse  iDLG: {med_best_mse_idlg:.10f} | masked: {med_best_mse_masked:.10f}")
     print(f"Average best PSNR iDLG: {avg_best_psnr_idlg:.4f} ± {std_best_psnr_idlg:.4f} dB | masked: {avg_best_psnr_masked:.4f} ± {std_best_psnr_masked:.4f} dB")
+    print(f"Average best SSIM iDLG: {avg_best_ssim_idlg:.4f} ± {std_best_ssim_idlg:.4f} | masked: {avg_best_ssim_masked:.4f} ± {std_best_ssim_masked:.4f}")
     if METHODS in ["both", "masked"]:
         print(
             f"Paired best MSE diff (masked - iDLG): {mse_paired_stats['mean_diff']:.10f} "
