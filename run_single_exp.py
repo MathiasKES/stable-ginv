@@ -413,7 +413,10 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
 
             #dummy_data = (torch.randn(gt_data.size(), device=device)).requires_grad_(True)
             #dummy_data = torch.rand(gt_data.size(), device=device, requires_grad=True)
-            if OPTIMIZE_NORM_SPACE:
+
+            if OPTIMIZER == "lbfgs":
+                dummy_data = torch.randn(gt_data.size(), device=device, requires_grad=True)
+            elif OPTIMIZE_NORM_SPACE:
                 dummy_raw_init = torch.rand(gt_data.size(), device=device)
                 dummy_data = ((dummy_raw_init - dm) / ds).detach().requires_grad_(True)
             else:
@@ -511,10 +514,16 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
                         total_loss.backward()
                         return total_loss
 
-                    current_loss = optimizer.step(closure).item()
+                    if OPTIMIZER == "lbfgs":
+                        optimizer.step(closure)
+                        current_loss = closure().item()
+                    else:
+                        current_loss = optimizer.step(closure).item()
+
                     with torch.no_grad():
-                        #dummy_data.clamp_(0.0, 1.0)
-                        if OPTIMIZE_NORM_SPACE:
+                        if OPTIMIZER == "lbfgs":
+                            pass  # original iDLG does not clamp dummy_data
+                        elif OPTIMIZE_NORM_SPACE:
                             dummy_data.clamp_(lower_bound, upper_bound)
                         else:
                             dummy_data.clamp_(0.0, 1.0)
