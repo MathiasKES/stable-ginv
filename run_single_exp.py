@@ -143,7 +143,11 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
         upper_bound = (1.0 - dm) / ds
 
         # ---- compute original gradients ----
-        gt_data_norm = (gt_data - dm) / ds # normalize gt data
+        if OPTIMIZER == "lbfgs":
+            gt_data_norm = gt_data
+        else:
+            gt_data_norm = (gt_data - dm) / ds
+
         out = net(gt_data_norm)
         y = criterion(out, gt_label)
         dy_dx = torch.autograd.grad(y, net.parameters())
@@ -490,7 +494,10 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
                             x_raw = (dummy_data * ds + dm).clamp(0.0, 1.0)
                         else:
                             x_raw = dummy_data
-                            x_norm = (x_raw - dm) / ds
+                            if OPTIMIZER == "lbfgs":
+                                x_norm = x_raw
+                            else:
+                                x_norm = (x_raw - dm) / ds
 
                         pred = net(x_norm)
                         dummy_loss = criterion(pred, label_pred)
