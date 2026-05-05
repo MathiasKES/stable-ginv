@@ -548,6 +548,7 @@ def build_gradient_mask(
             prefixes=prefixes,
             mode="topfrac_entries",
             top_frac=gradsize_topfrac,
+            prefix_top_fracs=prefix_layer_fracs,
         )
     elif mask_mode == "gradsize_threshold":
         keep_ids, _ = get_keep_ids_by_gradsize(
