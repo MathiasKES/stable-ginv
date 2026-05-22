@@ -159,7 +159,6 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
         # choose which gradient tensors are "shared"
         keep_ids = None
         entry_masks = None
-        ranked = None
 
         if method == "iDLG":
             keep_ids = get_keep_ids("all", net=net)
@@ -168,12 +167,12 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
                 candidate_ids = get_prefix_keep_ids(net, PREFIXES)
 
             if MASK_MODE == "gradsize_topk":
-                keep_ids, ranked = get_keep_ids_by_gradsize(
+                keep_ids, _ = get_keep_ids_by_gradsize(
                     original_dy_dx, mode="topk", topk=GRADSIZE_TOPK,
                     metric=GRADSIZE_METRIC)
 
             elif MASK_MODE == "gradsize_topfrac":
-                keep_ids, ranked = get_keep_ids_by_gradsize(
+                keep_ids, _ = get_keep_ids_by_gradsize(
                     original_dy_dx, mode="topfrac", top_frac=GRADSIZE_TOPFRAC,
                     metric=GRADSIZE_METRIC)
 
@@ -186,7 +185,7 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
                     original_dy_dx, mode="topfrac_entries", top_frac=GRADSIZE_TOPFRAC)
 
             elif MASK_MODE == "prefix_topk":
-                keep_ids, ranked = get_keep_ids_by_prefix_group(
+                keep_ids, _ = get_keep_ids_by_prefix_group(
                     net=net,
                     original_dy_dx=original_dy_dx,
                     prefixes=PREFIXES,
@@ -196,7 +195,7 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
                     metric=GRADSIZE_METRIC,
                 )
             elif MASK_MODE == "prefix_topfrac":
-                keep_ids, ranked = get_keep_ids_by_prefix_group(
+                keep_ids, _ = get_keep_ids_by_prefix_group(
                     net=net,
                     original_dy_dx=original_dy_dx,
                     prefixes=PREFIXES,
@@ -235,7 +234,7 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
                     prefix_top_fracs=PREFIX_LAYER_FRACS,
                 )
             elif MASK_MODE == "gradsize_threshold":
-                keep_ids, ranked = get_keep_ids_by_gradsize(
+                keep_ids, _ = get_keep_ids_by_gradsize(
                     original_dy_dx, mode="threshold", threshold=GRADSIZE_THRESHOLD,
                     metric=GRADSIZE_METRIC)
 
