@@ -1,5 +1,3 @@
-python iDLG_mask.py --methods both --mask_mode prefix_topk --prefixes conv1:1,layer1:20,layer2:15,layer3:10,layer4:0,fc:2 --num_exp 30 --network resnet50 --lr 0.1 --optimizer adamw --iteration 3000 --num_restarts 5
-python iDLG_mask.py --methods masked --mask_mode prefix_topk --prefixes conv1:1,layer1:20,layer2:15,layer3:10,layer4:0,fc:2 --num_exp 30 --network resnet50 --lr 0.1 --optimizer adamw --iteration 3000 --num_restarts 5
-python iDLG_mask.py --methods masked --mask_mode prefix_topk --prefixes conv1:1,layer1:30,layer2:15,layer3:10,layer4:0,fc:2 --num_exp 30 --network resnet50 --lr 0.1 --optimizer adamw --iteration 3000 --num_restarts 5
-python iDLG_mask.py --methods masked --mask_mode prefix_topk --prefixes conv1:1,layer1:20,layer2:20,layer3:10,layer4:0,fc:2 --num_exp 30 --network resnet50 --lr 0.1 --optimizer adamw --iteration 3000 --num_restarts 5
-python iDLG_mask.py --methods masked --mask_mode prefix_topk --prefixes conv1:1,layer1:20,layer2:10,layer3:20,layer4:0,fc:2 --num_exp 30 --network resnet50 --lr 0.1 --optimizer adamw --iteration 3000 --num_restarts 5
+
+# quick test
+# python iDLG_mask.py --methods idlg --num_exp 1 --network LeNet --dataset MNIST --iteration 1 --optimizer signed_adamw --num_restarts 1
