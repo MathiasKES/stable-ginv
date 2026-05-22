@@ -14,11 +14,9 @@ import matplotlib.pyplot as plt
 import consts
 from Dataset import lfw_dataset
 from Network import weights_init
-from Misc_functions import (
-    build_network,
-    build_gradient_mask,
-    compute_jacobian_rank,
-)
+from training_utils import build_network
+from masking import build_gradient_mask
+from metrics import compute_jacobian_rank
 
 
 def load_dataset(dataset, data_path):

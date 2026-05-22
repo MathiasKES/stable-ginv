@@ -21,7 +21,7 @@ This plan is organized into two phases. Phase 1 contains safe, targeted improvem
 
 Estimated effort: 1–2 days. No architecture changes. Low breakage risk.
 
-### P1.1 Split `Misc_functions.py` into focused modules
+### P1.1 Split `Misc_functions.py` into focused modules ✅ DONE
 
 **Problem:** `Misc_functions.py` is 1,170 lines and mixes: gradient masking, metrics, Jacobian rank, network construction, LR scheduling, visualization, and CSV I/O. It is the hardest file to navigate and contributes to confusion about what belongs where.
 
