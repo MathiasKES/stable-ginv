@@ -189,7 +189,7 @@ def main():
     "A small positive value can reduce noise and encourage smoother images."
 ))
     
-    parser.add_argument("--optimizer", type=str, default="lbfgs", choices=["lbfgs", "adam", "adamw", "adamw_lbfgs", "signed_adam", "signed_adamw"], help="Optimizer used for the reconstruction of dummy_data."
+    parser.add_argument("--optimizer", type=str, default="lbfgs", choices=["lbfgs", "adam", "adamw", "signed_adam", "signed_adamw"], help="Optimizer used for the reconstruction of dummy_data."
 )
     
     parser.add_argument("--num_restarts", type=int, default=1,
@@ -220,9 +220,12 @@ def main():
 
     args = parser.parse_args()
 
-    if args.optimizer not in ["lbfgs","adamw_lbfgs"]:
+    if args.optimizer != "lbfgs":
         if "--max_iteration" in sys.argv or "--history_size" in sys.argv:
             parser.error("--max_iteration and --history_size can only be used when --optimizer lbfgs")
+
+    if not (0.0 < args.gradsize_topfrac <= 1.0):
+        parser.error(f"--gradsize_topfrac must be in (0, 1], got {args.gradsize_topfrac}")
 
     # -------- Masking config --------
     MASK_MODE = args.mask_mode
@@ -444,6 +447,22 @@ def main():
 
             idx_net = result['idx_net']
             finished_device = result['device_id']
+
+            if result.get('error') is not None:
+                print(f"\n[ERROR] Experiment {idx_net} on GPU {finished_device} failed:")
+                print(result['traceback'])
+                active_processes[finished_device].join()
+                if next_exp < num_exp:
+                    p = mp.Process(
+                        target=run_single_experiment,
+                        args=(next_exp, finished_device, dst, dataset, config, result_queue)
+                    )
+                    p.start()
+                    active_processes[finished_device] = p
+                    tqdm.write(f"Launching experiment {next_exp} on GPU {finished_device}")
+                    next_exp += 1
+                continue
+
             all_results_by_idx[idx_net] = result
 
             if result.get('best_ssim_idlg') is not None:
@@ -482,16 +501,22 @@ def main():
             gt_pil = tp(torch.from_numpy(result['gt_data'])[0])
             panel_gt_pil.append(gt_pil)
 
-            if 'iDLG' in result['final_recon']:
-                idlg_pil = tp(torch.from_numpy(result['final_recon']['iDLG'])[0])
-            else:
+            if 'iDLG' not in result['final_recon']:
                 idlg_pil = gt_pil
+            elif result.get('best_psnr_idlg') is None:
+                tqdm.write(f"[WARNING] Experiment {idx_net}: iDLG reconstruction failed (all restarts diverged); showing blank in panel.")
+                idlg_pil = gt_pil
+            else:
+                idlg_pil = tp(torch.from_numpy(result['final_recon']['iDLG'])[0])
             panel_idlg_pil.append(idlg_pil)
 
-            if 'iDLG_masked' in result['final_recon']:
-                masked_pil = tp(torch.from_numpy(result['final_recon']['iDLG_masked'])[0])
-            else:
+            if 'iDLG_masked' not in result['final_recon']:
                 masked_pil = gt_pil
+            elif result.get('best_psnr_masked') is None:
+                tqdm.write(f"[WARNING] Experiment {idx_net}: masked iDLG reconstruction failed (all restarts diverged); showing blank in panel.")
+                masked_pil = gt_pil
+            else:
+                masked_pil = tp(torch.from_numpy(result['final_recon']['iDLG_masked'])[0])
             panel_masked_pil.append(masked_pil)
 
             panel_psnr_idlg.append(result.get('best_psnr_idlg'))
@@ -662,36 +687,36 @@ def main():
             print(f"Expected baseline key: {baseline_key}")
         else:
             baseline_entry = registry[baseline_key]
+            baseline_psnr_list = baseline_entry["best_psnr_list"]
+            baseline_mse_list = baseline_entry["best_mse_list"]
+            n_total = len(baseline_psnr_list)
 
-            paired_best_psnr_idlg = baseline_entry["avg_best_psnr_list"]
-            paired_best_mse_idlg = baseline_entry["avg_best_mse_list"]
-
+            paired_best_psnr_idlg = []
             paired_best_psnr_masked = []
+            paired_best_mse_idlg = []
             paired_best_mse_masked = []
 
             for idx in sorted(all_results_by_idx):
                 result = all_results_by_idx[idx]
 
+                psnr_baseline = baseline_psnr_list[idx]
                 psnr_masked = result.get("best_psnr_masked")
-                mse_masked = result.get("best_mse_iDLG_masked")
-
-                if psnr_masked is not None and np.isfinite(psnr_masked):
+                if psnr_masked is not None and np.isfinite(psnr_masked) and np.isfinite(psnr_baseline):
+                    paired_best_psnr_idlg.append(psnr_baseline)
                     paired_best_psnr_masked.append(psnr_masked)
 
-                if mse_masked is not None and np.isfinite(mse_masked):
+                mse_baseline = baseline_mse_list[idx]
+                mse_masked = result.get("best_mse_iDLG_masked")
+                if mse_masked is not None and np.isfinite(mse_masked) and np.isfinite(mse_baseline):
+                    paired_best_mse_idlg.append(mse_baseline)
                     paired_best_mse_masked.append(mse_masked)
 
-            if len(paired_best_psnr_idlg) != len(paired_best_psnr_masked):
-                raise ValueError(
-                    f"Saved baseline and masked run have different number of PSNR values: "
-                    f"baseline={len(paired_best_psnr_idlg)}, masked={len(paired_best_psnr_masked)}"
-                )
-
-            if len(paired_best_mse_idlg) != len(paired_best_mse_masked):
-                raise ValueError(
-                    f"Saved baseline and masked run have different number of MSE values: "
-                    f"baseline={len(paired_best_mse_idlg)}, masked={len(paired_best_mse_masked)}"
-                )
+            n_psnr = len(paired_best_psnr_masked)
+            n_mse = len(paired_best_mse_masked)
+            if n_psnr < n_total:
+                print(f"WARNING: {n_total - n_psnr}/{n_total} experiment(s) excluded from PSNR paired test (crashed or non-finite).")
+            if n_mse < n_total:
+                print(f"WARNING: {n_total - n_mse}/{n_total} experiment(s) excluded from MSE paired test (crashed or non-finite).")
 
             mse_summary = paired_summary(
                 np.array(paired_best_mse_masked),
@@ -716,10 +741,7 @@ def main():
             mse_significant_str = mse_summary["significant_str"]
             psnr_significant_str = psnr_summary["significant_str"]
 
-            print(
-                f"\nLoaded iDLG baseline averaged over "
-                f"{baseline_entry['num_runs_averaged']} run(s)."
-            )
+            print(f"\nLoaded iDLG baseline (run_id={run_id}). Paired test uses {n_psnr}/{n_total} experiment(s).")
 
     # -------- Compute statistics --------
     avg_psnr_idlg           = float(np.mean(psnr_idlg_all))             if len(psnr_idlg_all)       else float("nan")
@@ -758,9 +780,7 @@ def main():
     std_best_ssim_idlg   = float(np.std(best_ssim_idlg_all, ddof=1))   if len(best_ssim_idlg_all) > 1   else float("nan")
     std_best_ssim_masked = float(np.std(best_ssim_masked_all, ddof=1)) if len(best_ssim_masked_all) > 1 else float("nan")
     # -------- Save/update iDLG baseline registry --------
-    if METHODS == "idlg":
-        baseline_key, comparable_args = baseline_key_from_args(args)
-
+    if METHODS in ("idlg", "both"):
         ordered_best_psnr_idlg = []
         ordered_best_mse_idlg = []
 
@@ -789,9 +809,8 @@ def main():
         save_baseline_registry(baseline_registry_path, registry)
         write_baseline_summary_csv(baseline_summary_csv_path, registry)
 
-        print(f"\nSaved/updated iDLG baseline:")
+        print(f"\nSaved iDLG baseline:")
         print(f"baseline_key: {baseline_key}")
-        print(f"num_runs_averaged: {updated_entry['num_runs_averaged']}")
         print(f"registry: {baseline_registry_path}")
         print(f"summary csv: {baseline_summary_csv_path}")
 

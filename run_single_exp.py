@@ -1,4 +1,5 @@
 # run_single_exp.py
+import traceback
 import numpy as np
 import torch
 import torch.nn as nn
@@ -13,7 +14,17 @@ from helper.training_utils import build_network, make_scheduler
 from helper.Network import weights_init
 
 def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_queue):
-    """Runs a single experiment on an assigned GPU"""
+    try:
+        _run_inner(idx_net, device_id, dst, dataset_name, config, result_queue)
+    except Exception as exc:
+        result_queue.put({
+            'error': str(exc),
+            'traceback': traceback.format_exc(),
+            'idx_net': idx_net,
+            'device_id': device_id,
+        })
+
+def _run_inner(idx_net, device_id, dst, dataset_name, config, result_queue):
     torch.cuda.set_device(device_id)
     device = f'cuda:{device_id}'
 

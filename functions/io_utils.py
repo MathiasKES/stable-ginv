@@ -121,37 +121,19 @@ def save_baseline_registry(path, registry):
 
 
 def update_idlg_baseline(registry, key, comparable_args, best_psnr_list, best_mse_list):
-    """Insert or incrementally average a new run into the baseline registry."""
-    if key not in registry:
-        registry[key] = {
-            "args": comparable_args,
-            "num_runs_averaged": 1,
-            "avg_best_psnr_list": best_psnr_list,
-            "avg_best_mse_list": best_mse_list,
-        }
-        return registry[key]
-
-    entry = registry[key]
-
-    old_n = entry["num_runs_averaged"]
-    new_n = old_n + 1
-
-    old_psnr = np.array(entry["avg_best_psnr_list"], dtype=float)
-    old_mse = np.array(entry["avg_best_mse_list"], dtype=float)
-
-    new_psnr = np.array(best_psnr_list, dtype=float)
-    new_mse = np.array(best_mse_list, dtype=float)
-
-    if len(old_psnr) != len(new_psnr):
-        raise ValueError(
-            f"Baseline with same arguments has different num_exp length: "
-            f"old={len(old_psnr)}, new={len(new_psnr)}"
+    """Store a single iDLG baseline run. Overwrites any existing entry for the same key."""
+    if key in registry:
+        print(
+            f"\nWARNING: Overwriting existing iDLG baseline for "
+            f"run_id={comparable_args['run_id']}."
         )
 
-    entry["avg_best_psnr_list"] = ((old_psnr * old_n + new_psnr) / new_n).tolist()
-    entry["avg_best_mse_list"] = ((old_mse * old_n + new_mse) / new_n).tolist()
-    entry["num_runs_averaged"] = new_n
-
+    entry = {
+        "args": comparable_args,
+        "best_psnr_list": best_psnr_list,
+        "best_mse_list": best_mse_list,
+    }
+    registry[key] = entry
     return entry
 
 
@@ -161,7 +143,6 @@ def write_baseline_summary_csv(path, registry):
 
     fieldnames = [
         "baseline_key",
-        "num_runs_averaged",
         "dataset",
         "network",
         "pretrained",
@@ -180,25 +161,24 @@ def write_baseline_summary_csv(path, registry):
         "avg_best_psnr",
         "std_best_psnr",
         "avg_best_mse",
-        "avg_best_psnr_list",
-        "avg_best_mse_list",
+        "best_psnr_list",
+        "best_mse_list",
     ]
 
     rows = []
     for key, entry in registry.items():
         a = entry["args"]
-        psnr = np.array(entry["avg_best_psnr_list"], dtype=float)
-        mse = np.array(entry["avg_best_mse_list"], dtype=float)
+        psnr = np.array(entry["best_psnr_list"], dtype=float)
+        mse = np.array(entry["best_mse_list"], dtype=float)
 
         rows.append({
             "baseline_key": key,
-            "num_runs_averaged": entry["num_runs_averaged"],
             **a,
             "avg_best_psnr": float(np.mean(psnr)) if len(psnr) else float("nan"),
             "std_best_psnr": float(np.std(psnr, ddof=1)) if len(psnr) > 1 else float("nan"),
             "avg_best_mse": float(np.mean(mse)) if len(mse) else float("nan"),
-            "avg_best_psnr_list": json.dumps(entry["avg_best_psnr_list"]),
-            "avg_best_mse_list": json.dumps(entry["avg_best_mse_list"]),
+            "best_psnr_list": json.dumps(entry["best_psnr_list"]),
+            "best_mse_list": json.dumps(entry["best_mse_list"]),
         })
 
     with open(path, "w", newline="") as f:
