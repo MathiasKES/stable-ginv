@@ -5,7 +5,7 @@ import torch
 import torch.nn.functional as F
 from skimage.metrics import structural_similarity as ssim
 
-from masking import flatten_observed_gradients
+from functions.masking import flatten_observed_gradients
 
 
 def compute_psnr_from_mse(mse: float, max_val: float = 1.0, eps: float = 1e-12) -> float:

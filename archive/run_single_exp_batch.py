@@ -2,13 +2,13 @@ import numpy as np
 import torch
 import torch.nn as nn
 from torchvision import transforms
-import consts
+import functions.consts as consts
 
-from masking import (get_keep_ids, get_keep_ids_by_gradsize, get_entry_masks_by_gradsize,
+from functions.masking import (get_keep_ids, get_keep_ids_by_gradsize, get_entry_masks_by_gradsize,
     get_prefix_keep_ids, get_entry_masks_by_prefix_group)
-from metrics import compute_psnr_from_mse, compute_jacobian_rank, total_variation
-from training_utils import build_network
-from Network import weights_init
+from helper.metrics import compute_psnr_from_mse, compute_jacobian_rank, total_variation
+from helper.training_utils import build_network
+from helper.Network import weights_init
 
 
 def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_queue):

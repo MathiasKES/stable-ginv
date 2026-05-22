@@ -29,11 +29,11 @@ Estimated effort: 1–2 days. No architecture changes. Low breakage risk.
 
 | New file | Functions to move |
 |----------|-------------------|
-| `masking.py` | `flatten_observed_gradients`, `build_gradient_mask`, `get_keep_ids`, `get_keep_ids_by_gradsize`, `get_entry_masks_by_gradsize`, `get_prefix_keep_ids`, `get_entry_masks_by_prefix_group`, `get_keep_ids_by_prefix_group` |
-| `metrics.py` | `compute_psnr_from_mse`, `compute_ssim_batch`, `total_variation`, `compute_jacobian_rank`, `compute_grad_match_loss` |
-| `visualization.py` | `save_recon_panel`, `save_recon_gif` |
-| `io_utils.py` | `save_baseline_registry`, `load_baseline_registry`, `paired_summary`, CSV helpers |
-| `training_utils.py` | `build_network`, `make_scheduler` (or merge into `Network.py`) |
+| `functions/masking.py` | `flatten_observed_gradients`, `build_gradient_mask`, `get_keep_ids`, `get_keep_ids_by_gradsize`, `get_entry_masks_by_gradsize`, `get_prefix_keep_ids`, `get_entry_masks_by_prefix_group`, `get_keep_ids_by_prefix_group` |
+| `helper/metrics.py` | `compute_psnr_from_mse`, `compute_ssim_batch`, `total_variation`, `compute_jacobian_rank`, `compute_grad_match_loss` |
+| `helper/visualization.py` | `save_recon_panel`, `save_recon_gif` |
+| `functions/io_utils.py` | `save_baseline_registry`, `load_baseline_registry`, `paired_summary`, CSV helpers |
+| `helper/training_utils.py` | `build_network`, `make_scheduler` |
 
 **Migration steps:**
 1. Create each new file and move the functions (do not rename yet).

@@ -1,3 +1,5 @@
+ruvector.db
+*.xlsx
 *.latex
 data
 .vscode
@@ -142,7 +144,6 @@ celerybeat.pid
 .env
 .envrc
 .venv
-env/
 venv/
 ENV/
 env.bak/

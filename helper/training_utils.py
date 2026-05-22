@@ -1,5 +1,5 @@
 import torch
-from Network import LeNet, LeNet_bigger, MediumCNN, BiggerCNN, get_model
+from helper.Network import LeNet, LeNet_bigger, MediumCNN, BiggerCNN, get_model
 
 
 def build_network(name: str, channel: int, num_classes: int, input_size, pretrained=False):

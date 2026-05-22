@@ -7,15 +7,15 @@ from torchvision import transforms
 import torchvision
 import os 
 import sys
-import consts # Local file
+import functions.consts as consts # Local file
 #from skimage.metrics import structural_similarity as ssim
 
-from masking import (get_keep_ids, get_keep_ids_by_gradsize, get_entry_masks_by_gradsize,
+from functions.masking import (get_keep_ids, get_keep_ids_by_gradsize, get_entry_masks_by_gradsize,
     get_prefix_keep_ids, get_entry_masks_by_prefix_group, get_keep_ids_by_prefix_group)
-from metrics import (compute_psnr_from_mse, compute_jacobian_rank, total_variation,
+from helper.metrics import (compute_psnr_from_mse, compute_jacobian_rank, total_variation,
     compute_grad_match_loss, compute_ssim_batch)
-from training_utils import build_network, make_scheduler
-from Network import weights_init
+from helper.training_utils import build_network, make_scheduler
+from helper.Network import weights_init
 
 def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_queue):
     """Runs a single experiment on an assigned GPU"""

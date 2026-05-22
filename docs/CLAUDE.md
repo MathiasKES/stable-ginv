@@ -1,5 +1,12 @@
 # stable-ginv — Codebase Map
 
+## Claude instructions
+
+- **Never commit automatically.** Only commit when the user explicitly asks.
+- **Never add co-authors to commit messages.**
+
+---
+
 ## Related repositories
 
 `/home/mathias/GitHub/bachelor_thesis/` — Overleaf Git-integrated thesis. **Never auto-commit to this repo.** Changes must be committed manually by the user so Overleaf syncs correctly.
@@ -13,22 +20,36 @@ Compares baseline iDLG against masked variants (selective gradient disclosure) a
 
 ## Quick orientation
 
+**Entry points (project root)**
+
 | File | Role |
 |---|---|
 | `iDLG_mask.py` | CLI entry point; argument parsing, dataset loading, multiprocess dispatch, CSV+PNG+GIF output |
 | `run_single_exp.py` | Worker: one experiment on one GPU; gradient computation, optimization loop, metrics |
-| `Misc_functions.py` | All masking logic, Jacobian rank, PSNR, panel/GIF rendering |
-| `Network.py` | Model definitions + factory (`get_model`, `LeNet*`, `MediumCNN`, `BiggerCNN`) |
-| `Dataset.py` | `lfw_dataset()` + `Dataset_from_Image` |
-| `consts.py` | Normalization constants: `{dataset}_mean`, `{dataset}_std` for cifar10, cifar100, mnist, imagenet |
-| `run_single_exp_batch.py` | Parallel variant for `num_dummy > 1` |
-| `jacobian_parallel.py` | Sweep Jacobian rank vs. observed-entry count across GPUs |
-| `jacobian_rank_sweep.py` | Older serial rank sweep (largely superseded) |
-| `iDLG_original.py` | Reference baseline; no masking, legacy mlserverpy logging |
-| `plot_MSE_model_complexity.py` | Standalone hardcoded-data plotting script |
-| `simulate_run.py` | Mock run for testing ML-Server upload infrastructure |
 
-Paths: data → `./data` or `/work3/s234843/bachelor/datasets`; results → `./results` or `/work3/s234843/bachelor/results`. Detection is automatic via `os.access()`.
+**`functions/` — core domain logic**
+
+| File | Role |
+|---|---|
+| `functions/masking.py` | All gradient masking: `build_gradient_mask`, `get_keep_ids*`, `get_entry_masks*`, `flatten_observed_gradients` |
+| `functions/io_utils.py` | Baseline registry, paired stats, CSV helpers |
+| `functions/Dataset.py` | `lfw_dataset()` + `Dataset_from_Image` |
+| `functions/consts.py` | Normalization constants: `{dataset}_mean`, `{dataset}_std` for cifar10, cifar100, mnist, imagenet |
+| `functions/jacobian_rank_sweep.py` | Serial Jacobian rank sweep |
+| `functions/Misc_functions.py` | Re-export shim (backwards compat only — to be deleted) |
+
+**`helper/` — shared utilities**
+
+| File | Role |
+|---|---|
+| `helper/Network.py` | Model definitions + factory (`get_model`, `LeNet*`, `MediumCNN`, `BiggerCNN`) |
+| `helper/metrics.py` | `compute_psnr_from_mse`, `compute_ssim_batch`, `total_variation`, `compute_jacobian_rank`, `compute_grad_match_loss` |
+| `helper/training_utils.py` | `build_network`, `make_scheduler` |
+| `helper/visualization.py` | `save_recon_panel`, `save_recon_gif` |
+
+**`archive/`** — retired scripts (not imported anywhere): `iDLG_original.py`, `jacobian_parallel.py`, `run_single_exp_batch.py`, old visualize/testing scripts.
+
+Paths: data → `./data` or `/work3/s234843/bachelor/datasets`; results → `./hpc/results` or `/work3/s234843/bachelor/results`. Detection is automatic via `os.access()`.
 
 ---
 
@@ -72,7 +93,7 @@ Two granularities: **tensor-wise** (keep whole parameter tensors) and **entry-wi
 
 ---
 
-## Key functions — Misc_functions.py
+## Key functions — functions/masking.py
 
 ```python
 # ── Masking entry points ──────────────────────────────────────────────────────
@@ -139,7 +160,7 @@ save_recon_gif(results_list, save_dir, block_idx, dataset, mask_desc,
 
 ---
 
-## Key functions — Network.py
+## Key functions — helper/Network.py
 
 ```python
 get_model(network: str, channel=3, num_classes=10, input_size=(32,32)) -> nn.Module

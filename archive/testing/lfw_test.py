@@ -2,7 +2,7 @@ import os
 import torch
 import torch.nn as nn
 from torchvision import transforms, models
-from Dataset import lfw_dataset
+from functions.Dataset import lfw_dataset
 
 def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
