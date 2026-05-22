@@ -16,7 +16,7 @@ from torch.utils.data import DataLoader
 from torchvision import transforms
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-from Dataset import lfw_dataset
+from functions.Dataset import lfw_dataset
 
 lfw_path = '/work3/s234843/bachelor/datasets/lfw'
 shape_img = (32, 32)

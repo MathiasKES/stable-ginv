@@ -14,14 +14,12 @@ import matplotlib.pyplot as plt
 from tqdm import tqdm
 import time
 
-import consts
-from Dataset import lfw_dataset
-from Network import weights_init
-from Misc_functions import (
-    build_network,
-    build_gradient_mask,
-    compute_jacobian_rank,
-)
+import functions.consts as consts
+from functions.Dataset import lfw_dataset
+from helper.Network import weights_init
+from helper.training_utils import build_network
+from functions.masking import build_gradient_mask
+from helper.metrics import compute_jacobian_rank
 
 
 def load_dataset(dataset, data_path):
