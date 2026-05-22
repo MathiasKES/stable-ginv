@@ -1,14 +1,9 @@
 # run_single_exp.py
 import numpy as np
-import torch.nn.functional as F
 import torch
 import torch.nn as nn
 from torchvision import transforms
-import torchvision
-import os 
-import sys
-import functions.consts as consts # Local file
-#from skimage.metrics import structural_similarity as ssim
+import functions.consts as consts
 
 from functions.masking import (get_keep_ids, get_keep_ids_by_gradsize, get_entry_masks_by_gradsize,
     get_prefix_keep_ids, get_entry_masks_by_prefix_group, get_keep_ids_by_prefix_group)
@@ -67,13 +62,10 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
     net.eval()
 
     if idx_net == 0 and device_id == 0:
-        # for i, (name, param) in enumerate(net.named_parameters()):
-        #     print(i, name, tuple(param.shape))
         print(f'[GPU {device_id}] Running {idx_net} experiment')
     
     idx_shuffle = np.random.permutation(len(dst))
     tt = transforms.Compose([transforms.ToTensor()])
-    tp = transforms.Compose([transforms.ToPILImage()])
 
     final_recon = {}
     early_stop_reason_dict = {}
@@ -102,7 +94,6 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
     recon_frames_by_method = {}
 
     for method in methods_to_run:
-        #print(f'[GPU {device_id}] {method}, Try to generate {num_dummy} images')
 
         best_restart_loss_value = float("inf")
         best_restart_mse_value = None
@@ -136,11 +127,11 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
                 gt_label = torch.cat((gt_label, tmp_label), dim=0)
 
         if NETWORK_TRAINED and channel == 3:
-            dm = torch.tensor([0.485, 0.456, 0.406], device=device).view(1, channel, 1, 1)
-            ds = torch.tensor([0.229, 0.224, 0.225], device=device).view(1, channel, 1, 1)
+            dm = torch.tensor(consts.imagenet_mean, device=device).view(1, channel, 1, 1)
+            ds = torch.tensor(consts.imagenet_std,  device=device).view(1, channel, 1, 1)
         else:
             dm = torch.tensor(getattr(consts, f'{dataset_name.lower()}_mean'), device=device).view(1, channel, 1, 1)
-            ds = torch.tensor(getattr(consts, f'{dataset_name.lower()}_std'), device=device).view(1, channel, 1, 1)
+            ds = torch.tensor(getattr(consts, f'{dataset_name.lower()}_std'),  device=device).view(1, channel, 1, 1)
 
         lower_bound = -dm / ds
         upper_bound = (1.0 - dm) / ds
@@ -152,11 +143,7 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
         dy_dx = torch.autograd.grad(y, net.parameters())
         original_dy_dx = [g.detach().clone() for g in dy_dx]
 
-        # iDLG label inference
-        #label_pred = torch.argmin(torch.sum(original_dy_dx[-2], dim=-1), dim=-1).detach().reshape((1,))
-
         candidate_ids = None
-        # choose which gradient tensors are "shared"
         keep_ids = None
         entry_masks = None
 
@@ -340,7 +327,6 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
                         req = PREFIX_LAYER_FRACS.get(prefix, GRADSIZE_TOPFRAC)
                     else:
                         req = int(PREFIX_LAYER_FRACS.get(prefix, GRADSIZE_TOPK))
-                    # req = PREFIX_LAYER_FRACS.get(prefix, GRADSIZE_TOPFRAC) if MASK_MODE == "prefix_topfrac" else GRADSIZE_TOPK
                     print(f"  {prefix}: kept {kept}/{total} = {kept/total:.4f}, requested={req}")
                             
         if COMPUTE_JACOBIAN_RANK:
@@ -568,18 +554,14 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
 
         if best_restart_dummy is not None:
             final_recon[method] = best_restart_dummy
-            best_restart_ssim_value = None
-            if best_restart_dummy is not None:
-                best_restart_ssim_value = compute_ssim_batch(
-                    best_restart_dummy.unsqueeze(0) if best_restart_dummy.dim() == 3 else best_restart_dummy,
-                    gt_data
-                )
+            best_restart_ssim_value = compute_ssim_batch(
+                best_restart_dummy.unsqueeze(0) if best_restart_dummy.dim() == 3 else best_restart_dummy,
+                gt_data
+            )
 
             if method == 'iDLG':
-                ...
                 best_ssim_iDLG = best_restart_ssim_value
             else:
-                ...
                 best_ssim_iDLG_masked = best_restart_ssim_value
         
         else:
