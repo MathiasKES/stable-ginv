@@ -11,7 +11,7 @@ import consts # Local file
 #from skimage.metrics import structural_similarity as ssim
 
 from Misc_functions import (get_keep_ids, compute_psnr_from_mse, build_network, get_keep_ids_by_gradsize, 
-get_entry_masks_by_gradsize, get_prefix_keep_ids, compute_jacobian_rank, total_variation, get_entry_masks_by_prefix_group, get_keep_ids_by_prefix_group, compute_grad_match_loss, make_scheduler)
+get_entry_masks_by_gradsize, get_prefix_keep_ids, compute_jacobian_rank, total_variation, get_entry_masks_by_prefix_group, get_keep_ids_by_prefix_group, compute_grad_match_loss, make_scheduler, compute_ssim_batch)
 from Network import weights_init
 
 def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_queue):
@@ -82,6 +82,8 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
     best_mse_iDLG = None
     best_loss_iDLG_masked = None
     best_mse_iDLG_masked = None
+    best_ssim_iDLG = None
+    best_ssim_iDLG_masked = None
 
     if METHODS == "idlg":
         methods_to_run = ["iDLG"]
@@ -696,6 +698,20 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
 
         if best_restart_dummy is not None:
             final_recon[method] = best_restart_dummy
+            best_restart_ssim_value = None
+            if best_restart_dummy is not None:
+                best_restart_ssim_value = compute_ssim_batch(
+                    best_restart_dummy.unsqueeze(0) if best_restart_dummy.dim() == 3 else best_restart_dummy,
+                    gt_data
+                )
+
+            if method == 'iDLG':
+                ...
+                best_ssim_iDLG = best_restart_ssim_value
+            else:
+                ...
+                best_ssim_iDLG_masked = best_restart_ssim_value
+        
         else:
             final_recon[method] = torch.zeros_like(gt_data)
 
@@ -739,6 +755,8 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
         'best_mse_iDLG': best_mse_iDLG,
         'best_loss_iDLG_masked': best_loss_iDLG_masked,
         'best_mse_iDLG_masked': best_mse_iDLG_masked,
+        'best_ssim_idlg': best_ssim_iDLG,
+        'best_ssim_masked': best_ssim_iDLG_masked,
 
         'label_iDLG': label_iDLG if 'iDLG' in final_recon else None,
         'label_iDLG_masked': label_iDLG_masked if 'iDLG_masked' in final_recon else None,
