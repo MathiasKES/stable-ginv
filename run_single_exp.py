@@ -16,7 +16,7 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
     """Runs a single experiment on an assigned GPU"""
     torch.cuda.set_device(device_id)
     device = f'cuda:{device_id}'
-    
+
     # Unpack config
     channel = config['channel']
     num_classes = config['num_classes']
@@ -41,13 +41,13 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
     TV_WEIGHT = config.get('TV_WEIGHT', 0.0)
     OPTIMIZER = config.get('OPTIMIZER', 'lbfgs')
     NUM_RESTARTS = config.get('NUM_RESTARTS', 1)
-    MAX_ITERATION = config.get('MAX_ITERATION',20)
-    HISTORY_SIZE = config.get('HISTORY_SIZE',100)
+    MAX_ITERATION = config.get('MAX_ITERATION', 20)
+    HISTORY_SIZE = config.get('HISTORY_SIZE', 100)
     SAVE_GIF = config.get('SAVE_GIF', False)
     FRAME_INTERVAL = config.get('FRAME_INTERVAL', 20)
-    GRAD_LOSS = config.get('GRAD_LOSS', 'cos').lower() # options: "l2" or "cos"
+    GRAD_LOSS = config.get('GRAD_LOSS', 'cos').lower()
 
-    seed = config.get("run_id", 0) + idx_net + 1 
+    seed = config.get("run_id", 0) + idx_net + 1
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
     np.random.seed(seed)
@@ -56,27 +56,61 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
     if NETWORK_TRAINED:
         print(f"[GPU {device_id}] Loaded ImageNet-pretrained weights for {NETWORK_NAME}")
     elif NETWORK_NAME in ["LeNet", "LeNet_bigger", "MediumCNN", "BiggerCNN"]:
-            net.apply(weights_init)
+        net.apply(weights_init)
 
     net = net.to(device)
     net.eval()
 
-    if idx_net == 0 and device_id == 0:
-        print(f'[GPU {device_id}] Running {idx_net} experiment')
-    
     idx_shuffle = np.random.permutation(len(dst))
     tt = transforms.Compose([transforms.ToTensor()])
+
+    criterion = nn.CrossEntropyLoss().to(device)
+    imidx_list = []
+
+    # Build GT batch — computed once, shared across all methods
+    for imidx in range(num_dummy):
+        idx = idx_shuffle[imidx]
+        imidx_list.append(idx)
+        tmp_datum = tt(dst[idx][0]).float().to(device)
+        tmp_datum = tmp_datum.view(1, *tmp_datum.size())
+        tmp_label = torch.tensor([dst[idx][1]], dtype=torch.long, device=device).view(1,)
+        if imidx == 0:
+            gt_data = tmp_datum
+            gt_label = tmp_label
+        else:
+            gt_data = torch.cat((gt_data, tmp_datum), dim=0)
+            gt_label = torch.cat((gt_label, tmp_label), dim=0)
+
+    if NETWORK_TRAINED and channel == 3:
+        dm = torch.tensor(consts.imagenet_mean, device=device).view(1, channel, 1, 1)
+        ds = torch.tensor(consts.imagenet_std,  device=device).view(1, channel, 1, 1)
+    else:
+        dm = torch.tensor(getattr(consts, f'{dataset_name.lower()}_mean'), device=device).view(1, channel, 1, 1)
+        ds = torch.tensor(getattr(consts, f'{dataset_name.lower()}_std'),  device=device).view(1, channel, 1, 1)
+
+    lower_bound = -dm / ds
+    upper_bound = (1.0 - dm) / ds
+    gt_data_norm = (gt_data - dm) / ds
+
+    out = net(gt_data_norm)
+    y = criterion(out, gt_label)
+    dy_dx = torch.autograd.grad(y, net.parameters())
+    original_dy_dx = [g.detach().clone() for g in dy_dx]
+    total_entries = sum(g.numel() for g in original_dy_dx)
 
     final_recon = {}
     early_stop_reason_dict = {}
     early_stop_iter_dict = {}
 
-    best_loss_iDLG = None
-    best_mse_iDLG = None
-    best_loss_iDLG_masked = None
-    best_mse_iDLG_masked = None
-    best_ssim_iDLG = None
-    best_ssim_iDLG_masked = None
+    # Per-method result accumulators (avoids duplicated if/else dispatch blocks)
+    _losses = {}
+    _labels = {}
+    _mses = {}
+    _best_loss = {}
+    _best_mse = {}
+    _best_ssim = {}
+    _jac_rank = {}
+    _jac_shape = {}
 
     if METHODS == "idlg":
         methods_to_run = ["iDLG"]
@@ -84,11 +118,6 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
         methods_to_run = ["iDLG_masked"]
     else:
         methods_to_run = ["iDLG", "iDLG_masked"]
-
-    jac_rank_iDLG = None
-    jac_rank_iDLG_masked = None
-    jac_shape_iDLG = None
-    jac_shape_iDLG_masked = None
 
     init_frames_by_method = {}
     recon_frames_by_method = {}
@@ -107,45 +136,10 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
             _best_restart_init_np = None
             _best_restart_frames = []
 
-        criterion = nn.CrossEntropyLoss().to(device)
-        imidx_list = []
-
-        # ---- build GT batch ----
-        for imidx in range(num_dummy):
-            idx = idx_shuffle[imidx]
-            imidx_list.append(idx)
-
-            tmp_datum = tt(dst[idx][0]).float().to(device)
-            tmp_datum = tmp_datum.view(1, *tmp_datum.size())
-            tmp_label = torch.tensor([dst[idx][1]], dtype=torch.long, device=device).view(1,)
-
-            if imidx == 0:
-                gt_data = tmp_datum
-                gt_label = tmp_label
-            else:
-                gt_data = torch.cat((gt_data, tmp_datum), dim=0)
-                gt_label = torch.cat((gt_label, tmp_label), dim=0)
-
-        if NETWORK_TRAINED and channel == 3:
-            dm = torch.tensor(consts.imagenet_mean, device=device).view(1, channel, 1, 1)
-            ds = torch.tensor(consts.imagenet_std,  device=device).view(1, channel, 1, 1)
-        else:
-            dm = torch.tensor(getattr(consts, f'{dataset_name.lower()}_mean'), device=device).view(1, channel, 1, 1)
-            ds = torch.tensor(getattr(consts, f'{dataset_name.lower()}_std'),  device=device).view(1, channel, 1, 1)
-
-        lower_bound = -dm / ds
-        upper_bound = (1.0 - dm) / ds
-
-        gt_data_norm = (gt_data - dm) / ds
-
-        out = net(gt_data_norm)
-        y = criterion(out, gt_label)
-        dy_dx = torch.autograd.grad(y, net.parameters())
-        original_dy_dx = [g.detach().clone() for g in dy_dx]
-
         candidate_ids = None
         keep_ids = None
         entry_masks = None
+        observed_entries = None
 
         if method == "iDLG":
             keep_ids = get_keep_ids("all", net=net)
@@ -164,11 +158,11 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
                     metric=GRADSIZE_METRIC)
 
             elif MASK_MODE == "gradsize_topk_entries":
-                entry_masks, observed_entries, total_entries = get_entry_masks_by_gradsize(
+                entry_masks, observed_entries, _ = get_entry_masks_by_gradsize(
                     original_dy_dx, mode="topk_entries", topk=GRADSIZE_TOPK)
 
             elif MASK_MODE == "gradsize_topfrac_entries":
-                entry_masks, observed_entries, total_entries = get_entry_masks_by_gradsize(
+                entry_masks, observed_entries, _ = get_entry_masks_by_gradsize(
                     original_dy_dx, mode="topfrac_entries", top_frac=GRADSIZE_TOPFRAC)
 
             elif MASK_MODE == "prefix_topk":
@@ -181,6 +175,7 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
                     prefix_top_ks={k: int(v) for k, v in PREFIX_LAYER_FRACS.items()},
                     metric=GRADSIZE_METRIC,
                 )
+
             elif MASK_MODE == "prefix_topfrac":
                 keep_ids, _ = get_keep_ids_by_prefix_group(
                     net=net,
@@ -191,19 +186,19 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
                     prefix_top_fracs=PREFIX_LAYER_FRACS,
                     metric=GRADSIZE_METRIC,
                 )
-            
+
             elif MASK_MODE == "prefix_topk_entries":
-                entry_masks, observed_entries, total_entries = get_entry_masks_by_gradsize(
+                entry_masks, observed_entries, _ = get_entry_masks_by_gradsize(
                     original_dy_dx, mode="topk_entries", topk=GRADSIZE_TOPK,
                     candidate_ids=candidate_ids)
 
             elif MASK_MODE == "prefix_topfrac_entries":
-                entry_masks, observed_entries, total_entries = get_entry_masks_by_gradsize(
+                entry_masks, observed_entries, _ = get_entry_masks_by_gradsize(
                     original_dy_dx, mode="topfrac_entries", top_frac=GRADSIZE_TOPFRAC,
                     candidate_ids=candidate_ids)
 
             elif MASK_MODE == "prefix_topk_entries_layer":
-                entry_masks, observed_entries, total_entries = get_entry_masks_by_prefix_group(
+                entry_masks, observed_entries, _ = get_entry_masks_by_prefix_group(
                     net=net,
                     original_dy_dx=original_dy_dx,
                     prefixes=PREFIXES,
@@ -212,7 +207,7 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
                 )
 
             elif MASK_MODE == "prefix_topfrac_entries_layer":
-                entry_masks, observed_entries, total_entries = get_entry_masks_by_prefix_group(
+                entry_masks, observed_entries, _ = get_entry_masks_by_prefix_group(
                     net=net,
                     original_dy_dx=original_dy_dx,
                     prefixes=PREFIXES,
@@ -220,6 +215,7 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
                     top_frac=GRADSIZE_TOPFRAC,
                     prefix_top_fracs=PREFIX_LAYER_FRACS,
                 )
+
             elif MASK_MODE == "gradsize_threshold":
                 keep_ids, _ = get_keep_ids_by_gradsize(
                     original_dy_dx, mode="threshold", threshold=GRADSIZE_THRESHOLD,
@@ -229,7 +225,7 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
                 keep_ids = get_keep_ids(mask_mode="prefix", net=net, prefixes=PREFIXES)
 
             else:
-                keep_ids = get_keep_ids(MASK_MODE)   
+                keep_ids = get_keep_ids(MASK_MODE)
 
         final_weight_idx = len(original_dy_dx) - 2
 
@@ -245,29 +241,19 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
                 if m is not None and bool(m.all()):
                     label_pred = torch.argmin(torch.sum(original_dy_dx[final_weight_idx], dim=-1), dim=-1).detach().reshape((1,))
                     label_inference_available = True
-            else:
+            elif keep_ids is not None:
                 if final_weight_idx in keep_ids:
                     label_pred = torch.argmin(torch.sum(original_dy_dx[final_weight_idx], dim=-1), dim=-1).detach().reshape((1,))
                     label_inference_available = True
 
         if not label_inference_available:
             print(f"[GPU {device_id}] {method}: label inference unavailable under current mask")
-
             final_recon[method] = torch.zeros_like(gt_data)
-
-            if method == 'iDLG':
-                loss_iDLG = [float("inf")]
-                label_iDLG = None
-                mse_iDLG = [float("inf")]
-                best_loss_iDLG = float("inf")
-                best_mse_iDLG = float("inf")
-            else:
-                loss_iDLG_masked = [float("inf")]
-                label_iDLG_masked = None
-                mse_iDLG_masked = [float("inf")]
-                best_loss_iDLG_masked = float("inf")
-                best_mse_iDLG_masked = float("inf")
-
+            _losses[method] = [float("inf")]
+            _labels[method] = None
+            _mses[method] = [float("inf")]
+            _best_loss[method] = float("inf")
+            _best_mse[method] = float("inf")
             early_stop_reason_dict[method] = "label_inference_unavailable"
             early_stop_iter_dict[method] = 0
             continue
@@ -275,16 +261,13 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
         unknowns = int(gt_data[0].numel())
 
         if entry_masks is not None:
-            observed_entries = sum(
-                int(m.sum().item()) for m in entry_masks if m is not None
-            )
-            total_entries = sum(g.numel() for g in original_dy_dx if g is not None)
+            if observed_entries is None:
+                observed_entries = sum(int(m.sum().item()) for m in entry_masks if m is not None)
         else:
             observed_entries = sum(
                 g.numel() for i, g in enumerate(original_dy_dx)
                 if g is not None and i in keep_ids
             )
-            total_entries = sum(g.numel() for g in original_dy_dx if g is not None)
 
         kept_fraction = observed_entries / total_entries
 
@@ -293,42 +276,40 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
 
         if idx_net == 0 and device_id == 0:
             print(f"[GPU {device_id}] {method}: observed_entries={observed_entries}, "
-                f"total_entries={total_entries}, kept_fraction={kept_fraction:.4f}, "
-                f"unknowns={unknowns}")
-            
-        if MASK_MODE in ["prefix_topfrac_entries_layer", "prefix_topk_entries_layer"] and entry_masks is not None:
-            print(f"[GPU {device_id}] kept entries per prefix:")
-            for prefix in PREFIXES:
-                kept = 0
-                total = 0
-                for i, (name, _) in enumerate(net.named_parameters()):
-                    if (name == prefix or name.startswith(prefix + ".")) and entry_masks[i] is not None:
-                        kept += int(entry_masks[i].sum().item())
-                        total += entry_masks[i].numel()
-                if total > 0:
-                    print(f"  {prefix}: kept {kept}/{total} = {kept/total:.4f}")
-        
-        if MASK_MODE in ["prefix_topfrac", "prefix_topk"] and keep_ids is not None:
-            print(f"[GPU {device_id}] kept tensors per prefix:")
-            named_params = list(net.named_parameters())
-            keep_ids_set = set(keep_ids)
+                  f"total_entries={total_entries}, kept_fraction={kept_fraction:.4f}, "
+                  f"unknowns={unknowns}")
 
-            for prefix in PREFIXES:
-                total = 0
-                kept = 0
-                for i, (name, _) in enumerate(named_params):
-                    if name == prefix or name.startswith(prefix + "."):
-                        total += 1
-                        if i in keep_ids_set:
-                            kept += 1
+            if MASK_MODE in ["prefix_topfrac_entries_layer", "prefix_topk_entries_layer"] and entry_masks is not None:
+                print(f"[GPU {device_id}] kept entries per prefix:")
+                for prefix in PREFIXES:
+                    kept = 0
+                    total = 0
+                    for i, (name, _) in enumerate(net.named_parameters()):
+                        if (name == prefix or name.startswith(prefix + ".")) and entry_masks[i] is not None:
+                            kept += int(entry_masks[i].sum().item())
+                            total += entry_masks[i].numel()
+                    if total > 0:
+                        print(f"  {prefix}: kept {kept}/{total} = {kept/total:.4f}")
 
-                if total > 0:
-                    if MASK_MODE == "prefix_topfrac":
-                        req = PREFIX_LAYER_FRACS.get(prefix, GRADSIZE_TOPFRAC)
-                    else:
-                        req = int(PREFIX_LAYER_FRACS.get(prefix, GRADSIZE_TOPK))
-                    print(f"  {prefix}: kept {kept}/{total} = {kept/total:.4f}, requested={req}")
-                            
+            if MASK_MODE in ["prefix_topfrac", "prefix_topk"] and keep_ids is not None:
+                print(f"[GPU {device_id}] kept tensors per prefix:")
+                named_params = list(net.named_parameters())
+                keep_ids_set = set(keep_ids)
+                for prefix in PREFIXES:
+                    total = 0
+                    kept = 0
+                    for i, (name, _) in enumerate(named_params):
+                        if name == prefix or name.startswith(prefix + "."):
+                            total += 1
+                            if i in keep_ids_set:
+                                kept += 1
+                    if total > 0:
+                        if MASK_MODE == "prefix_topfrac":
+                            req = PREFIX_LAYER_FRACS.get(prefix, GRADSIZE_TOPFRAC)
+                        else:
+                            req = int(PREFIX_LAYER_FRACS.get(prefix, GRADSIZE_TOPK))
+                        print(f"  {prefix}: kept {kept}/{total} = {kept/total:.4f}, requested={req}")
+
         if COMPUTE_JACOBIAN_RANK:
             if num_dummy != 1:
                 raise ValueError("Jacobian-rank computation currently assumes num_dummy=1.")
@@ -345,41 +326,28 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
                 device_for_J="cpu",
             )
             print(f"[GPU {device_id}] {method}: jacobian_shape={jacobian_shape}, "
-                f"jacobian_rank={jacobian_rank}, unknowns={jac_unknowns}")
+                  f"jacobian_rank={jacobian_rank}, unknowns={jac_unknowns}")
 
             if jacobian_rank < jac_unknowns:
                 print(f"[GPU {device_id}] {method}: Jacobian rank too small for unique local reconstruction "
-                    f"({jacobian_rank} < {jac_unknowns})")
-        
+                      f"({jacobian_rank} < {jac_unknowns})")
+
         if observed_entries < unknowns:
             print(f"[GPU {device_id}] {method}: too few gradients for reconstruction "
-                f"({observed_entries} < {unknowns})")
-
+                  f"({observed_entries} < {unknowns})")
             final_recon[method] = torch.zeros_like(gt_data)
-
-            if method == 'iDLG':
-                loss_iDLG = [float("inf")]
-                label_iDLG = label_pred.item()
-                mse_iDLG = [float("inf")]
-                best_loss_iDLG = float("inf")
-                best_mse_iDLG = float("inf")
-            else:
-                loss_iDLG_masked = [float("inf")]
-                label_iDLG_masked = label_pred.item()
-                mse_iDLG_masked = [float("inf")]
-                best_loss_iDLG_masked = float("inf")
-                best_mse_iDLG_masked = float("inf")
-
+            _losses[method] = [float("inf")]
+            _labels[method] = label_pred.item()
+            _mses[method] = [float("inf")]
+            _best_loss[method] = float("inf")
+            _best_mse[method] = float("inf")
             early_stop_reason_dict[method] = "too_few_gradients"
             early_stop_iter_dict[method] = 0
             continue
 
         all_params = list(net.parameters())
         if entry_masks is not None:
-            selected_ids = [
-                i for i, m in enumerate(entry_masks)
-                if m is not None and m.any()
-            ]
+            selected_ids = [i for i, m in enumerate(entry_masks) if m is not None and m.any()]
         else:
             selected_ids = sorted(list(keep_ids))
 
@@ -415,13 +383,13 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
 
             elif OPTIMIZER in ["adam", "signed_adam"]:
                 optimizer = torch.optim.Adam([dummy_data], lr=lr)
-                scheduler = make_scheduler(optimizer, Iteration,gamma=GAMMA)
+                scheduler = make_scheduler(optimizer, Iteration, gamma=GAMMA)
                 phase = OPTIMIZER
 
-            elif OPTIMIZER in ["adamw", "signed_adamw", "adamw_lbfgs"]:
+            elif OPTIMIZER in ["adamw", "signed_adamw"]:
                 optimizer = torch.optim.AdamW([dummy_data], lr=lr, weight_decay=1e-5)
                 scheduler = make_scheduler(optimizer, Iteration, gamma=GAMMA)
-                phase = "adamw" if OPTIMIZER == "adamw_lbfgs" else OPTIMIZER
+                phase = OPTIMIZER
 
             else:
                 raise ValueError(f"Unknown optimizer: {OPTIMIZER}")
@@ -439,44 +407,29 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
                 if phase == "lbfgs":
                     def closure():
                         optimizer.zero_grad()
-
-                        x_norm = dummy_data
                         x_raw = (dummy_data * ds + dm).clamp(0.0, 1.0)
-                        
-                        pred = net(x_norm)
+                        pred = net(dummy_data)
                         dummy_loss = criterion(pred, label_pred)
                         dummy_dy_dx = torch.autograd.grad(dummy_loss, selected_params, create_graph=True)
-
                         grad_diff, _ = compute_grad_match_loss(dummy_dy_dx, selected_original, selected_entry_masks=selected_entry_masks, grad_loss=GRAD_LOSS)
-
                         tv_loss = total_variation(x_raw)
                         total_loss = grad_diff + TV_WEIGHT * tv_loss
                         total_loss.backward()
                         return total_loss
 
-                    if OPTIMIZER == "lbfgs":
-                        optimizer.step(closure)
-                        current_loss = closure().item()
-                    else:
-                        current_loss = optimizer.step(closure).item()
+                    optimizer.step(closure)
+                    current_loss = closure().item()
 
                     with torch.no_grad():
                         dummy_data.clamp_(lower_bound, upper_bound)
 
-
                 elif phase in ["adam", "adamw", "signed_adam", "signed_adamw"]:
                     optimizer.zero_grad()
-
-                    x_norm = dummy_data
                     x_raw = (dummy_data * ds + dm).clamp(0.0, 1.0)
-
-                    pred = net(x_norm)
+                    pred = net(dummy_data)
                     dummy_loss = criterion(pred, label_pred)
                     dummy_dy_dx = torch.autograd.grad(dummy_loss, selected_params, create_graph=True)
-
                     grad_diff, num_terms = compute_grad_match_loss(dummy_dy_dx, selected_original, selected_entry_masks=selected_entry_masks, grad_loss=GRAD_LOSS)
-                    
-                    #tv_loss = total_variation(x)
                     tv_loss = total_variation(x_raw)
                     total_loss = grad_diff + TV_WEIGHT * tv_loss
                     total_loss.backward()
@@ -495,10 +448,9 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
                     current_loss = total_loss.item()
 
                 else:
-                    raise ValueError(f"Unknown optimizer: {OPTIMIZER}")
+                    raise ValueError(f"Unknown phase: {phase}")
 
                 current_x = (dummy_data.detach() * ds + dm).clamp(0.0, 1.0)
-                
                 current_mse = torch.mean((current_x - gt_data) ** 2).item()
 
                 if SAVE_GIF and iters % FRAME_INTERVAL == 0:
@@ -510,24 +462,20 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
                     })
                     _last_gif_iter = iters
 
-                if np.isfinite(current_loss):
-                    if current_loss < best_loss_value:
-                        best_loss_value = current_loss
-                        best_mse_value = current_mse
-                        best_dummy = current_x.detach().clone()
+                if np.isfinite(current_loss) and current_loss < best_loss_value:
+                    best_loss_value = current_loss
+                    best_mse_value = current_mse
+                    best_dummy = current_x.detach().clone()
 
                 losses.append(current_loss)
                 mses.append(current_mse)
 
                 if iters % 1000 == 0:
                     current_lr = optimizer.param_groups[0]["lr"]
-                    print(f'[GPU {device_id}] {OPTIMIZER}({phase}) restart {restart_idx+1} iters {iters}, lr = {current_lr:.6g}, loss = {current_loss:.8f}, mse = {current_mse:.8f}')
+                    print(f'[GPU {device_id}] {OPTIMIZER} restart {restart_idx+1} iters {iters}, lr = {current_lr:.6g}, loss = {current_loss:.8f}, mse = {current_mse:.8f}')
 
             if SAVE_GIF and Iteration > 0 and _last_gif_iter != iters:
-                #_final_x = torch.sigmoid(dummy_data).detach()
-                #_final_x = dummy_data.detach()
                 _final_x = (dummy_data.detach() * ds + dm).clamp(0.0, 1.0)
-
                 _restart_frames.append({
                     'iter': iters,
                     'dummy': _final_x.cpu().numpy(),
@@ -554,68 +502,53 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
 
         if best_restart_dummy is not None:
             final_recon[method] = best_restart_dummy
-            best_restart_ssim_value = compute_ssim_batch(
+            _best_ssim[method] = compute_ssim_batch(
                 best_restart_dummy.unsqueeze(0) if best_restart_dummy.dim() == 3 else best_restart_dummy,
                 gt_data
             )
-
-            if method == 'iDLG':
-                best_ssim_iDLG = best_restart_ssim_value
-            else:
-                best_ssim_iDLG_masked = best_restart_ssim_value
-        
         else:
             final_recon[method] = torch.zeros_like(gt_data)
+            _best_ssim[method] = None
 
-        if method == 'iDLG':
-            loss_iDLG = best_restart_losses if best_restart_losses is not None else [float("inf")]
-            label_iDLG = label_pred.item()
-            mse_iDLG = best_restart_mses if best_restart_mses is not None else [float("inf")]
-            best_loss_iDLG = best_restart_loss_value
-            best_mse_iDLG = best_restart_mse_value
-            jac_rank_iDLG = jacobian_rank
-            jac_shape_iDLG = jacobian_shape
-        else:
-            loss_iDLG_masked = best_restart_losses if best_restart_losses is not None else [float("inf")]
-            label_iDLG_masked = label_pred.item()
-            mse_iDLG_masked = best_restart_mses if best_restart_mses is not None else [float("inf")]
-            best_loss_iDLG_masked = best_restart_loss_value
-            best_mse_iDLG_masked = best_restart_mse_value
-            jac_rank_iDLG_masked = jacobian_rank
-            jac_shape_iDLG_masked = jacobian_shape
+        _losses[method] = best_restart_losses if best_restart_losses is not None else [float("inf")]
+        _labels[method] = label_pred.item()
+        _mses[method] = best_restart_mses if best_restart_mses is not None else [float("inf")]
+        _best_loss[method] = best_restart_loss_value
+        _best_mse[method] = best_restart_mse_value
+        _jac_rank[method] = jacobian_rank
+        _jac_shape[method] = jacobian_shape
 
         early_stop_reason_dict[method] = best_restart_early_stop_reason
         early_stop_iter_dict[method] = best_restart_early_stop_iter
 
-    # Prepare results to send back
     result = {
         'idx_net': idx_net,
         'device_id': device_id,
         'gt_data': gt_data.detach().cpu().numpy(),
         'final_recon': {k: v.detach().cpu().numpy() for k, v in final_recon.items()},
 
-        'last_psnr_idlg': compute_psnr_from_mse(mse_iDLG[-1], max_val=1.0) if 'iDLG' in final_recon else None,
-        'last_psnr_masked': compute_psnr_from_mse(mse_iDLG_masked[-1], max_val=1.0) if 'iDLG_masked' in final_recon else None,
-        'last_loss_iDLG': loss_iDLG[-1] if 'iDLG' in final_recon else None,
-        'last_mse_iDLG': mse_iDLG[-1] if 'iDLG' in final_recon else None,
-        'last_loss_iDLG_masked': loss_iDLG_masked[-1] if 'iDLG_masked' in final_recon else None,
-        'last_mse_iDLG_masked': mse_iDLG_masked[-1] if 'iDLG_masked' in final_recon else None,
+        'last_psnr_idlg':    compute_psnr_from_mse(_mses['iDLG'][-1],        max_val=1.0) if 'iDLG'        in final_recon else None,
+        'last_psnr_masked':  compute_psnr_from_mse(_mses['iDLG_masked'][-1], max_val=1.0) if 'iDLG_masked' in final_recon else None,
+        'last_loss_iDLG':         _losses['iDLG'][-1]        if 'iDLG'        in final_recon else None,
+        'last_mse_iDLG':          _mses['iDLG'][-1]          if 'iDLG'        in final_recon else None,
+        'last_loss_iDLG_masked':  _losses['iDLG_masked'][-1] if 'iDLG_masked' in final_recon else None,
+        'last_mse_iDLG_masked':   _mses['iDLG_masked'][-1]   if 'iDLG_masked' in final_recon else None,
 
-        'best_psnr_idlg': compute_psnr_from_mse(best_mse_iDLG, max_val=1.0) if best_mse_iDLG is not None else None,
-        'best_psnr_masked': compute_psnr_from_mse(best_mse_iDLG_masked, max_val=1.0) if best_mse_iDLG_masked is not None else None,
-        'best_loss_iDLG': best_loss_iDLG,
-        'best_mse_iDLG': best_mse_iDLG,
-        'best_loss_iDLG_masked': best_loss_iDLG_masked,
-        'best_mse_iDLG_masked': best_mse_iDLG_masked,
-        'best_ssim_idlg': best_ssim_iDLG,
-        'best_ssim_masked': best_ssim_iDLG_masked,
+        'best_psnr_idlg':   compute_psnr_from_mse(_best_mse.get('iDLG'),        max_val=1.0) if _best_mse.get('iDLG')        is not None else None,
+        'best_psnr_masked': compute_psnr_from_mse(_best_mse.get('iDLG_masked'), max_val=1.0) if _best_mse.get('iDLG_masked') is not None else None,
+        'best_loss_iDLG':        _best_loss.get('iDLG'),
+        'best_mse_iDLG':         _best_mse.get('iDLG'),
+        'best_loss_iDLG_masked': _best_loss.get('iDLG_masked'),
+        'best_mse_iDLG_masked':  _best_mse.get('iDLG_masked'),
+        'best_ssim_idlg':        _best_ssim.get('iDLG'),
+        'best_ssim_masked':      _best_ssim.get('iDLG_masked'),
 
-        'label_iDLG': label_iDLG if 'iDLG' in final_recon else None,
-        'label_iDLG_masked': label_iDLG_masked if 'iDLG_masked' in final_recon else None,
-        'jac_rank_iDLG': jac_rank_iDLG if 'iDLG' in final_recon else None,
-        'jac_shape_iDLG': jac_shape_iDLG if 'iDLG' in final_recon else None,
-        'jac_rank_iDLG_masked': jac_rank_iDLG_masked if 'iDLG_masked' in final_recon else None,
-        'jac_shape_iDLG_masked': jac_shape_iDLG_masked if 'iDLG_masked' in final_recon else None,
+        'label_iDLG':        _labels.get('iDLG'),
+        'label_iDLG_masked': _labels.get('iDLG_masked'),
+        'jac_rank_iDLG':        _jac_rank.get('iDLG'),
+        'jac_shape_iDLG':       _jac_shape.get('iDLG'),
+        'jac_rank_iDLG_masked': _jac_rank.get('iDLG_masked'),
+        'jac_shape_iDLG_masked':_jac_shape.get('iDLG_masked'),
         'gt_label': gt_label.detach().cpu().numpy(),
         'imidx_list': imidx_list,
         'early_stop_reason': early_stop_reason_dict,
@@ -623,7 +556,5 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
         'init_frames': init_frames_by_method,
         'recon_frames': recon_frames_by_method,
     }
-    
-    # print(f"[GPU {device_id}] putting result for experiment {idx_net}", flush=True)
+
     result_queue.put(result)
-    # print(f"[GPU {device_id}] finished put for experiment {idx_net}", flush=True)
