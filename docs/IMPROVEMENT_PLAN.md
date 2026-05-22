@@ -47,7 +47,7 @@ Estimated effort: 1–2 days. No architecture changes. Low breakage risk.
 
 ---
 
-### P1.2 Deduplicate normalization constants
+### P1.2 Deduplicate normalization constants ✅ DONE
 
 **Problem:** Dataset normalization constants (mean/std for CIFAR-10, CIFAR-100, MNIST, ImageNet, LFW) appear in both `consts.py` (root) and inline in `Misc_functions.py`. If a new dataset is added or LFW stats are recomputed, both must be updated — and this has already diverged once.
 
@@ -66,16 +66,16 @@ Do **not** touch `invertinggradients/inversefed/consts.py`.
 **Problem:** Several blocks of commented-out code add noise without adding value.
 
 **Specific locations:**
-- `run_single_exp.py:10` — `#from skimage.metrics import structural_similarity as ssim` (superseded by the import in `Misc_functions.py`)
-- `run_single_exp.py:68–70` — commented-out loop over `net.named_parameters()`
-- `iDLG_mask.py` — multiple commented-out `print` statements used for debugging
-- `run_single_exp_batch.py` — similar debug prints
+- ~~`run_single_exp.py:10`~~ — done
+- ~~`run_single_exp.py:68–70`~~ — done
+- `iDLG_mask.py` — 5 commented-out `print` statements remain (lines 413, 436, 437, 550, 551, 586)
+- ~~`run_single_exp_batch.py`~~ — archived
 
 **Action:** Delete these lines entirely. If you think you might need them, they are in git history.
 
 ---
 
-### P1.4 Add one-line docstrings to all public functions in the new modules
+### P1.4 Add one-line docstrings to all public functions in the new modules ✅ DONE
 
 **Problem:** No functions have docstrings. Parameters like `keep_ids`, `entry_masks`, `grad_list` are not self-explanatory from their names alone.
 
@@ -91,7 +91,7 @@ Do not write paragraph docstrings. One line per function. Focus on the return ty
 
 ---
 
-### P1.5 Delete or archive `original/` directory
+### P1.5 Delete or archive `original/` directory ✅ DONE
 
 **Problem:** `original/` contains a snapshot of an earlier version of the code. Nothing imports from it. It exists only for historical reference and confuses newcomers about what the "real" code is.
 
@@ -101,7 +101,7 @@ Do not write paragraph docstrings. One line per function. Focus on the return ty
 
 ---
 
-### P1.6 Move `weights_init` to `Network.py`
+### P1.6 Move `weights_init` to `Network.py` ✅ DONE
 
 **Problem:** `weights_init` is defined in `Network.py` but also used in entry point scripts. Some entry points import it from `Network.py` directly while others get it via `Misc_functions`. This creates confusion.
 
@@ -252,12 +252,12 @@ This is lower priority than P2.1–P2.4. Only implement if running many differen
 
 | Item | Phase | Effort | Risk | Impact |
 |------|-------|--------|------|--------|
-| P1.1 Split Misc_functions.py | 1 | Medium | Low | High |
-| P1.2 Deduplicate constants | 1 | Small | Low | Medium |
-| P1.3 Remove commented code | 1 | Small | Very Low | Low |
-| P1.4 Add docstrings | 1 | Small | Very Low | Medium |
-| P1.5 Delete original/ | 1 | Small | Very Low | Low |
-| P1.6 Move weights_init | 1 | Small | Very Low | Low |
+| P1.1 Split Misc_functions.py | 1 | Medium | Low | High | ✅ |
+| P1.2 Deduplicate constants | 1 | Small | Low | Medium | ✅ |
+| P1.3 Remove commented code | 1 | Small | Very Low | Low | 🔲 iDLG_mask.py remaining |
+| P1.4 Add docstrings | 1 | Small | Very Low | Medium | ✅ |
+| P1.5 Delete original/ | 1 | Small | Very Low | Low | ✅ |
+| P1.6 Move weights_init | 1 | Small | Very Low | Low | ✅ |
 | P2.1 Config dataclasses | 2 | Medium | Medium | High |
 | P2.2 Shared experiment core | 2 | Large | Medium | High |
 | P2.3 Type hints | 2 | Medium | Low | Medium |
