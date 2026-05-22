@@ -59,7 +59,7 @@ def main():
     parser.add_argument("--mask_mode", type=str, default="gradsize_topfrac")
     parser.add_argument("--prefixes", type=str, default="conv1,layer1,layer2,layer3,fc")
     parser.add_argument("--gradsize_topk", type=int, default=20)
-    parser.add_argument("--gradsize_topfrac", type=float, default=0.5)
+    parser.add_argument("--gradsize_topfrac", type=float, default=0.)
     parser.add_argument("--gradsize_threshold", type=float, default=None)
     parser.add_argument("--gradsize_metric", type=str, default="l2")
 
@@ -79,7 +79,26 @@ def main():
     args = parser.parse_args()
 
     row_counts = [int(x.strip()) for x in args.row_counts.split(",") if x.strip()]
-    prefixes = tuple(p.strip() for p in args.prefixes.split(",") if p.strip())
+    #prefixes = tuple(p.strip() for p in args.prefixes.split(",") if p.strip())
+    prefixes_list = []
+    prefix_layer_fracs = {}
+
+    for item in args.prefixes.split(","):
+        item = item.strip()
+        if not item:
+            continue
+
+        if ":" in item:
+            prefix, frac = item.split(":", 1)
+            prefix = prefix.strip()
+            frac = float(frac.strip())
+
+            prefixes_list.append(prefix)
+            prefix_layer_fracs[prefix] = frac
+        else:
+            prefixes_list.append(item)
+
+    prefixes = tuple(prefixes_list)
 
     if os.access('/work3/s234843/bachelor', os.R_OK | os.W_OK | os.X_OK):
         data_path = '/work3/s234843/bachelor/datasets'
@@ -141,6 +160,7 @@ def main():
             net=net,
             original_dy_dx=original_dy_dx,
             prefixes=prefixes,
+            prefix_layer_fracs=prefix_layer_fracs,
             gradsize_topk=args.gradsize_topk,
             gradsize_topfrac=args.gradsize_topfrac,
             gradsize_threshold=args.gradsize_threshold,

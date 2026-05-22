@@ -189,7 +189,7 @@ def main():
     parser.add_argument("--optimizer", type=str, default="lbfgs", choices=["lbfgs", "adam", "adamw", "adamw_lbfgs", "signed_adam", "signed_adamw"], help="Optimizer used for the reconstruction of dummy_data."
 )
     
-    parser.add_argument("--num_restarts", type=int, default=3,
+    parser.add_argument("--num_restarts", type=int, default=1,
         help="Number of random restarts for each reconstruction.")
     
     parser.add_argument(

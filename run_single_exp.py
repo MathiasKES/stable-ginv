@@ -145,7 +145,11 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
         upper_bound = (1.0 - dm) / ds
 
         # ---- compute original gradients ----
-        gt_data_norm = (gt_data - dm) / ds # normalize gt data
+        if OPTIMIZER == "lbfgs":
+            gt_data_norm = gt_data
+        else:
+            gt_data_norm = (gt_data - dm) / ds
+
         out = net(gt_data_norm)
         y = criterion(out, gt_label)
         dy_dx = torch.autograd.grad(y, net.parameters())
@@ -411,7 +415,10 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
 
             #dummy_data = (torch.randn(gt_data.size(), device=device)).requires_grad_(True)
             #dummy_data = torch.rand(gt_data.size(), device=device, requires_grad=True)
-            if OPTIMIZE_NORM_SPACE:
+
+            if OPTIMIZER == "lbfgs":
+                dummy_data = torch.randn(gt_data.size(), device=device, requires_grad=True)
+            elif OPTIMIZE_NORM_SPACE:
                 dummy_raw_init = torch.rand(gt_data.size(), device=device)
                 dummy_data = ((dummy_raw_init - dm) / ds).detach().requires_grad_(True)
             else:
@@ -492,7 +499,10 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
                             x_raw = (dummy_data * ds + dm).clamp(0.0, 1.0)
                         else:
                             x_raw = dummy_data
-                            x_norm = (x_raw - dm) / ds
+                            if OPTIMIZER == "lbfgs":
+                                x_norm = x_raw
+                            else:
+                                x_norm = (x_raw - dm) / ds
 
                         pred = net(x_norm)
                         dummy_loss = criterion(pred, label_pred)
@@ -506,10 +516,16 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
                         total_loss.backward()
                         return total_loss
 
-                    current_loss = optimizer.step(closure).item()
+                    if OPTIMIZER == "lbfgs":
+                        optimizer.step(closure)
+                        current_loss = closure().item()
+                    else:
+                        current_loss = optimizer.step(closure).item()
+
                     with torch.no_grad():
-                        #dummy_data.clamp_(0.0, 1.0)
-                        if OPTIMIZE_NORM_SPACE:
+                        if OPTIMIZER == "lbfgs":
+                            pass  # original iDLG does not clamp dummy_data
+                        elif OPTIMIZE_NORM_SPACE:
                             dummy_data.clamp_(lower_bound, upper_bound)
                         else:
                             dummy_data.clamp_(0.0, 1.0)
