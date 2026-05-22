@@ -191,6 +191,10 @@ EarlyStop: {loss_tol, patience, min_rel_improve, explode_factor, warmup, max_nan
 
 Result dict keys (sent via `result_queue.put()`):
 
+On **subprocess failure**, only these keys are present: `error` (str), `traceback` (str), `idx_net`, `device_id`. The main loop checks `result.get('error')` before accessing any other key.
+
+On **success**, the full dict contains:
+
 ```
 idx_net, device_id
 gt_data                            np [N,C,H,W]
@@ -224,7 +228,7 @@ recon_frames                       dict {method: list of {iter,dummy,loss,mse}}
 --methods         idlg|masked|both                  default: idlg
 --lr              float                             default: 1
 --iteration       int                               default: 1000
---optimizer       lbfgs|adam|adamw|adamw_lbfgs      default: lbfgs
+--optimizer       lbfgs|adam|adamw|signed_adam|signed_adamw   default: lbfgs
 --num_restarts    int                               default: 3
 --max_iteration   int   LBFGS inner iters           default: 20
 --history_size    int   LBFGS history               default: 100
@@ -261,7 +265,7 @@ GPU count drives pool size: `min(num_gpus, num_exp)` processes start, and each f
 | `lbfgs` | Quasi-Newton; `MAX_ITERATION` inner steps per outer iter |
 | `adam` | Adam with StepLR (step=300, γ=0.5) |
 | `adamw` | Same with weight decay 1e-5 |
-| `adamw_lbfgs` | AdamW until plateau, then switches to LBFGS |
+| `signed_adam` / `signed_adamw` | Sign-gradient variants of the above |
 
 Dummy data is in logit space; `sigmoid(dummy_data)` gives image in [0,1].
 
@@ -294,6 +298,7 @@ med_best_loss, avg_best_loss, med_best_mse, avg_best_mse, avg_best_psnr, std_bes
 
 ## Gotchas
 
+- **Baseline registry is per-run-id, single-run.** `results/baselines/idlg_baselines_registry.json` stores one entry per `(hyperparams, run_id)` hash. Running `--methods idlg` or `--methods both` with a given `run_id` saves/overwrites the baseline for that slot. `--methods masked` with the same `run_id` loads it automatically. The registry uses keys `best_psnr_list` / `best_mse_list` — old files with `avg_best_psnr_list` must be deleted and re-run.
 - **Label inference gating** — if the final FC layer is masked, the experiment is skipped for that method (no gradient inversion possible without knowing the label).
 - **`iters` scoping** — after early stop `break`, `iters` holds the break iteration. Final GIF frame is captured there if `_last_gif_iter != iters`.
 - **Jacobian OOM** — `jacobian_max_entries` caps the row count; rows are built one at a time.
