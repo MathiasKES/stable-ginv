@@ -90,6 +90,31 @@ If the goal is to control the fraction of gradient *information* shared, use `gr
 
 ---
 
+---
+
+## Additional cleanup (same session, later)
+
+### Last FC layer always preserved
+
+`build_gradient_mask` now enforces that the last `nn.Linear` layer's parameters are never masked, regardless of mode:
+- Tensor-wise (`keep_ids`): last FC indices are unioned into `keep_ids` after the mode's selection runs
+- Entry-wise (`entry_masks`): last FC entries are overridden to an all-True mask after the mode's selection runs
+
+Helper `_get_last_fc_param_indices(net)` walks `net.named_modules()` to find the last `nn.Linear`, then maps its weight/bias to their parameter indices.
+
+Two new tests added (`test_last_fc_always_preserved_in_topk`, `test_last_fc_always_preserved_in_entry_masks`) — total now 21 tests.
+
+### `functions/masking.py` internal deduplication
+
+- `_grad_magnitude(g, metric)` extracted — removes the identical 6-line metric block that existed in both `get_keep_ids_by_gradsize` and `get_keep_ids_by_prefix_group`
+- `get_keep_ids` prefix branch now calls `get_prefix_keep_ids` instead of re-implementing the same loop
+
+### Model factory consolidated into `get_model`
+
+`get_model` in `helper/Network.py` now handles all architectures: `LeNet`, `LeNet_bigger`, `MediumCNN`, `BiggerCNN` (custom CNNs) and all torchvision backbones. `build_network` in `helper/training_utils.py` was deleted; `training_utils.py` now contains only `make_scheduler`. Callers (`run_single_exp.py`, `functions/jacobian_rank_sweep.py`) updated to import `get_model` from `helper.Network` directly.
+
+---
+
 ## Decisions carried forward
 
 No new decisions this session — see `HANDOVER_SESSION_2026-05-22.md` for all prior context.

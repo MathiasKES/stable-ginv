@@ -37,9 +37,9 @@ stable-ginv/
 │   └── jacobian_rank_sweep.py  Sweep masking params and compute Jacobian rank per config
 │
 ├── helper/                  Shared utilities
-│   ├── Network.py           Model loading (get_model) + custom architectures (LeNet etc.)
+│   ├── Network.py           Model factory (get_model handles ALL architectures) + custom CNNs
 │   ├── metrics.py           PSNR, SSIM, total variation, Jacobian rank, grad match loss
-│   ├── training_utils.py    build_network, make_scheduler
+│   ├── training_utils.py    make_scheduler only (build_network absorbed into get_model)
 │   └── visualization.py     save_recon_panel, save_recon_gif
 │
 ├── archive/                 Retired scripts (not imported anywhere):
@@ -170,14 +170,19 @@ For each experiment, the flow is:
 - **Matplotlib backend:** `helper/visualization.py` line 2 forces `matplotlib.use("Agg")` for headless operation. Do not call `matplotlib.pyplot` before this runs in any file that uses visualization.
 - **HPC scripts:** `scripts/` targets the DTU HPC cluster (LSF job scheduler). The `init.sh` sets up the conda environment from `environment.yml`.
 - **No argparse in `run_single_exp.py`:** Configuration is via editing the `config` dict. `iDLG_mask.py` does have full argparse CLI support.
+- **Last FC layer always unmasked:** `build_gradient_mask` unconditionally preserves the last `nn.Linear` layer regardless of mask mode. This is intentional — it guarantees the iDLG label-recovery trick always has the gradient it needs. Do not bypass this by calling the individual masking functions directly.
 - **LFW normalization constants:** Computed manually in `testing/compute_lfw_stats.py` and hardcoded in `functions/consts.py`. If you change the LFW preprocessing (resize, crop), recompute these.
 
 ---
 
 ## 8. Recent Changes (as of 2026-05-23)
 
-- `run_single_exp.py` — 85-line inline masking dispatch removed; now calls `build_gradient_mask()` from `functions/masking.py` (same dispatcher that `jacobian_rank_sweep.py` already used)
-- `tests/test_masking.py` — 19 pytest unit tests added for all public masking functions; run with `python -m pytest tests/ -v`
+- `functions/masking.py` — last FC layer now always preserved in `build_gradient_mask` (tensor-wise: force-unioned into keep_ids; entry-wise: all-True mask override); `_grad_magnitude` helper extracted to remove duplicated metric block; `get_keep_ids` prefix branch now delegates to `get_prefix_keep_ids`
+- `helper/Network.py` — `get_model` now handles all architectures including `LeNet`, `LeNet_bigger`, `MediumCNN`, `BiggerCNN`; no need to call `build_network` separately
+- `helper/training_utils.py` — `build_network` deleted; only `make_scheduler` remains
+- `run_single_exp.py`, `functions/jacobian_rank_sweep.py` — updated to import `get_model` from `helper.Network` directly
+- `tests/test_masking.py` — 21 tests (up from 19); 2 new tests verify last-FC invariant
+- `run_single_exp.py` — 85-line inline masking dispatch removed; now calls `build_gradient_mask()` from `functions/masking.py`
 - `functions/Dataset.py` — `Dataset_from_Image` renamed to `_Dataset_from_Image` (private, only used inside `lfw_dataset()`)
 - `functions/Misc_functions.py` — deleted (was already a dead re-export shim)
 

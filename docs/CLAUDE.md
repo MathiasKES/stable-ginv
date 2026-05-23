@@ -36,7 +36,6 @@ Compares baseline iDLG against masked variants (selective gradient disclosure) a
 | `functions/Dataset.py` | `lfw_dataset()` + `_Dataset_from_Image` (private) |
 | `functions/consts.py` | Normalization constants: `{dataset}_mean`, `{dataset}_std` for cifar10, cifar100, mnist, imagenet |
 | `functions/jacobian_rank_sweep.py` | Serial Jacobian rank sweep |
-| `functions/Misc_functions.py` | Re-export shim (backwards compat only — to be deleted) |
 
 **`helper/` — shared utilities**
 
@@ -44,7 +43,7 @@ Compares baseline iDLG against masked variants (selective gradient disclosure) a
 |---|---|
 | `helper/Network.py` | Model definitions + factory (`get_model`, `LeNet*`, `MediumCNN`, `BiggerCNN`) |
 | `helper/metrics.py` | `compute_psnr_from_mse`, `compute_ssim_batch`, `total_variation`, `compute_jacobian_rank`, `compute_grad_match_loss` |
-| `helper/training_utils.py` | `build_network`, `make_scheduler` |
+| `helper/training_utils.py` | `make_scheduler` only (`build_network` moved into `get_model`) |
 | `helper/visualization.py` | `save_recon_panel`, `save_recon_gif` |
 
 **`archive/`** — retired scripts (not imported anywhere): `iDLG_original.py`, `jacobian_parallel.py`, `run_single_exp_batch.py`, old visualize/testing scripts.
@@ -61,7 +60,7 @@ Paths: data → `./data` or `/work3/s234843/bachelor/datasets`; results → `./h
 3. Apply mask → g_public  (subset of g_obs, same mask applied every step)
 4. Init dummy x_d ~ N(0,1)
 5. Optimize:  min_{x_d}  ||mask(∇_θ CE(net(sigmoid(x_d)), label_pred)) - g_public||² + λ·TV(x_d)
-6. label_pred inferred from final FC layer gradient (iDLG trick); skip if that layer is masked
+6. label_pred inferred from final FC layer gradient (iDLG trick); last FC is never masked (enforced by build_gradient_mask)
 ```
 
 Restarts: repeat step 4–5 `NUM_RESTARTS` times, keep best by MSE.
@@ -103,6 +102,8 @@ build_gradient_mask(method, mask_mode, net, original_dy_dx,
                     gradsize_threshold=None, gradsize_metric='l2')
   -> (keep_ids: set|None, entry_masks: list[bool_tensor]|None)
 # Central dispatcher. method='idlg' → keep_ids=all, no entry_masks.
+# Invariant: last FC layer is ALWAYS included regardless of mask_mode —
+# tensor-wise via keep_ids union, entry-wise via all-True mask override.
 
 get_keep_ids_by_gradsize(original_dy_dx, mode, topk, top_frac, threshold,
                          metric, candidate_ids=None)
@@ -142,9 +143,9 @@ compute_psnr_from_mse(mse, max_val=1.0) -> float   # 10·log₁₀(1/mse)
 total_variation(x)                       -> scalar  # L1 TV regulariser
 
 # ── Network factory ───────────────────────────────────────────────────────────
-build_network(name, channel, num_classes, input_size) -> nn.Module
-# 'LeNet','LeNet_bigger','MediumCNN','BiggerCNN' or any string forwarded to
-# get_model() (resnet*, vgg*, wide_resnet*)
+get_model(network, channel, num_classes, input_size, pretrained=False) -> nn.Module
+# Handles ALL architectures: 'LeNet','LeNet_bigger','MediumCNN','BiggerCNN'
+# and any torchvision backbone (resnet*, vgg*, wide_resnet*, densenet*).
 
 # ── Output ────────────────────────────────────────────────────────────────────
 save_recon_panel(params, panel_gt_pil, panel_idlg_pil, panel_masked_pil,
