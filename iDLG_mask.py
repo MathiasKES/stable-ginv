@@ -410,7 +410,6 @@ def main():
 
     # -------- Run experiments in parallel --------
     unknowns = channel * shape_img[0] * shape_img[1]
-    #print(f"Input unknowns per image: {unknowns}")
     num_gpus = torch.cuda.device_count()
     print(f"Using {num_gpus} GPUs")
     if num_gpus == 0:
@@ -433,8 +432,6 @@ def main():
         )
         p.start()
         active_processes[device_id] = p
-        #print(f"Launching experiment {next_exp} on GPU {device_id}", flush=True)
-        #tqdm.write(f"Launching experiment {next_exp} on GPU {device_id}")
         next_exp += 1
 
     # Keep launching a new experiment whenever one finishes
@@ -547,8 +544,6 @@ def main():
             es_i = result.get("early_stop_iter", {})
 
             print(f"early_stop iDLG: {es_r.get('iDLG')} @ {es_i.get('iDLG')}")
-            # print(f"early_stop masked: {es_r.get('iDLG_masked')} @ {es_i.get('iDLG_masked')}")
-            # print('imidx_list:', result['imidx_list'])
 
             if result.get('last_loss_iDLG') is not None:
                 print('last_loss_iDLG:', result['last_loss_iDLG'], 'last_mse_iDLG:', result['last_mse_iDLG'])
@@ -583,7 +578,6 @@ def main():
                 )
                 p.start()
                 active_processes[finished_device] = p
-                #print(f"Launching experiment {next_exp} on GPU {finished_device}", flush=True)
                 tqdm.write(f"Launching experiment {next_exp} on GPU {finished_device}")
                 next_exp += 1
 

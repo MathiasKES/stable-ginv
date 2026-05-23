@@ -61,7 +61,7 @@ Do **not** touch `invertinggradients/inversefed/consts.py`.
 
 ---
 
-### P1.3 Remove commented-out code
+### P1.3 Remove commented-out code ✅ DONE
 
 **Problem:** Several blocks of commented-out code add noise without adding value.
 
@@ -254,7 +254,7 @@ This is lower priority than P2.1–P2.4. Only implement if running many differen
 |------|-------|--------|------|--------|
 | P1.1 Split Misc_functions.py | 1 | Medium | Low | High | ✅ |
 | P1.2 Deduplicate constants | 1 | Small | Low | Medium | ✅ |
-| P1.3 Remove commented code | 1 | Small | Very Low | Low | 🔲 iDLG_mask.py remaining |
+| P1.3 Remove commented code | 1 | Small | Very Low | Low | ✅ |
 | P1.4 Add docstrings | 1 | Small | Very Low | Medium | ✅ |
 | P1.5 Delete original/ | 1 | Small | Very Low | Low | ✅ |
 | P1.6 Move weights_init | 1 | Small | Very Low | Low | ✅ |

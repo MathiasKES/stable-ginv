@@ -70,12 +70,9 @@ The `config` dict uses inconsistent casing:
 
 **Fix for Phase 2 only:** Standardize to snake_case throughout the config dict. This is a breaking change across all entry points — do not do this piecemeal or scripts will silently use wrong values.
 
-### Issue 4: Commented-out code blocks
+### Issue 4: ~~Commented-out code blocks~~ ✅ DONE
 
-- ~~`run_single_exp.py` dead code~~ — done
-- `iDLG_mask.py` — **6 debug lines still remain** (approx. lines 413, 436, 437, 550, 551, 586): 5 `print` statements + 1 `tqdm.write` (P1.3, next action)
-
-**Fix:** Delete these lines. They are in git history if ever needed.
+Removed across all entry points — `run_single_exp.py` and `iDLG_mask.py`.
 
 ### Issue 5: No type hints
 

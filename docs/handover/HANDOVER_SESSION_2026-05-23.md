@@ -8,27 +8,16 @@ Most of Phase 1 was completed in earlier sessions. Current state:
 |------|--------|
 | P1.1 Split `Misc_functions.py` | ✅ Done — split into `functions/masking.py`, `functions/io_utils.py`, `helper/metrics.py`, `helper/training_utils.py`, `helper/visualization.py`; `functions/Misc_functions.py` deleted |
 | P1.2 Deduplicate normalization constants | ✅ Done — all stats centralised in `functions/consts.py` |
-| P1.3 Remove commented-out code | 🔲 **Next action** — 6 debug lines remain in `iDLG_mask.py` (see below) |
+| P1.3 Remove commented-out code | ✅ Done — 6 debug lines deleted from `iDLG_mask.py` |
 | P1.4 Docstrings on new modules | ✅ Done |
 | P1.5 Delete `original/` | ✅ Done — moved to `archive/` |
 | P1.6 Move `weights_init` | ✅ Done — canonical home is `helper/Network.py` |
 
-## Next action — P1.3
+## Phase 1 complete
 
-Delete 6 commented-out debug lines from `iDLG_mask.py`:
+All Phase 1 items are done. **Next step is Phase 2.**
 
-| Approx. line | Content |
-|---|---|
-| 413 | `#print(f"Input unknowns per image: {unknowns}")` |
-| 436 | `#print(f"Launching experiment {next_exp} on GPU {device_id}", flush=True)` |
-| 437 | `#tqdm.write(f"Launching experiment {next_exp} on GPU {device_id}")` |
-| 550 | `# print(f"early_stop masked: ...")` |
-| 551 | `# print('imidx_list:', ...)` |
-| 586 | `#print(f"Launching experiment {next_exp} on GPU {finished_device}", flush=True)` |
-
-These are dead code — if needed, they are in git history.
-
-After P1.3, Phase 1 is fully complete. Recommended next step is Phase 2 (start with P2.4 unit tests for masking, then P2.1 config dataclasses).
+Recommended Phase 2 order: **P2.4 unit tests** first (safety net for masking logic), then P2.1 config dataclasses, P2.2 shared experiment core, P2.3 type hints.
 
 ## Decisions carried forward
 
