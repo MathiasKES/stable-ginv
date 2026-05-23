@@ -40,7 +40,6 @@ def _run_inner(idx_net, device_id, dst, dataset_name, config, result_queue):
     PREFIX_LAYER_FRACS = config.get('PREFIX_LAYER_FRACS', {})
     GRADSIZE_TOPK = config['GRADSIZE_TOPK']
     GRADSIZE_TOPFRAC = config['GRADSIZE_TOPFRAC']
-    GRADSIZE_THRESHOLD = config['GRADSIZE_THRESHOLD']
     GRADSIZE_METRIC = config['GRADSIZE_METRIC']
     NETWORK_NAME = config['NETWORK_NAME']
     NETWORK_TRAINED = config['NETWORK_TRAINED']
@@ -155,7 +154,6 @@ def _run_inner(idx_net, device_id, dst, dataset_name, config, result_queue):
             prefix_layer_fracs=PREFIX_LAYER_FRACS,
             gradsize_topk=GRADSIZE_TOPK,
             gradsize_topfrac=GRADSIZE_TOPFRAC,
-            gradsize_threshold=GRADSIZE_THRESHOLD,
             gradsize_metric=GRADSIZE_METRIC,
         )
 

@@ -77,19 +77,6 @@ def test_topfrac_returns_correct_count():
     assert len(ids) == 2
 
 
-def test_threshold_keeps_above_value():
-    grads = [torch.full((1,), 1.0), torch.full((1,), 10.0), torch.full((1,), 5.0)]
-    ids, _ = get_keep_ids_by_gradsize(grads, mode="threshold", threshold=4.0)
-    assert set(ids) == {1, 2}  # norms 10 and 5 are >= 4
-
-
-def test_threshold_fallback_when_none_qualify():
-    # threshold so high nothing passes → should fall back to keeping the 1 largest
-    grads = [torch.full((1,), 1.0), torch.full((1,), 2.0)]
-    ids, _ = get_keep_ids_by_gradsize(grads, mode="threshold", threshold=100.0)
-    assert len(ids) == 1
-    assert set(ids) == {1}  # largest is idx 1
-
 
 def test_none_gradients_ranked_last():
     # None gradients get -inf magnitude so they sort after all real gradients

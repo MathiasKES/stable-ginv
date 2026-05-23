@@ -3,7 +3,7 @@ import os
 import sys
 import numpy as np
 import torch
-from torchvision import datasets, transforms
+from torchvision import transforms
 from datetime import datetime
 import csv
 
@@ -11,9 +11,9 @@ import torch.multiprocessing as mp
 import argparse
 from helper.visualization import save_recon_panel, save_recon_gif
 from functions.io_utils import (paired_summary, baseline_key_from_args, load_baseline_registry,
-    save_baseline_registry, update_idlg_baseline, write_baseline_summary_csv)
-from helper.training_utils import make_scheduler
-from functions.Dataset import lfw_dataset
+    save_baseline_registry, update_idlg_baseline, write_baseline_summary_csv,
+    parse_prefixes_with_fracs)
+from functions.Dataset import load_dataset
 from run_single_exp import run_single_experiment
 from tqdm import tqdm
 
@@ -28,8 +28,6 @@ def main():
                                 "The exact number K is set via --gradsize_topk.\n"
         "  'gradsize_topfrac'    - Keep the top fraction of tensors by gradient magnitude. "
                                 "The fraction is set via --gradsize_topfrac (e.g. 0.5 = top 50%%).\n"
-        "  'gradsize_threshold'  - Keep only tensors whose gradient magnitude exceeds a fixed "
-                                "threshold, set via --gradsize_threshold.\n"
         "  'gradsize_topk_entries'    - Keep the highest-ranked tensors until at least --gradsize_topk scalar gradient entries are retained."
         "  'gradsize_topfrac_entries' - Keep the highest-ranked tensors until at least the fraction --gradsize_topfrac of all scalar gradient entries are retained.\n"
         "  'gradsize_topfrac_entries_layer' - For EACH layer independently, keep its top --gradsize_topfrac fraction of scalar gradient entries. "
@@ -70,16 +68,6 @@ def main():
         "--gradsize_metric, and only the top fraction are kept; the rest are zeroed out. "
         "For example, 0.5 keeps the 50%% of parameters with the largest gradient norms, "
         "while 0.1 keeps only the top 10%%, making the attack more restricted. "
-        "Has no effect when any other mask_mode is selected."
-    ))
-
-    parser.add_argument("--gradsize_threshold", type=float, default=None, help=(
-        "Absolute magnitude threshold for gradient masking when --mask_mode is "
-        "'gradsize_threshold'. Any parameter whose gradient magnitude (as measured by "
-        "--gradsize_metric) is strictly below this value is zeroed out; all parameters at or "
-        "above the threshold are retained. If set to None (default), no threshold is applied. "
-        "Unlike topk/topfrac modes, this threshold is data-independent and may retain a variable "
-        "number of parameters across different inputs and models. "
         "Has no effect when any other mask_mode is selected."
     ))
 
@@ -233,25 +221,9 @@ def main():
 
     # -------- Masking config --------
     MASK_MODE = args.mask_mode
-    PREFIXES_NAME = args.prefixes
-    PREFIXES = []
-    PREFIX_LAYER_FRACS = {}
-    for item in PREFIXES_NAME.split(","):
-        item = item.strip()
-        if not item:
-            continue
-        if ":" in item:
-            prefix, frac = item.split(":", 1)
-            prefix = prefix.strip()
-            frac = float(frac.strip())
-            PREFIXES.append(prefix)
-            PREFIX_LAYER_FRACS[prefix] = frac
-        else:
-            PREFIXES.append(item)
-    PREFIXES = tuple(PREFIXES)
+    PREFIXES, PREFIX_LAYER_FRACS = parse_prefixes_with_fracs(args.prefixes)
     GRADSIZE_TOPK = args.gradsize_topk
     GRADSIZE_TOPFRAC = args.gradsize_topfrac
-    GRADSIZE_THRESHOLD = args.gradsize_threshold
     GRADSIZE_METRIC = args.gradsize_metric
     GRAD_LOSS = args.grad_loss
     METHODS = args.methods
@@ -276,13 +248,6 @@ def main():
     dataset = args.dataset
     run_id = args.run_id
     timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
-
-    loss_tol = 1e-6
-    patience = 100000
-    min_rel_improve = 1e-6
-    explode_factor = 20.0
-    warmup = 300
-    max_nan = 1
 
     root_path = '.'
     if os.access('/work3/s234843/bachelor', os.R_OK | os.W_OK | os.X_OK):
@@ -310,33 +275,7 @@ def main():
     print(dataset, 'save_path:', save_path)
 
     # -------- load data --------
-    if dataset == 'MNIST':
-        shape_img = (28, 28)
-        num_classes = 10
-        channel = 1
-        dst = datasets.MNIST(data_path, download=True)
-    elif dataset == 'cifar100':
-        shape_img = (32, 32)
-        num_classes = 100
-        channel = 3
-        dst = datasets.CIFAR100(data_path, download=True)
-    elif dataset == 'cifar10':
-        shape_img = (32, 32)
-        num_classes = 10
-        channel = 3
-        dst = datasets.CIFAR10(data_path, download=True)
-    elif dataset == 'lfw':
-        shape_img = (32, 32)
-        num_classes = 5749
-        channel = 3
-        lfw_path = os.path.join(data_path, 'lfw')
-        try:
-            os.makedirs(lfw_path, mode=0o770, exist_ok=True)
-        except Exception as e:
-            print(f"Warning: failed to set permissions for {lfw_path}: {e}")
-        dst = lfw_dataset(lfw_path, shape_img)
-    else:
-        raise ValueError('unknown dataset')
+    dst, channel, num_classes, shape_img = load_dataset(dataset, data_path)
 
 
     # -------- panel buffers --------
@@ -384,7 +323,6 @@ def main():
         'PREFIX_LAYER_FRACS': PREFIX_LAYER_FRACS,
         'GRADSIZE_TOPK': GRADSIZE_TOPK,
         'GRADSIZE_TOPFRAC': GRADSIZE_TOPFRAC,
-        'GRADSIZE_THRESHOLD': GRADSIZE_THRESHOLD,
         'GRADSIZE_METRIC': GRADSIZE_METRIC,
         'GRAD_LOSS': GRAD_LOSS,
         "GAMMA": GAMMA,

@@ -45,7 +45,7 @@ def flatten_observed_gradients(grad_list, keep_ids=None, entry_masks=None):
     return torch.cat(flat, dim=0)
 
 
-def get_keep_ids_by_gradsize(original_dy_dx, mode="topk", topk=10, top_frac=None, threshold=None, metric="l2", candidate_ids=None):
+def get_keep_ids_by_gradsize(original_dy_dx, mode="topk", topk=10, top_frac=None, metric="l2", candidate_ids=None):
     """Tensor-wise masking: return (sorted keep_ids, sizes_sorted) by gradient magnitude."""
     sizes = []
     for i, g in enumerate(original_dy_dx):
@@ -68,13 +68,6 @@ def get_keep_ids_by_gradsize(original_dy_dx, mode="topk", topk=10, top_frac=None
             raise ValueError("top_frac must be set for mode='topfrac'")
         k = max(1, int(round(top_frac * len(sizes_sorted))))
         keep = [i for i, _ in sizes_sorted[:k]]
-
-    elif mode == "threshold":
-        if threshold is None:
-            raise ValueError("threshold must be set for mode='threshold'")
-        keep = [i for i, s in sizes_sorted if s >= threshold]
-        if len(keep) == 0:
-            keep = [sizes_sorted[0][0]]
 
     else:
         raise ValueError(f"Unknown mode: {mode}")
@@ -307,7 +300,6 @@ def build_gradient_mask(
     prefix_layer_fracs=None,
     gradsize_topk=20,
     gradsize_topfrac=0.5,
-    gradsize_threshold=None,
     gradsize_metric="l2",
 ):
     """Dispatch to the appropriate masking strategy; returns (keep_ids, entry_masks), exactly one None."""
@@ -397,11 +389,6 @@ def build_gradient_mask(
         entry_masks, _, _ = get_entry_masks_by_prefix_group(
             net=net, original_dy_dx=original_dy_dx, prefixes=all_param_names,
             mode="topk_entries", topk=gradsize_topk,
-        )
-    elif mask_mode == "gradsize_threshold":
-        keep_ids, _ = get_keep_ids_by_gradsize(
-            original_dy_dx, mode="threshold", threshold=gradsize_threshold,
-            metric=gradsize_metric
         )
     elif mask_mode == "prefix":
         keep_ids = get_keep_ids(mask_mode="prefix", net=net, prefixes=prefixes)

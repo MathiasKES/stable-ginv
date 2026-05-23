@@ -4,6 +4,24 @@ import PIL.Image as Image
 from torchvision import datasets, transforms
 import numpy as np
 
+
+def load_dataset(dataset, data_path):
+    """Load a dataset by name; returns (dst, channel, num_classes, shape_img)."""
+    if dataset == 'MNIST':
+        return datasets.MNIST(data_path, download=True), 1, 10, (28, 28)
+    if dataset == 'cifar10':
+        return datasets.CIFAR10(data_path, download=True), 3, 10, (32, 32)
+    if dataset == 'cifar100':
+        return datasets.CIFAR100(data_path, download=True), 3, 100, (32, 32)
+    if dataset == 'lfw':
+        lfw_path = os.path.join(data_path, 'lfw')
+        try:
+            os.makedirs(lfw_path, mode=0o770, exist_ok=True)
+        except Exception as e:
+            print(f"Warning: failed to set permissions for {lfw_path}: {e}")
+        return lfw_dataset(lfw_path, (32, 32)), 3, 5749, (32, 32)
+    raise ValueError(f"Unknown dataset: {dataset}")
+
 class _Dataset_from_Image(Dataset):
     def __init__(self, imgs, labs, transform=None):
         self.imgs = imgs # img paths
