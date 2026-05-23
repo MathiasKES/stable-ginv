@@ -185,7 +185,7 @@ EntryMasks = Optional[List[Optional[torch.Tensor]]]
 
 ---
 
-### P2.4 Unit tests for masking logic
+### P2.4 Unit tests for masking logic ✅ DONE
 
 **Problem:** There are no unit tests. The only validation is manual smoke testing. Refactoring is risky because there is no automated way to confirm that masking produces the correct gradient selection.
 
@@ -261,7 +261,7 @@ This is lower priority than P2.1–P2.4. Only implement if running many differen
 | P2.1 Config dataclasses | 2 | Medium | Medium | High |
 | P2.2 Shared experiment core | 2 | Large | Medium | High |
 | P2.3 Type hints | 2 | Medium | Low | Medium |
-| P2.4 Unit tests | 2 | Large | Low | High |
+| P2.4 Unit tests | 2 | Large | Low | High | ✅ |
 | P2.5 CLI argparse | 2 | Medium | Low | Low |
 
 **Recommended order:** P1.1 → P1.2 → P1.3 → P1.4 → P1.5/P1.6 (can be done in any order after P1.1). Then P2.4 (write tests first so you have a safety net), then P2.1, P2.2, P2.3.

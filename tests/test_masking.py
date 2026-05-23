@@ -153,7 +153,9 @@ def test_gradsize_topk_returns_keep_ids_not_entry_masks():
         "masked", "gradsize_topk", net, grads, gradsize_topk=2
     )
     assert entry_masks is None
-    assert len(keep_ids) == 2
+    assert len(keep_ids) >= 2
+    # last FC layer (layer "1", indices 2 and 3) must always be present
+    assert {2, 3}.issubset(keep_ids)
 
 
 def test_gradsize_topfrac_returns_keep_ids():
@@ -185,4 +187,28 @@ def test_prefix_mode_keeps_only_matching_layer():
         "masked", "prefix", net, grads, prefixes=("0",)
     )
     assert entry_masks is None
-    assert keep_ids == {0, 1}  # only layer "0" params
+    # prefix "0" selects {0, 1}; last FC (layer "1", indices 2, 3) always force-included
+    assert keep_ids == {0, 1, 2, 3}
+
+
+def test_last_fc_always_preserved_in_topk():
+    """Last FC layer must appear in keep_ids even when topk would exclude it."""
+    net = small_net()
+    # Give layer "1" (last FC, indices 2,3) the lowest norms so topk=1 would normally exclude it
+    grads = [torch.full((1,), 10.0), torch.full((1,), 9.0),   # layer 0: high norms
+             torch.full((1,), 0.1),  torch.full((1,), 0.1)]   # layer 1 (last FC): low norms
+    keep_ids, _ = build_gradient_mask("masked", "gradsize_topk", net, grads, gradsize_topk=1)
+    assert {2, 3}.issubset(keep_ids)  # last FC forced in despite low norm
+
+
+def test_last_fc_always_preserved_in_entry_masks():
+    """Last FC layer must be fully unmasked (all-True) even in entry-wise masking."""
+    net = small_net()
+    grads = [torch.ones(12), torch.ones(3), torch.ones(6), torch.ones(2)]
+    _, entry_masks = build_gradient_mask(
+        "masked", "gradsize_topfrac_entries", net, grads, gradsize_topfrac=0.1
+    )
+    assert entry_masks is not None
+    # indices 2 and 3 are last FC — their masks must be all True
+    assert entry_masks[2].all()
+    assert entry_masks[3].all()

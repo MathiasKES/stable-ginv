@@ -4,6 +4,15 @@ from torchvision import models
 
 
 def get_model(network, channel=3, num_classes=10, input_size=(32, 32), pretrained=False):
+    if network == "LeNet":
+        return LeNet(channel=channel, num_classes=num_classes, input_size=input_size)
+    if network == "LeNet_bigger":
+        return LeNet_bigger(channel=channel, num_classes=num_classes, input_size=input_size)
+    if network == "MediumCNN":
+        return MediumCNN(channel=channel, num_classes=num_classes, input_size=input_size)
+    if network == "BiggerCNN":
+        return BiggerCNN(channel=channel, num_classes=num_classes, input_size=input_size)
+
     weights = "DEFAULT" if pretrained else None
     model = getattr(models, network)(weights=weights)
 

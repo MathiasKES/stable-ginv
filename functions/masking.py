@@ -1,4 +1,28 @@
 import torch
+import torch.nn as nn
+
+
+def _get_last_fc_param_indices(net):
+    """Return the parameter indices (weight + bias) of the last nn.Linear in the network."""
+    last_linear_name = None
+    for name, module in net.named_modules():
+        if isinstance(module, nn.Linear):
+            last_linear_name = name
+    if last_linear_name is None:
+        return set()
+    indices = set()
+    for idx, (pname, _) in enumerate(net.named_parameters()):
+        if pname in (f"{last_linear_name}.weight", f"{last_linear_name}.bias"):
+            indices.add(idx)
+    return indices
+
+
+def _grad_magnitude(g, metric):
+    """Scalar gradient magnitude for a single tensor using the given metric."""
+    if metric == "l2":       return g.detach().norm(p=2).item()
+    if metric == "mean_abs": return g.detach().abs().mean().item()
+    if metric == "sum_abs":  return g.detach().abs().sum().item()
+    raise ValueError(f"Unknown metric: {metric}")
 
 
 def flatten_observed_gradients(grad_list, keep_ids=None, entry_masks=None):
@@ -31,16 +55,7 @@ def get_keep_ids_by_gradsize(original_dy_dx, mode="topk", topk=10, top_frac=None
             sizes.append((i, float("-inf")))
             continue
 
-        if metric == "l2":
-            s = g.detach().norm(p=2).item()
-        elif metric == "mean_abs":
-            s = g.detach().abs().mean().item()
-        elif metric == "sum_abs":
-            s = g.detach().abs().sum().item()
-        else:
-            raise ValueError(f"Unknown metric: {metric}")
-
-        sizes.append((i, s))
+        sizes.append((i, _grad_magnitude(g, metric)))
 
     sizes_sorted = sorted(sizes, key=lambda x: x[1], reverse=True)
 
@@ -225,16 +240,7 @@ def get_keep_ids_by_prefix_group(
             if g is None:
                 continue
 
-            if metric == "l2":
-                s = g.detach().norm(p=2).item()
-            elif metric == "mean_abs":
-                s = g.detach().abs().mean().item()
-            elif metric == "sum_abs":
-                s = g.detach().abs().sum().item()
-            else:
-                raise ValueError(f"Unknown metric: {metric}")
-
-            sizes.append((i, s))
+            sizes.append((i, _grad_magnitude(g, metric)))
 
         if len(sizes) == 0:
             continue
@@ -282,13 +288,7 @@ def get_keep_ids(mask_mode: str, net=None, prefixes=None):
     if prefixes is not None:
         if net is None:
             raise ValueError("prefix-based keep_ids requires 'net'")
-        keep = set()
-        for idx, (name, _) in enumerate(net.named_parameters()):
-            if any(name == p or name.startswith(p + ".") for p in prefixes):
-                keep.add(idx)
-        if len(keep) == 0:
-            raise ValueError(f"No parameters matched prefixes={prefixes}")
-        return keep
+        return get_prefix_keep_ids(net, prefixes)
 
     if mask_mode == "all":
         if net is None:
@@ -393,5 +393,15 @@ def build_gradient_mask(
         keep_ids = get_keep_ids(mask_mode="prefix", net=net, prefixes=prefixes)
     else:
         keep_ids = get_keep_ids(mask_mode, net=net)
+
+    # Always preserve the last FC layer so iDLG label inference is never blocked.
+    last_fc_ids = _get_last_fc_param_indices(net)
+    if keep_ids is not None:
+        keep_ids = set(keep_ids) | last_fc_ids
+    elif entry_masks is not None:
+        for i in last_fc_ids:
+            if i < len(entry_masks) and i < len(original_dy_dx) and original_dy_dx[i] is not None:
+                entry_masks[i] = torch.ones(original_dy_dx[i].shape, dtype=torch.bool,
+                                            device=original_dy_dx[i].device)
 
     return keep_ids, entry_masks

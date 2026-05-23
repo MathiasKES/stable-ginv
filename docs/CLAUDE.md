@@ -33,7 +33,7 @@ Compares baseline iDLG against masked variants (selective gradient disclosure) a
 |---|---|
 | `functions/masking.py` | All gradient masking: `build_gradient_mask`, `get_keep_ids*`, `get_entry_masks*`, `flatten_observed_gradients` |
 | `functions/io_utils.py` | Baseline registry, paired stats, CSV helpers |
-| `functions/Dataset.py` | `lfw_dataset()` + `Dataset_from_Image` |
+| `functions/Dataset.py` | `lfw_dataset()` + `_Dataset_from_Image` (private) |
 | `functions/consts.py` | Normalization constants: `{dataset}_mean`, `{dataset}_std` for cifar10, cifar100, mnist, imagenet |
 | `functions/jacobian_rank_sweep.py` | Serial Jacobian rank sweep |
 | `functions/Misc_functions.py` | Re-export shim (backwards compat only — to be deleted) |

@@ -15,7 +15,7 @@ import matplotlib.pyplot as plt
 import functions.consts as consts
 from functions.Dataset import lfw_dataset
 from helper.Network import weights_init
-from helper.training_utils import build_network
+from helper.Network import get_model
 from functions.masking import build_gradient_mask
 from helper.metrics import compute_jacobian_rank
 
@@ -117,7 +117,7 @@ def main():
     np.random.seed(seed)
 
     device = args.device
-    net = build_network(args.network, channel=channel, num_classes=num_classes, input_size=shape_img)
+    net = get_model(args.network, channel=channel, num_classes=num_classes, input_size=shape_img)
     if not args.network.startswith("resnet"):
         net.apply(weights_init)
     net = net.to(device).double()

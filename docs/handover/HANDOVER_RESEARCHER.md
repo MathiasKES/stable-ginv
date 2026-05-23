@@ -174,7 +174,12 @@ For each experiment, the flow is:
 
 ---
 
-## 8. Recent Changes (as of 2026-05-22)
+## 8. Recent Changes (as of 2026-05-23)
+
+- `run_single_exp.py` — 85-line inline masking dispatch removed; now calls `build_gradient_mask()` from `functions/masking.py` (same dispatcher that `jacobian_rank_sweep.py` already used)
+- `tests/test_masking.py` — 19 pytest unit tests added for all public masking functions; run with `python -m pytest tests/ -v`
+- `functions/Dataset.py` — `Dataset_from_Image` renamed to `_Dataset_from_Image` (private, only used inside `lfw_dataset()`)
+- `functions/Misc_functions.py` — deleted (was already a dead re-export shim)
 
 From git log:
 - `45ee353` — Added SSIM metric; added per-image SSIM and PSNR logging

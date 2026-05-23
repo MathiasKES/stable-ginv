@@ -9,8 +9,8 @@ import functions.consts as consts
 from functions.masking import build_gradient_mask
 from helper.metrics import (compute_psnr_from_mse, compute_jacobian_rank, total_variation,
     compute_grad_match_loss, compute_ssim_batch)
-from helper.training_utils import build_network, make_scheduler
-from helper.Network import weights_init
+from helper.Network import get_model, weights_init
+from helper.training_utils import make_scheduler
 
 def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_queue):
     try:
@@ -62,7 +62,7 @@ def _run_inner(idx_net, device_id, dst, dataset_name, config, result_queue):
     torch.cuda.manual_seed_all(seed)
     np.random.seed(seed)
 
-    net = build_network(NETWORK_NAME, channel=channel, num_classes=num_classes, input_size=shape_img, pretrained=NETWORK_TRAINED)
+    net = get_model(NETWORK_NAME, channel=channel, num_classes=num_classes, input_size=shape_img, pretrained=NETWORK_TRAINED)
     if NETWORK_TRAINED:
         print(f"[GPU {device_id}] Loaded ImageNet-pretrained weights for {NETWORK_NAME}")
     elif NETWORK_NAME in ["LeNet", "LeNet_bigger", "MediumCNN", "BiggerCNN"]:
