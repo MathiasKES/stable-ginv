@@ -4,7 +4,7 @@ import PIL.Image as Image
 from torchvision import datasets, transforms
 import numpy as np
 
-class Dataset_from_Image(Dataset):
+class _Dataset_from_Image(Dataset):
     def __init__(self, imgs, labs, transform=None):
         self.imgs = imgs # img paths
         self.labs = labs # labs is ndarray
@@ -43,5 +43,5 @@ def lfw_dataset(lfw_path, shape_img):
                 labels_all.append(foldidx)
 
     transform = transforms.Compose([transforms.Resize(shape_img)])
-    dst = Dataset_from_Image(images_all, np.asarray(labels_all, dtype=int), transform=transform)
+    dst = _Dataset_from_Image(images_all, np.asarray(labels_all, dtype=int), transform=transform)
     return dst

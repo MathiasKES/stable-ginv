@@ -6,8 +6,7 @@ import torch.nn as nn
 from torchvision import transforms
 import functions.consts as consts
 
-from functions.masking import (get_keep_ids, get_keep_ids_by_gradsize, get_entry_masks_by_gradsize,
-    get_prefix_keep_ids, get_entry_masks_by_prefix_group, get_keep_ids_by_prefix_group)
+from functions.masking import build_gradient_mask
 from helper.metrics import (compute_psnr_from_mse, compute_jacobian_rank, total_variation,
     compute_grad_match_loss, compute_ssim_batch)
 from helper.training_utils import build_network, make_scheduler
@@ -147,96 +146,26 @@ def _run_inner(idx_net, device_id, dst, dataset_name, config, result_queue):
             _best_restart_init_np = None
             _best_restart_frames = []
 
-        candidate_ids = None
-        keep_ids = None
-        entry_masks = None
-        observed_entries = None
+        keep_ids, entry_masks = build_gradient_mask(
+            method="idlg" if method == "iDLG" else "masked",
+            mask_mode=MASK_MODE,
+            net=net,
+            original_dy_dx=original_dy_dx,
+            prefixes=PREFIXES,
+            prefix_layer_fracs=PREFIX_LAYER_FRACS,
+            gradsize_topk=GRADSIZE_TOPK,
+            gradsize_topfrac=GRADSIZE_TOPFRAC,
+            gradsize_threshold=GRADSIZE_THRESHOLD,
+            gradsize_metric=GRADSIZE_METRIC,
+        )
 
-        if method == "iDLG":
-            keep_ids = get_keep_ids("all", net=net)
+        if entry_masks is not None:
+            observed_entries = sum(int(m.sum().item()) for m in entry_masks if m is not None)
         else:
-            if MASK_MODE.startswith("prefix_"):
-                candidate_ids = get_prefix_keep_ids(net, PREFIXES)
-
-            if MASK_MODE == "gradsize_topk":
-                keep_ids, _ = get_keep_ids_by_gradsize(
-                    original_dy_dx, mode="topk", topk=GRADSIZE_TOPK,
-                    metric=GRADSIZE_METRIC)
-
-            elif MASK_MODE == "gradsize_topfrac":
-                keep_ids, _ = get_keep_ids_by_gradsize(
-                    original_dy_dx, mode="topfrac", top_frac=GRADSIZE_TOPFRAC,
-                    metric=GRADSIZE_METRIC)
-
-            elif MASK_MODE == "gradsize_topk_entries":
-                entry_masks, observed_entries, _ = get_entry_masks_by_gradsize(
-                    original_dy_dx, mode="topk_entries", topk=GRADSIZE_TOPK)
-
-            elif MASK_MODE == "gradsize_topfrac_entries":
-                entry_masks, observed_entries, _ = get_entry_masks_by_gradsize(
-                    original_dy_dx, mode="topfrac_entries", top_frac=GRADSIZE_TOPFRAC)
-
-            elif MASK_MODE == "prefix_topk":
-                keep_ids, _ = get_keep_ids_by_prefix_group(
-                    net=net,
-                    original_dy_dx=original_dy_dx,
-                    prefixes=PREFIXES,
-                    mode="topk",
-                    topk=GRADSIZE_TOPK,
-                    prefix_top_ks={k: int(v) for k, v in PREFIX_LAYER_FRACS.items()},
-                    metric=GRADSIZE_METRIC,
-                )
-
-            elif MASK_MODE == "prefix_topfrac":
-                keep_ids, _ = get_keep_ids_by_prefix_group(
-                    net=net,
-                    original_dy_dx=original_dy_dx,
-                    prefixes=PREFIXES,
-                    mode="topfrac",
-                    top_frac=GRADSIZE_TOPFRAC,
-                    prefix_top_fracs=PREFIX_LAYER_FRACS,
-                    metric=GRADSIZE_METRIC,
-                )
-
-            elif MASK_MODE == "prefix_topk_entries":
-                entry_masks, observed_entries, _ = get_entry_masks_by_gradsize(
-                    original_dy_dx, mode="topk_entries", topk=GRADSIZE_TOPK,
-                    candidate_ids=candidate_ids)
-
-            elif MASK_MODE == "prefix_topfrac_entries":
-                entry_masks, observed_entries, _ = get_entry_masks_by_gradsize(
-                    original_dy_dx, mode="topfrac_entries", top_frac=GRADSIZE_TOPFRAC,
-                    candidate_ids=candidate_ids)
-
-            elif MASK_MODE == "prefix_topk_entries_layer":
-                entry_masks, observed_entries, _ = get_entry_masks_by_prefix_group(
-                    net=net,
-                    original_dy_dx=original_dy_dx,
-                    prefixes=PREFIXES,
-                    mode="topk_entries",
-                    topk=GRADSIZE_TOPK,
-                )
-
-            elif MASK_MODE == "prefix_topfrac_entries_layer":
-                entry_masks, observed_entries, _ = get_entry_masks_by_prefix_group(
-                    net=net,
-                    original_dy_dx=original_dy_dx,
-                    prefixes=PREFIXES,
-                    mode="topfrac_entries",
-                    top_frac=GRADSIZE_TOPFRAC,
-                    prefix_top_fracs=PREFIX_LAYER_FRACS,
-                )
-
-            elif MASK_MODE == "gradsize_threshold":
-                keep_ids, _ = get_keep_ids_by_gradsize(
-                    original_dy_dx, mode="threshold", threshold=GRADSIZE_THRESHOLD,
-                    metric=GRADSIZE_METRIC)
-
-            elif MASK_MODE == "prefix":
-                keep_ids = get_keep_ids(mask_mode="prefix", net=net, prefixes=PREFIXES)
-
-            else:
-                keep_ids = get_keep_ids(MASK_MODE)
+            observed_entries = sum(
+                g.numel() for i, g in enumerate(original_dy_dx)
+                if g is not None and i in keep_ids
+            )
 
         final_weight_idx = len(original_dy_dx) - 2
 
@@ -270,15 +199,6 @@ def _run_inner(idx_net, device_id, dst, dataset_name, config, result_queue):
             continue
 
         unknowns = int(gt_data[0].numel())
-
-        if entry_masks is not None:
-            if observed_entries is None:
-                observed_entries = sum(int(m.sum().item()) for m in entry_masks if m is not None)
-        else:
-            observed_entries = sum(
-                g.numel() for i, g in enumerate(original_dy_dx)
-                if g is not None and i in keep_ids
-            )
 
         kept_fraction = observed_entries / total_entries
 
