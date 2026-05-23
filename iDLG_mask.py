@@ -562,6 +562,7 @@ def main():
     mse_significant_str = ""
     psnr_significant_str = ""
     psnr_normality_str = ""
+    mse_normality_str = ""
 
     baseline_key, comparable_args = baseline_key_from_args(args)
 
@@ -610,6 +611,7 @@ def main():
         mse_significant_str = mse_summary["significant_str"]
         psnr_significant_str = psnr_summary["significant_str"]
         psnr_normality_str = psnr_summary["normality_str"]
+        mse_normality_str = mse_summary["normality_str"]
 
     elif METHODS == "masked":
         registry = load_baseline_registry(baseline_registry_path)
@@ -674,6 +676,7 @@ def main():
             mse_significant_str = mse_summary["significant_str"]
             psnr_significant_str = psnr_summary["significant_str"]
             psnr_normality_str = psnr_summary["normality_str"]
+            mse_normality_str = mse_summary["normality_str"]
 
             print(f"\nLoaded iDLG baseline (run_id={run_id}). Paired test uses {n_psnr}/{n_total} experiment(s).")
 
@@ -841,6 +844,7 @@ def main():
             "psnr_ci": psnr_ci_str if METHODS in ["both", "masked"] else "",
             "psnr_significant": psnr_significant_str if METHODS in ["both", "masked"] else "",
             "psnr_normality": psnr_normality_str if METHODS in ["both", "masked"] else "",
+            "mse_normality": mse_normality_str if METHODS in ["both", "masked"] else "",
             "med_best_loss": round(med_best_loss_masked,5),
             "avg_best_loss": round(avg_best_loss_masked,5),
             "med_best_mse": round(med_best_mse_masked,10),
@@ -857,7 +861,7 @@ def main():
         "med_best_loss", "avg_best_loss", "med_best_mse", "avg_best_mse",
         "avg_best_psnr", "std_best_psnr",
         "avg_best_ssim", "std_best_ssim",
-        "mse_ci", "mse_significant", "psnr_ci", "psnr_significant", "psnr_normality",
+        "mse_ci", "mse_significant", "psnr_ci", "psnr_significant", "psnr_normality", "mse_normality",
         "png_path",
     ]
 
