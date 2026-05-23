@@ -6,13 +6,15 @@ import torch
 from torchvision import transforms
 from datetime import datetime
 import csv
+import json
 
 import torch.multiprocessing as mp
 import argparse
 from helper.visualization import save_recon_panel, save_recon_gif
 from functions.io_utils import (paired_summary, baseline_key_from_args, load_baseline_registry,
     save_baseline_registry, update_idlg_baseline, write_baseline_summary_csv,
-    parse_prefixes_with_fracs)
+    parse_prefixes_with_fracs, masked_key_from_args, load_masked_registry,
+    save_masked_registry, update_masked_registry)
 from functions.Dataset import load_dataset
 from run_single_exp import run_single_experiment
 from tqdm import tqdm
@@ -269,6 +271,7 @@ def main():
     baseline_dir = os.path.join(save_path, "baselines")
     baseline_registry_path = os.path.join(baseline_dir, "idlg_baselines_registry.json")
     baseline_summary_csv_path = os.path.join(baseline_dir, "idlg_baselines_summary.csv")
+    masked_registry_path = os.path.join(baseline_dir, "masked_registry.json")
 
     print(dataset, 'root_path:', root_path)
     print(dataset, 'data_path:', data_path)
@@ -558,6 +561,7 @@ def main():
     psnr_ci_str = ""
     mse_significant_str = ""
     psnr_significant_str = ""
+    psnr_normality_str = ""
 
     baseline_key, comparable_args = baseline_key_from_args(args)
 
@@ -605,6 +609,7 @@ def main():
         psnr_ci_str = psnr_summary["ci_str"]
         mse_significant_str = mse_summary["significant_str"]
         psnr_significant_str = psnr_summary["significant_str"]
+        psnr_normality_str = psnr_summary["normality_str"]
 
     elif METHODS == "masked":
         registry = load_baseline_registry(baseline_registry_path)
@@ -668,6 +673,7 @@ def main():
             psnr_ci_str = psnr_summary["ci_str"]
             mse_significant_str = mse_summary["significant_str"]
             psnr_significant_str = psnr_summary["significant_str"]
+            psnr_normality_str = psnr_summary["normality_str"]
 
             print(f"\nLoaded iDLG baseline (run_id={run_id}). Paired test uses {n_psnr}/{n_total} experiment(s).")
 
@@ -741,6 +747,21 @@ def main():
         print(f"baseline_key: {baseline_key}")
         print(f"registry: {baseline_registry_path}")
         print(f"summary csv: {baseline_summary_csv_path}")
+
+    if METHODS in ["masked", "both"] and best_psnr_masked_all:
+        masked_registry = load_masked_registry(masked_registry_path)
+        masked_key, masked_comparable_args = masked_key_from_args(args)
+        update_masked_registry(
+            masked_registry,
+            masked_key,
+            masked_comparable_args,
+            best_psnr_masked_all,
+            best_mse_masked_all,
+        )
+        save_masked_registry(masked_registry_path, masked_registry)
+        print(f"\nSaved masked registry entry:")
+        print(f"masked_key: {masked_key}")
+        print(f"registry: {masked_registry_path}")
 
     csv_path = os.path.join(save_path, "exp_results.csv")
     file_exists = os.path.isfile(csv_path)
@@ -819,6 +840,7 @@ def main():
             "mse_significant": mse_significant_str if METHODS in ["both", "masked"] else "",
             "psnr_ci": psnr_ci_str if METHODS in ["both", "masked"] else "",
             "psnr_significant": psnr_significant_str if METHODS in ["both", "masked"] else "",
+            "psnr_normality": psnr_normality_str if METHODS in ["both", "masked"] else "",
             "med_best_loss": round(med_best_loss_masked,5),
             "avg_best_loss": round(avg_best_loss_masked,5),
             "med_best_mse": round(med_best_mse_masked,10),
@@ -835,7 +857,7 @@ def main():
         "med_best_loss", "avg_best_loss", "med_best_mse", "avg_best_mse",
         "avg_best_psnr", "std_best_psnr",
         "avg_best_ssim", "std_best_ssim",
-        "mse_ci", "mse_significant", "psnr_ci", "psnr_significant",
+        "mse_ci", "mse_significant", "psnr_ci", "psnr_significant", "psnr_normality",
         "png_path",
     ]
 

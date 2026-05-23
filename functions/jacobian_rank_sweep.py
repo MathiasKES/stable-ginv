@@ -107,6 +107,11 @@ def _worker_core(args, sample_indices, device, row_counts, prefixes, prefix_laye
         dy_dx = torch.autograd.grad(loss, net.parameters())
         original_dy_dx = [g.detach().clone() for g in dy_dx]
 
+        grad_norm = sum(g.norm().item() for g in original_dy_dx if g is not None)
+        has_nan = any(torch.isnan(g).any().item() for g in original_dy_dx if g is not None)
+        has_inf = any(torch.isinf(g).any().item() for g in original_dy_dx if g is not None)
+        print(f"  sample idx={idx}: grad_norm={grad_norm:.4f}  nan={has_nan}  inf={has_inf}", flush=True)
+
         keep_ids, entry_masks = build_gradient_mask(
             method=args.method,
             mask_mode=args.mask_mode,
@@ -135,9 +140,10 @@ def _worker_core(args, sample_indices, device, row_counts, prefixes, prefix_laye
                 select_mode=args.jacobian_select_mode,
                 device_for_J="cpu",
                 rank_tol=args.rank_tol,
-                normalize_rows=args.normalize_jacobian_rows,
             )
             results[rows].append(jac_rank)
+            if rows == max(row_counts):
+                print(f"    max_rows={rows}: rank={jac_rank}  shape={jac_shape}", flush=True)
             if progress_fn is not None:
                 progress_fn(1)
 
@@ -198,8 +204,6 @@ def main():
                         choices=["topk_abs", "first", "random"])
     parser.add_argument("--rank_tol", type=float, default=1e-6,
                         help="Relative tolerance for numerical Jacobian rank.")
-    parser.add_argument("--normalize_jacobian_rows", action="store_true",
-                        help="Normalize Jacobian rows before computing singular values.")
 
     parser.add_argument("--num_samples", type=int, default=3)
     parser.add_argument("--run_id", type=int, default=0)

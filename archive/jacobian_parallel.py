@@ -141,7 +141,6 @@ def worker(rank, world_size, args, sample_chunks, shared_results, progress_count
                 select_mode=args.jacobian_select_mode,
                 device_for_J="cpu",
                 rank_tol=args.rank_tol,
-                normalize_rows=args.normalize_jacobian_rows,
             )
             local_results[rows].append(jac_rank)
 
@@ -175,8 +174,6 @@ def main():
                         choices=["topk_abs", "first", "random"])
     parser.add_argument("--rank_tol", type=float, default=1e-6,
                         help="Relative tolerance for numerical Jacobian rank.")
-    parser.add_argument("--normalize_jacobian_rows", action="store_true",
-                        help="Normalize Jacobian rows before computing singular values.")
 
     parser.add_argument("--num_samples", type=int, default=3)
     parser.add_argument("--run_id", type=int, default=0)

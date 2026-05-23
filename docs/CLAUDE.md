@@ -35,7 +35,7 @@ Compares baseline iDLG against masked variants (selective gradient disclosure) a
 | `functions/io_utils.py` | Baseline registry, paired stats, CSV helpers, `parse_prefixes_with_fracs` |
 | `functions/Dataset.py` | `load_dataset()` (shared loader), `lfw_dataset()`, `_Dataset_from_Image` (private) |
 | `functions/consts.py` | Normalization constants: `{dataset}_mean`, `{dataset}_std` for cifar10, cifar100, mnist, imagenet |
-| `functions/jacobian_rank_sweep.py` | Serial Jacobian rank sweep |
+| `functions/jacobian_rank_sweep.py` | Jacobian rank sweep — serial (`--num_workers 1`) or parallel (`--num_workers 2–4` via `mp.spawn`) |
 
 **`helper/` — shared utilities**
 
@@ -301,6 +301,8 @@ med_best_loss, avg_best_loss, med_best_mse, avg_best_mse, avg_best_psnr, std_bes
 ## Gotchas
 
 - **Baseline registry is per-run-id, single-run.** `results/baselines/idlg_baselines_registry.json` stores one entry per `(hyperparams, run_id)` hash. Running `--methods idlg` or `--methods both` with a given `run_id` saves/overwrites the baseline for that slot. `--methods masked` with the same `run_id` loads it automatically. The registry uses keys `best_psnr_list` / `best_mse_list` — old files with `avg_best_psnr_list` must be deleted and re-run.
+- **Masked registry** — `results/baselines/masked_registry.json` stores per-experiment PSNR and MSE lists for masked runs, keyed by MD5 hash of all reconstruction + masking hyperparameters. Saved automatically by `iDLG_mask.py` at end of run. Overwriting an existing key prints a warning. Shapiro-Wilk normality test result for PSNR differences is printed to stdout and saved in the `psnr_normality` CSV column.
+- **TV normalization** — TV is computed on `dummy_data` (normalized space, same as the network input), not on the de-normalized [0,1] image. This matches Geiping et al. Use `--tv_weight 0.01` for single-image trained-network experiments (paper value); default `0.0` means no TV.
 - **Label inference gating** — if the final FC layer is masked, the experiment is skipped for that method (no gradient inversion possible without knowing the label).
 - **`iters` scoping** — after early stop `break`, `iters` holds the break iteration. Final GIF frame is captured there if `_last_gif_iter != iters`.
 - **Jacobian OOM** — `jacobian_max_entries` caps the row count; rows are built one at a time.

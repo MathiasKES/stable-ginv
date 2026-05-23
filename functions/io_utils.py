@@ -58,6 +58,11 @@ def paired_t_ci(x, y, confidence=0.95):
 
     t_stat, p_value = stats.ttest_rel(x, y)
 
+    if n >= 3:
+        sw_stat, sw_p = stats.shapiro(d)
+    else:
+        sw_stat, sw_p = float("nan"), float("nan")
+
     return {
         "n": n,
         "mean_diff": mean_diff,
@@ -66,6 +71,8 @@ def paired_t_ci(x, y, confidence=0.95):
         "ci_high": float(ci_high),
         "t_stat": float(t_stat),
         "p_value": float(p_value),
+        "shapiro_stat": float(sw_stat),
+        "shapiro_p": float(sw_p),
     }
 
 
@@ -91,11 +98,79 @@ def paired_summary(x_masked, x_idlg, metric, confidence=0.95, ci_decimals=5):
     else:
         raise ValueError(f"Unknown metric: {metric}")
 
+    sw_p = result["shapiro_p"]
+    if np.isnan(sw_p):
+        normality_str = "n/a"
+    elif sw_p > 0.05:
+        normality_str = f"normal (W={result['shapiro_stat']:.4f}, p={sw_p:.4f})"
+    else:
+        normality_str = f"NON-NORMAL (W={result['shapiro_stat']:.4f}, p={sw_p:.4f})"
+
     return {
         "stats": result,
         "ci_str": f"[{result['ci_low']:.{ci_decimals}f}, {result['ci_high']:.{ci_decimals}f}]",
         "significant_str": f"True, {better}" if significant else "False",
+        "normality_str": normality_str,
     }
+
+
+def masked_key_from_args(args):
+    """Hash of all hyperparameters (reconstruction + masking) for the masked registry."""
+    comparable = {
+        "dataset": args.dataset,
+        "network": args.network,
+        "pretrained": bool(args.pretrained),
+        "lr": args.lr,
+        "gamma": args.gamma,
+        "grad_loss": args.grad_loss,
+        "num_dummy": args.num_dummy,
+        "iteration": args.iteration,
+        "num_exp": args.num_exp,
+        "run_id": args.run_id,
+        "tv_weight": args.tv_weight,
+        "optimizer": args.optimizer,
+        "num_restarts": args.num_restarts,
+        "max_iteration": args.max_iteration,
+        "history_size": args.history_size,
+        "mask_mode": args.mask_mode,
+        "gradsize_topk": args.gradsize_topk,
+        "gradsize_topfrac": args.gradsize_topfrac,
+        "gradsize_metric": args.gradsize_metric,
+        "prefixes": args.prefixes,
+    }
+    key_json = json.dumps(comparable, sort_keys=True)
+    key_hash = hashlib.md5(key_json.encode("utf-8")).hexdigest()
+    return key_hash, comparable
+
+
+def load_masked_registry(path):
+    """Load JSON masked registry from path; returns empty dict if file does not exist."""
+    if not os.path.isfile(path):
+        return {}
+    with open(path, "r") as f:
+        return json.load(f)
+
+
+def save_masked_registry(path, registry):
+    """Write masked registry dict to JSON at path."""
+    os.makedirs(os.path.dirname(path), mode=0o770, exist_ok=True)
+    with open(path, "w") as f:
+        json.dump(registry, f, indent=2)
+
+
+def update_masked_registry(registry, key, comparable_args, best_psnr_list, best_mse_list):
+    """Store a single masked run entry. Overwrites any existing entry for the same key."""
+    if key in registry:
+        print(
+            f"\nWARNING: Overwriting existing masked registry entry for "
+            f"run_id={comparable_args.get('run_id')}, mask_mode={comparable_args.get('mask_mode')}."
+        )
+    registry[key] = {
+        "args": comparable_args,
+        "best_psnr_list": [float(v) for v in best_psnr_list],
+        "best_mse_list": [float(v) for v in best_mse_list],
+    }
+    return registry[key]
 
 
 def baseline_key_from_args(args):

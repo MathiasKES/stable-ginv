@@ -64,7 +64,6 @@ def compute_jacobian_rank(
     select_mode="topk_abs",
     device_for_J="cpu",
     rank_tol=1e-6,
-    normalize_rows=False,
 ):
     """Rank of J = d vec(g_obs) / d vec(x), built row-by-row to avoid OOM."""
     params = tuple(net.parameters())
@@ -115,11 +114,22 @@ def compute_jacobian_rank(
         )[0]
         J[i] = grad_i.reshape(-1).detach().to(device_for_J)
 
-    if normalize_rows:
-        row_norms = torch.norm(J, dim=1, keepdim=True).clamp_min(1e-12)
-        J = J / row_norms
+    # Normalize rows so σ_max(J_norm) ≤ √M instead of O(M).
+    # Without this, the standard threshold max(M,N)·ε·σ_max grows as O(M²·ε),
+    # causing rank to decline as more rows are added.
+    row_norms = torch.norm(J, dim=1, keepdim=True).clamp_min(1e-30)
+    J_norm = J / row_norms
 
-    jac_rank = int(torch.linalg.matrix_rank(J).item())
+    # Floating-point-aware absolute threshold on the normalised matrix.
+    # After normalization σ_max ≤ √M, so the precision floor grows as O(M^1.5·ε)
+    # rather than O(M²·ε).  Take the larger of the user's rank_tol and this floor
+    # so that neither numerical noise nor genuinely tiny singular values are counted.
+    M, N = J_norm.shape
+    eps = torch.finfo(J_norm.dtype).eps
+    precision_atol = max(M, N) * eps * (M ** 0.5)
+    atol = max(rank_tol, precision_atol)
+
+    jac_rank = int(torch.linalg.matrix_rank(J_norm, atol=atol, rtol=0.0).item())
 
     return jac_rank, tuple(J.shape), used_entries, unknowns
 

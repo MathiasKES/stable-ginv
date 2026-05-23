@@ -158,3 +158,98 @@ Both `iDLG_mask.py` and `jacobian_rank_sweep.py` now use these instead of inline
 ## Decisions carried forward
 
 No new decisions this session — see `HANDOVER_SESSION_2026-05-22.md` for all prior context.
+
+---
+
+---
+
+## Second session (2026-05-23, continued)
+
+### TV normalization fix — matches Geiping et al.
+
+`run_single_exp.py` was computing TV on `x_raw = (dummy_data * ds + dm).clamp(0,1)` — de-normalized [0,1] space. The paper computes TV on `x_trial` (the normalized image, same space the network sees — equivalent to `dummy_data` after sigmoid). Fix: remove the `x_raw` line from both the L-BFGS closure and the Adam path; pass `dummy_data` directly to `total_variation()`.
+
+The `current_x = (dummy_data.detach() * ds + dm).clamp(0.0, 1.0)` line at the bottom of the loop was **not touched** — it is only used for MSE computation and GIF frame capture, not for the loss.
+
+**TV weight note:** The paper's DEFAULT_CONFIG lists `0.1`, but actual single-image experiments with trained networks use `0.01`. Use `--tv_weight 0.01` for fair comparison with paper results.
+
+---
+
+### `functions/jacobian_rank_sweep.py` — serial + parallel merged
+
+`archive/jacobian_parallel.py` (parallel-only) and `functions/jacobian_rank_sweep.py` (serial-only) were merged into one file. New structure:
+
+- `_worker_core(args, sample_indices, device, row_counts, prefixes, prefix_layer_fracs, progress_fn=None, debug=False)` — shared computation, returns `{rows: [rank_list]}`
+- `_mp_worker(...)` — `mp.spawn` target that wraps `_worker_core` with a progress counter
+- `main()`: `--num_workers 1` (default) calls `_worker_core` directly with tqdm; `--num_workers 2–4` uses `mp.spawn`
+
+Per-sample diagnostics added inside `_worker_core`:
+```python
+print(f"  sample idx={idx}: grad_norm={grad_norm:.4f}  nan={has_nan}  inf={has_inf}")
+# ... at max row count:
+print(f"    max_rows={rows}: rank={jac_rank}  shape={jac_shape}")
+```
+
+---
+
+### Jacobian rank monotonicity fix — `helper/metrics.py`
+
+**Problem:** rank declined as row count increased. Root cause: `torch.linalg.matrix_rank` default `rtol` threshold = `max(M,N) · ε · σ_max`. As rows grow, σ_max grows (O(M)), so the threshold grows as O(M²·ε), eventually swamping genuine singular values.
+
+**Fix:**
+1. Row-normalize J before SVD: `J_norm = J / row_norms.clamp_min(1e-30)`. After normalization σ_max ≤ √M.
+2. Use a fixed absolute threshold: `atol = max(rank_tol, max(M,N) · ε · M^0.5)` with `rtol=0.0`.
+3. For float64 with M ≤ 50000, the precision floor ≈ 2.5e-9 — well below `rank_tol=1e-6`, so `rank_tol` dominates in practice.
+
+The `normalize_rows` parameter (was always False, never used) was removed from the signature and all call sites.
+
+---
+
+### Shapiro-Wilk normality test — `functions/io_utils.py`
+
+`paired_t_ci` now returns `"shapiro_stat"` and `"shapiro_p"` (NaN when n < 3).
+
+`paired_summary` now returns `"normality_str"`:
+- `"n/a"` when n < 3
+- `"normal (W=..., p=...)"` when Shapiro-Wilk p > 0.05
+- `"NON-NORMAL (W=..., p=...)"` when p ≤ 0.05
+
+---
+
+### Masked registry — `functions/io_utils.py` + `iDLG_mask.py`
+
+New functions in `io_utils.py` (mirrors the iDLG baseline registry pattern):
+
+```python
+masked_key_from_args(args)          # MD5 hash of all hyperparams (reconstruction + masking)
+load_masked_registry(path)          # returns {} if file not found
+save_masked_registry(path, registry)
+update_masked_registry(registry, key, comparable_args, best_psnr_list, best_mse_list)
+```
+
+`iDLG_mask.py` saves a masked registry entry at `results/baselines/masked_registry.json` after each masked run. The key covers all reconstruction and masking hyperparameters; overwriting an existing key triggers a warning.
+
+CSV now includes a `psnr_normality` column (Shapiro-Wilk result string for the PSNR differences).
+
+---
+
+### Example run command
+
+```bash
+python iDLG_mask.py \
+  --network resnet18 --dataset cifar100 \
+  --methods both \
+  --mask_mode gradsize_topfrac_entries \
+  --gradsize_topfrac 0.5 \
+  --num_exp 30 --iteration 5000 \
+  --optimizer signed_adamw --lr 0.1 \
+  --grad_loss cos --tv_weight 0.01 \
+  --num_restarts 1 --run_id 0
+```
+
+This will:
+- Run 30 paired experiments (iDLG baseline + masked with entry-wise top-50%)
+- Save iDLG baseline to `results/baselines/idlg_baselines_registry.json`
+- Save masked results to `results/baselines/masked_registry.json`
+- Print Shapiro-Wilk normality test result to stdout
+- Write `psnr_normality` to the CSV output
