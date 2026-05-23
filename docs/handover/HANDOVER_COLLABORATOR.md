@@ -2,7 +2,7 @@
 
 **Audience:** A new collaborator joining the bachelor's project who needs to understand the research context, set up the environment, and run their first experiment.
 
-**Last updated:** 2026-05-22
+**Last updated:** 2026-05-23
 
 ---
 
@@ -61,14 +61,14 @@ The **iDLG trick** recovers the true label `y'` analytically from the gradient o
 |---------------|--------------|
 | Gradient computation | `run_single_exp.py`, around the `net(gt_data)` / `loss.backward()` block |
 | iDLG label recovery trick | `run_single_exp.py`, `label_pred = torch.argmin(...)` line |
-| Cosine similarity loss | `Misc_functions.py::compute_grad_match_loss()` |
-| TV regularization | `Misc_functions.py::total_variation()` |
-| Gradient masking | `Misc_functions.py::build_gradient_mask()` |
-| Jacobian rank analysis | `Misc_functions.py::compute_jacobian_rank()` |
-| PSNR metric | `Misc_functions.py::compute_psnr_from_mse()` |
-| SSIM metric | `Misc_functions.py::compute_ssim_batch()` |
+| Cosine similarity loss | `helper/metrics.py::compute_grad_match_loss()` |
+| TV regularization | `helper/metrics.py::total_variation()` |
+| Gradient masking | `functions/masking.py::build_gradient_mask()` |
+| Jacobian rank analysis | `helper/metrics.py::compute_jacobian_rank()` |
+| PSNR metric | `helper/metrics.py::compute_psnr_from_mse()` |
+| SSIM metric | `helper/metrics.py::compute_ssim_batch()` |
 | Multi-restart optimization | The `NUM_RESTARTS` loop in `run_single_exp.py` |
-| Network architectures | `Network.py::get_model()` + `LeNet`, `MediumCNN`, `BiggerCNN` |
+| Network architectures | `helper/Network.py::get_model()` + `LeNet`, `MediumCNN`, `BiggerCNN` |
 
 The `invertinggradients/` folder is the **Geiping et al. 2020** reference implementation. It is kept for reference but is not used directly in our experiments.
 
@@ -156,11 +156,11 @@ After running `run_single_exp.py`, you will find:
 - A PNG image (named by network/dataset/mask config) with the original image on the left and the reconstruction on the right.
 - Terminal output showing PSNR and SSIM for each reconstruction.
 
-After running `iDLG_mask.py` or `run_single_exp_batch.py`, you will also find:
+After running `iDLG_mask.py`, you will also find:
 - A CSV file with columns: `network`, `dataset`, `mask_mode`, `PSNR`, `SSIM`, `loss`, etc.
 - Use these for statistical comparisons between masking modes.
 
-**Baseline registry:** `run_single_exp_batch.py` can save unmasked results as a "baseline" and later compare masked results against it, computing confidence intervals and significance.
+**Baseline registry:** `iDLG_mask.py --methods both` (or `--methods idlg` followed by `--methods masked`) saves unmasked results as a baseline in `results/baselines/`. The masked run loads this automatically for paired comparison. Always use the same `--run_id` for both.
 
 ---
 

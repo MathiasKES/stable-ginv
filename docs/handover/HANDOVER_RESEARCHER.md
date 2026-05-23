@@ -2,7 +2,7 @@
 
 **Audience:** A developer or researcher who is continuing active work on this codebase — adding new masking modes, running new experiments, debugging, or extending the pipeline.
 
-**Last updated:** 2026-05-22
+**Last updated:** 2026-05-23
 
 ---
 
@@ -27,19 +27,26 @@ The `invertinggradients/` subfolder is a **git submodule** cloned from Geiping e
 stable-ginv/
 ├── iDLG_mask.py             Main batch experiment runner (multi-GPU, all masking modes)
 ├── run_single_exp.py        Detailed single-experiment runner (GIF, Jacobian rank, SSIM)
-├── run_single_exp_batch.py  Simpler batch runner, CSV output, baseline comparison
-├── iDLG_original.py         Unmasked baseline (no masking, for comparison)
-├── jacobian_parallel.py     Parallel Jacobian rank computation across GPUs
-├── jacobian_rank_sweep.py   Sweep masking params and compute Jacobian rank per config
 │
-├── Misc_functions.py        ALL shared utilities: masking, metrics, network building,
-│                            I/O, PSNR/SSIM, Jacobian rank, visualization (~1170 lines)
-├── Network.py               Model loading (get_model) + custom architectures (LeNet etc.)
-├── Dataset.py               Dataset loaders: MNIST, CIFAR-10/100, LFW
-├── consts.py                Normalization constants (mean/std per dataset)
+├── functions/               Core domain logic
+│   ├── masking.py           ALL gradient masking: build_gradient_mask, get_keep_ids*,
+│   │                        get_entry_masks*, flatten_observed_gradients
+│   ├── io_utils.py          Baseline registry, paired stats, CSV helpers
+│   ├── Dataset.py           Dataset loaders: MNIST, CIFAR-10/100, LFW
+│   ├── consts.py            Normalization constants (single source of truth)
+│   └── jacobian_rank_sweep.py  Sweep masking params and compute Jacobian rank per config
+│
+├── helper/                  Shared utilities
+│   ├── Network.py           Model loading (get_model) + custom architectures (LeNet etc.)
+│   ├── metrics.py           PSNR, SSIM, total variation, Jacobian rank, grad match loss
+│   ├── training_utils.py    build_network, make_scheduler
+│   └── visualization.py     save_recon_panel, save_recon_gif
+│
+├── archive/                 Retired scripts (not imported anywhere):
+│                            iDLG_original.py, jacobian_parallel.py,
+│                            run_single_exp_batch.py, old visualize/testing scripts
 │
 ├── testing/                 Dataset validation scripts (not pytest — manual runs)
-├── visualize/               Plotting scripts (gradient ratio, MSE vs model complexity)
 ├── scripts/                 HPC job scripts (DTU cluster)
 │
 └── invertinggradients/      Git submodule — Geiping et al. reference implementation
@@ -70,14 +77,10 @@ Same masking logic, but also supports:
 python run_single_exp.py
 ```
 
-### `run_single_exp_batch.py` — use for quick CSV sweeps
-Simpler version of `run_single_exp.py`. Does not compute Jacobian rank. Useful for sweeping multiple configs and comparing against a saved baseline registry.
-
-### `jacobian_parallel.py` — use for standalone rank sweeps
-Computes Jacobian rank only (no reconstruction). Useful when you want rank data without running the full attack.
-
-### `jacobian_rank_sweep.py` — use for parameter sweeps of rank
+### `functions/jacobian_rank_sweep.py` — use for parameter sweeps of rank
 Iterates over a grid of masking parameters and logs rank results.
+
+**Archived (do not use):** `run_single_exp_batch.py`, `jacobian_parallel.py`, `iDLG_original.py` — moved to `archive/`. Use `iDLG_mask.py` and `run_single_exp.py` instead.
 
 ---
 
@@ -96,7 +99,7 @@ All entry points use a `config` dict. Edit it directly in the script — there i
 | `GRADSIZE_TOPK` | int | Keep this many tensors (for `gradsize_topk`) |
 | `GRADSIZE_TOPFRAC` | float | 0.0–1.0, fraction to keep (for `gradsize_topfrac`) |
 | `GRADSIZE_THRESHOLD` | float or None | Magnitude threshold (for `gradsize_threshold`) |
-| `GRADSIZE_METRIC` | str | `'l2'`, `'linf'`, `'max'`, `'mean'`, `'std'` |
+| `GRADSIZE_METRIC` | str | `'l2'`, `'mean_abs'`, `'sum_abs'` |
 | `PREFIXES` | tuple of str | Layer name prefixes for prefix-based modes, e.g. `('conv1', 'layer1')` |
 | `PREFIX_LAYER_FRACS` | dict | Per-prefix fractions for `prefix_topfrac_entries_layer` |
 | `OPTIMIZER` | str | `'lbfgs'`, `'adam'`, `'adamw'` |
@@ -117,7 +120,7 @@ All entry points use a `config` dict. Edit it directly in the script — there i
 
 ## 5. Gradient Masking Modes
 
-All masking is implemented in `Misc_functions.py::build_gradient_mask()`. The function returns either `(keep_ids, None)` for tensor-wise masking or `(None, entry_masks)` for element-wise masking.
+All masking is implemented in `functions/masking.py::build_gradient_mask()`. The function returns either `(keep_ids, None)` for tensor-wise masking or `(None, entry_masks)` for element-wise masking.
 
 | Mode | What it does |
 |------|-------------|
@@ -134,10 +137,8 @@ All masking is implemented in `Misc_functions.py::build_gradient_mask()`. The fu
 
 **Gradient magnitude metrics** (controlled by `GRADSIZE_METRIC`):
 - `l2` — Frobenius norm (default, most stable)
-- `linf` — max absolute value
-- `max` — max value (not absolute)
-- `mean` — mean absolute value
-- `std` — standard deviation
+- `mean_abs` — mean of absolute values; robust to outliers
+- `sum_abs` — L1 norm; similar to `mean_abs` but also scales with tensor size
 
 ---
 
@@ -163,14 +164,13 @@ For each experiment, the flow is:
 
 - **`Iteration` vs `num_iterations`:** Config uses uppercase `Iteration` (not `num_iterations`). This is inconsistent with Python convention and easy to mistype.
 - **L-BFGS override:** When `OPTIMIZER = 'lbfgs'`, the code silently overrides `lr`, `Iteration`, and `MAX_ITERATION`. Check `run_single_exp.py` around line 57 if your settings seem to be ignored.
-- **`OPTIMIZE_NORM_SPACE`:** Set to `True` whenever `NETWORK_TRAINED = True`. This means the dummy image is optimized in the normalized pixel space matching ImageNet stats. Reconstructions are then un-normalized for saving. If you add a new dataset with different normalization, you need to wire its stats into `consts.py` **and** into the saving/display logic.
-- **Duplicate normalization constants:** `consts.py` (root) and `Misc_functions.py` both define dataset mean/std. `invertinggradients/inversefed/consts.py` has a third copy. These are in sync now but will drift if you add a new dataset and only update one.
+- **`OPTIMIZE_NORM_SPACE`:** Set to `True` whenever `NETWORK_TRAINED = True`. This means the dummy image is optimized in the normalized pixel space matching ImageNet stats. Reconstructions are then un-normalized for saving. If you add a new dataset with different normalization, you need to wire its stats into `functions/consts.py` **and** into the saving/display logic.
+- **Normalization constants:** `functions/consts.py` is the single source of truth for the main codebase. `invertinggradients/inversefed/consts.py` is a separate copy inside the submodule — do not modify it.
 - **`invertinggradients/` is a submodule:** It has its own `.git`. Do not commit files inside it to the main repo. If you need to update it: `cd invertinggradients && git pull`.
-- **`original/` directory:** Contains an older version of the code kept for reference. Nothing imports from it. Safe to ignore.
-- **Matplotlib backend:** `Misc_functions.py` line 1–2 forces `matplotlib.use("Agg")` for headless operation. Do not move this import or call `matplotlib.pyplot` before it in any file that imports `Misc_functions`.
+- **Matplotlib backend:** `helper/visualization.py` line 2 forces `matplotlib.use("Agg")` for headless operation. Do not call `matplotlib.pyplot` before this runs in any file that uses visualization.
 - **HPC scripts:** `scripts/` targets the DTU HPC cluster (LSF job scheduler). The `init.sh` sets up the conda environment from `environment.yml`.
-- **No argparse:** All configuration is via editing the `config` dict in each script. There is no CLI argument parsing for experiment parameters.
-- **LFW normalization constants:** Computed manually in `testing/compute_lfw_stats.py` and hardcoded in `consts.py`. If you change the LFW preprocessing (resize, crop), recompute these.
+- **No argparse in `run_single_exp.py`:** Configuration is via editing the `config` dict. `iDLG_mask.py` does have full argparse CLI support.
+- **LFW normalization constants:** Computed manually in `testing/compute_lfw_stats.py` and hardcoded in `functions/consts.py`. If you change the LFW preprocessing (resize, crop), recompute these.
 
 ---
 

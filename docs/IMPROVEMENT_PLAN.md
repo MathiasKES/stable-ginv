@@ -68,7 +68,7 @@ Do **not** touch `invertinggradients/inversefed/consts.py`.
 **Specific locations:**
 - ~~`run_single_exp.py:10`~~ — done
 - ~~`run_single_exp.py:68–70`~~ — done
-- `iDLG_mask.py` — 5 commented-out `print` statements remain (lines 413, 436, 437, 550, 551, 586)
+- `iDLG_mask.py` — 6 commented-out debug lines remain (lines 413, 436, 437, 550, 551, 586): 5 `print` statements + 1 `tqdm.write`
 - ~~`run_single_exp_batch.py`~~ — archived
 
 **Action:** Delete these lines entirely. If you think you might need them, they are in git history.
