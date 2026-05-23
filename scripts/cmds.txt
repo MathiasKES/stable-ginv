@@ -1,3 +1,12 @@
 
-# quick test
-# python iDLG_mask.py --methods idlg --num_exp 1 --network LeNet --dataset MNIST --iteration 1 --optimizer signed_adamw --num_restarts 1
+# vgg13 gradsize_topfrac_entries_layer sweep (topfrac 0.00 → 1.00, step 0.05)
+python iDLG_mask.py --network vgg13 --methods masked --mask_mode gradsize_topfrac_entries_layer --gradsize_topfrac 0.10 --num_exp 30 --iteration 5000 --optimizer signed_adamw --lr 0.1 --grad_loss cos --num_restarts 1
+python iDLG_mask.py --network vgg13 --methods masked --mask_mode gradsize_topfrac_entries_layer --gradsize_topfrac 0.20 --num_exp 30 --iteration 5000 --optimizer signed_adamw --lr 0.1 --grad_loss cos --num_restarts 1
+python iDLG_mask.py --network vgg13 --methods masked --mask_mode gradsize_topfrac_entries_layer --gradsize_topfrac 0.30 --num_exp 30 --iteration 5000 --optimizer signed_adamw --lr 0.1 --grad_loss cos --num_restarts 1
+python iDLG_mask.py --network vgg13 --methods masked --mask_mode gradsize_topfrac_entries_layer --gradsize_topfrac 0.40 --num_exp 30 --iteration 5000 --optimizer signed_adamw --lr 0.1 --grad_loss cos --num_restarts 1
+python iDLG_mask.py --network vgg13 --methods masked --mask_mode gradsize_topfrac_entries_layer --gradsize_topfrac 0.50 --num_exp 30 --iteration 5000 --optimizer signed_adamw --lr 0.1 --grad_loss cos --num_restarts 1
+python iDLG_mask.py --network vgg13 --methods masked --mask_mode gradsize_topfrac_entries_layer --gradsize_topfrac 0.60 --num_exp 30 --iteration 5000 --optimizer signed_adamw --lr 0.1 --grad_loss cos --num_restarts 1
+python iDLG_mask.py --network vgg13 --methods masked --mask_mode gradsize_topfrac_entries_layer --gradsize_topfrac 0.70 --num_exp 30 --iteration 5000 --optimizer signed_adamw --lr 0.1 --grad_loss cos --num_restarts 1
+python iDLG_mask.py --network vgg13 --methods masked --mask_mode gradsize_topfrac_entries_layer --gradsize_topfrac 0.80 --num_exp 30 --iteration 5000 --optimizer signed_adamw --lr 0.1 --grad_loss cos --num_restarts 1
+python iDLG_mask.py --network vgg13 --methods masked --mask_mode gradsize_topfrac_entries_layer --gradsize_topfrac 0.90 --num_exp 30 --iteration 5000 --optimizer signed_adamw --lr 0.1 --grad_loss cos --num_restarts 1
+python iDLG_mask.py --network vgg13 --methods masked --mask_mode gradsize_topfrac_entries_layer --gradsize_topfrac 1.00 --num_exp 30 --iteration 5000 --optimizer signed_adamw --lr 0.1 --grad_loss cos --num_restarts 1
