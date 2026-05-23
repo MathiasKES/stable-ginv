@@ -336,12 +336,11 @@ def _run_inner(idx_net, device_id, dst, dataset_name, config, result_queue):
                 if phase == "lbfgs":
                     def closure():
                         optimizer.zero_grad()
-                        x_raw = (dummy_data * ds + dm).clamp(0.0, 1.0)
                         pred = net(dummy_data)
                         dummy_loss = criterion(pred, label_pred)
                         dummy_dy_dx = torch.autograd.grad(dummy_loss, selected_params, create_graph=True)
                         grad_diff, _ = compute_grad_match_loss(dummy_dy_dx, selected_original, selected_entry_masks=selected_entry_masks, grad_loss=GRAD_LOSS)
-                        tv_loss = total_variation(x_raw)
+                        tv_loss = total_variation(dummy_data)
                         total_loss = grad_diff + TV_WEIGHT * tv_loss
                         total_loss.backward()
                         return total_loss
@@ -354,12 +353,11 @@ def _run_inner(idx_net, device_id, dst, dataset_name, config, result_queue):
 
                 elif phase in ["adam", "adamw", "signed_adam", "signed_adamw"]:
                     optimizer.zero_grad()
-                    x_raw = (dummy_data * ds + dm).clamp(0.0, 1.0)
                     pred = net(dummy_data)
                     dummy_loss = criterion(pred, label_pred)
                     dummy_dy_dx = torch.autograd.grad(dummy_loss, selected_params, create_graph=True)
                     grad_diff, num_terms = compute_grad_match_loss(dummy_dy_dx, selected_original, selected_entry_masks=selected_entry_masks, grad_loss=GRAD_LOSS)
-                    tv_loss = total_variation(x_raw)
+                    tv_loss = total_variation(dummy_data)
                     total_loss = grad_diff + TV_WEIGHT * tv_loss
                     total_loss.backward()
 
