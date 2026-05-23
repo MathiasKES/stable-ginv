@@ -125,7 +125,6 @@ config = {
     'MASK_MODE': 'none',        # start with no masking
     'GRADSIZE_TOPK': 50,
     'GRADSIZE_TOPFRAC': 0.5,
-    'GRADSIZE_THRESHOLD': None,
     'GRADSIZE_METRIC': 'l2',
     'NETWORK_NAME': 'resnet18',
     'NETWORK_TRAINED': True,    # use ImageNet pretrained weights
@@ -173,9 +172,9 @@ Imagine the gradient as a list of tensors — one per layer of the network. Each
 | `none` | Nothing — full gradient sent |
 | `gradsize_topk` | Sends only the K layers with the biggest gradient values |
 | `gradsize_topfrac` | Sends only the top X% of layers by gradient size |
-| `gradsize_threshold` | Sends only layers whose gradient norm exceeds a threshold |
 | `gradsize_topk_entries` | Sends only the K individual numbers with the biggest values |
-| `gradsize_topfrac_entries` | Sends only the top X% of individual numbers |
+| `gradsize_topfrac_entries` | Sends only the top X% of individual numbers (global, across all layers) |
+| `gradsize_topfrac_entries_layer` | Within each layer independently, sends only the top X% of numbers |
 | `prefix` | Sends only gradients from layers whose names start with given prefixes (e.g., `conv1`, `layer1`) |
 | `prefix_topk` | Like `prefix` but keeps only the top K tensors within those layers |
 | `prefix_topfrac_entries_layer` | Within named layers, sends only the top X% of numbers per layer |

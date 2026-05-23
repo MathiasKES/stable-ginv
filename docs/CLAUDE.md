@@ -4,6 +4,7 @@
 
 - **Never commit automatically.** Only commit when the user explicitly asks.
 - **Never add co-authors to commit messages.**
+- **Always invoke the superpowers skill** (via the `Skill` tool) at the start of any task if a relevant skill might apply — even a 1% chance is enough to check.
 
 ---
 

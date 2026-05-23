@@ -25,7 +25,7 @@ This is a Python 3.13 research codebase for running gradient inversion attack ex
 
 | File | Review Priority | Notes |
 |------|-----------------|-------|
-| `iDLG_mask.py` | HIGH | Main batch runner; still has 6 commented-out debug lines (P1.3) |
+| `iDLG_mask.py` | HIGH | Main batch runner; argparse CLI; saves baseline + masked registries |
 | `run_single_exp.py` | HIGH | Single-experiment runner; source of truth for algorithm |
 
 **`functions/` — core domain logic**
@@ -44,7 +44,7 @@ This is a Python 3.13 research codebase for running gradient inversion attack ex
 |------|-----------------|-------|
 | `helper/Network.py` | LOW | Model definitions + factory; clean |
 | `helper/metrics.py` | MEDIUM | PSNR, SSIM, Jacobian rank, grad match loss |
-| `helper/training_utils.py` | LOW | `build_network`, `make_scheduler` |
+| `helper/training_utils.py` | LOW | `make_scheduler` only (`build_network` deleted) |
 | `helper/visualization.py` | LOW | Panel PNG and animated GIF output |
 
 **`archive/`** — retired scripts (`iDLG_original.py`, `jacobian_parallel.py`, `run_single_exp_batch.py`, old visualize/testing scripts). Nothing imports from these.
@@ -106,7 +106,7 @@ Moved to `archive/`. Nothing imports from it.
 
 ## 5. Patterns to Follow
 
-**Config dict pattern:** All experiments are configured via a plain Python dict passed to worker functions. Keep this pattern — do not introduce argparse or a config file parser without discussing with the project owner first.
+**Config dict pattern:** `iDLG_mask.py` uses argparse CLI; `run_single_exp.py` uses a plain Python `config` dict passed to worker functions. Keep both patterns as-is — do not convert `run_single_exp.py` to argparse without discussing with the project owner.
 
 **Multi-GPU worker pattern:** `iDLG_mask.py` spawns one process per GPU via `torch.multiprocessing.spawn`. Results are collected via a `multiprocessing.Manager().Queue()`. Follow this pattern for any new parallel experiment scripts.
 
@@ -118,7 +118,13 @@ Moved to `archive/`. Nothing imports from it.
 
 ## 6. How to Verify Nothing Is Broken
 
-There is no pytest suite. Verification is manual:
+**Automated tests (fast — run these first):**
+```bash
+python -m pytest tests/ -v
+```
+24 tests covering all masking routing paths, last-FC invariant, per-layer entry modes, and gradient flattening. Should pass in ~1 second on CPU.
+
+**Manual checks:**
 
 1. **Dataset loading test:**
    ```bash
@@ -127,14 +133,10 @@ There is no pytest suite. Verification is manual:
    Should load LFW, run a forward pass, and print gradient norms without errors.
 
 2. **Quick smoke test (CPU):**
-   Edit `run_single_exp.py`: set `device = 'cpu'`, `Iteration = 10`, `NUM_RESTARTS = 1`, `COMPUTE_JACOBIAN_RANK = False`. Run:
-   ```bash
-   python run_single_exp.py
-   ```
-   Should complete without error and produce a reconstructed image PNG.
+   Run with `--network resnet18 --dataset cifar10 --num_exp 1 --iteration 10 --num_restarts 1`. Should complete without error and produce output PNG + CSV.
 
 3. **Metric sanity check:**
    After a run, verify PSNR values are in the range 15–40 dB for CIFAR-10 with `resnet18`. Values outside this range indicate a bug in normalization or loss computation.
 
 4. **Masking smoke test:**
-   Set `MASK_MODE = 'gradsize_topfrac'`, `GRADSIZE_TOPFRAC = 0.5`. Run a short experiment. If PSNR for masked is worse than unmasked, the masking is working. If they are identical, the mask is not being applied.
+   Run `--methods both --mask_mode gradsize_topfrac --gradsize_topfrac 0.5`. If masked PSNR is worse than iDLG, the masking is working. If they are identical, the mask is not being applied.

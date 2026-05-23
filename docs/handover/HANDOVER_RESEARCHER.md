@@ -177,24 +177,31 @@ For each experiment, the flow is:
 
 ## 8. Recent Changes (as of 2026-05-23)
 
+**First session (2026-05-22 / early 2026-05-23):**
 - `functions/masking.py` — last FC layer always preserved in `build_gradient_mask` (tensor-wise: union into keep_ids; entry-wise: all-True override); `_grad_magnitude` helper extracted; `gradsize_threshold` mode and parameter removed; `gradsize_topfrac_entries_layer` and `gradsize_topk_entries_layer` modes added (per-tensor independent selection via `get_entry_masks_by_prefix_group` with all param names as groups)
 - `functions/Dataset.py` — `load_dataset(dataset, data_path)` added as shared loader used by all entry points; `_Dataset_from_Image` renamed private
 - `functions/io_utils.py` — `parse_prefixes_with_fracs(prefixes_str)` added; parses `"conv1:0.5,layer1:1.0,fc"` into `(tuple, dict)`
 - `functions/jacobian_rank_sweep.py` — synced with `iDLG_mask.py`: uses `parse_prefixes_with_fracs`, `load_dataset`, correct `pretrained` normalization (imagenet stats when pretrained+RGB), `weights_init` only on custom CNNs, `gradsize_threshold` removed
 - `helper/Network.py` — `get_model` now handles all architectures; `pretrained` flag loads ImageNet weights for torchvision models
 - `helper/training_utils.py` — `build_network` deleted; only `make_scheduler` remains
-- `run_single_exp.py` — 85-line inline masking dispatch removed; uses `build_gradient_mask()` directly
+- `run_single_exp.py` — 85-line inline masking dispatch removed; uses `build_gradient_mask()` directly; TV now computed on `dummy_data` (normalized space) not de-normalized `x_raw` — matches Geiping et al.
 - `tests/test_masking.py` — 24 tests; covers last-FC invariant, per-layer entry modes, all routing paths
 
+**Second session (2026-05-23):**
+- `run_single_exp.py` — TV regularization fix: now computes `total_variation(dummy_data)` instead of `total_variation(x_raw)`, matching the Geiping et al. paper. Use `--tv_weight 0.01` for trained-network single-image experiments (paper value).
+- `functions/jacobian_rank_sweep.py` — merged serial and parallel (mp.spawn) into one script; `--num_workers 1` (default, serial) to `--num_workers 4`; per-sample grad_norm/nan/inf diagnostics added; rank printed at max row count
+- `helper/metrics.py` — Jacobian rank monotonicity fix: rows of J are now normalized before SVD (bounds σ_max ≤ √M); uses fixed `atol = max(rank_tol, max(M,N)·ε·√M)` with `rtol=0.0` — rank no longer declines as row count grows; dead `normalize_rows` parameter removed
+- `functions/io_utils.py` — Shapiro-Wilk normality test integrated into `paired_t_ci` (returns `shapiro_stat`, `shapiro_p`) and `paired_summary` (returns `normality_str`); masked registry functions added: `masked_key_from_args`, `load_masked_registry`, `save_masked_registry`, `update_masked_registry`
+- `iDLG_mask.py` — saves masked registry to `results/baselines/masked_registry.json` after each masked run; CSV now includes `psnr_normality` and `mse_normality` columns (Shapiro-Wilk result strings for paired PSNR/MSE differences)
+
 From git log:
+- `56c3c3e` — Add mse_normality column to CSV
+- `fff0688` — Add masked registry, Shapiro-Wilk, TV fix, and Jacobian rank monotonicity fix
+- `35be9ad` — Merge serial + parallel Jacobian rank sweep into one script
+- `22c9ad9` — Fix TV normalization (compute on dummy_data not x_raw)
 - `426a021` — Sync jacobian_rank_sweep with main experiment scripts, remove gradsize_threshold
 - `81841c0` — Add gradsize_topfrac/topk_entries_layer modes via get_entry_masks_by_prefix_group
-- `cdb7c38` — Update docs to reflect masking refactor and model factory consolidation
 - `bd816f8` — Refactor masking internals, enforce last-FC invariant, consolidate model factory
-- `45ee353` — Added SSIM metric; added per-image SSIM and PSNR logging
-- `8707bbd` — L-BFGS now forces original iDLG hyperparameters (lr=1, iter=300, max_iter=20)
-- `50059fe` — Computed and hardcoded LFW normalization constants
-- `61de43c` — Implemented LFW dataset support
 
 ---
 
@@ -232,4 +239,6 @@ For local CPU-only testing, change `device = f'cuda:{device_id}'` to `device = '
 
 **Jacobian rank:** The rank of `d(gradient_vector) / d(image_pixels)`. Full rank = gradient contains maximum information about the image. Rank drops as masking removes more gradient tensors. Used to quantify *why* masking degrades reconstruction.
 
-**CSV output columns:** `network`, `dataset`, `mask_mode`, `prefixes`, `PSNR`, `SSIM`, `loss`, `MSE`, `CI_lower`, `CI_upper`, `Significance`, `Optimizer`, `LR`, `Iterations`
+**CSV output columns** (masked/both rows): `method`, `timestamp`, `job_id`, `dataset`, `network`, `restarts`, `lr`, `iteration`, `num_exp`, `tv_weight`, `optimizer`, `max_iter`, `history`, `mask_mode`, `prefixes`, `grad_param`, `med_best_loss`, `avg_best_loss`, `med_best_mse`, `avg_best_mse`, `avg_best_psnr`, `std_best_psnr`, `avg_best_ssim`, `std_best_ssim`, `mse_ci`, `mse_significant`, `psnr_ci`, `psnr_significant`, `psnr_normality`, `mse_normality`, `png_path`
+
+`psnr_normality` / `mse_normality` — Shapiro-Wilk result string on paired differences, e.g. `"normal (W=0.9821, p=0.3412)"` or `"NON-NORMAL (W=0.8123, p=0.0031)"`. Empty for iDLG-only rows.
