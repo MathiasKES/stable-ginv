@@ -32,8 +32,8 @@ Compares baseline iDLG against masked variants (selective gradient disclosure) a
 | File | Role |
 |---|---|
 | `functions/masking.py` | All gradient masking: `build_gradient_mask`, `get_keep_ids*`, `get_entry_masks*`, `flatten_observed_gradients` |
-| `functions/io_utils.py` | Baseline registry, paired stats, CSV helpers |
-| `functions/Dataset.py` | `lfw_dataset()` + `_Dataset_from_Image` (private) |
+| `functions/io_utils.py` | Baseline registry, paired stats, CSV helpers, `parse_prefixes_with_fracs` |
+| `functions/Dataset.py` | `load_dataset()` (shared loader), `lfw_dataset()`, `_Dataset_from_Image` (private) |
 | `functions/consts.py` | Normalization constants: `{dataset}_mean`, `{dataset}_std` for cifar10, cifar100, mnist, imagenet |
 | `functions/jacobian_rank_sweep.py` | Serial Jacobian rank sweep |
 
@@ -75,9 +75,10 @@ Two granularities: **tensor-wise** (keep whole parameter tensors) and **entry-wi
 |---|---|---|
 | `gradsize_topk` | tensor | global top-K by metric |
 | `gradsize_topfrac` | tensor | global top-fraction by metric |
-| `gradsize_threshold` | tensor | metric ≥ threshold |
 | `gradsize_topk_entries` | entry | global top-K entries |
 | `gradsize_topfrac_entries` | entry | global top-fraction entries |
+| `gradsize_topk_entries_layer` | entry | per-tensor independent top-K entries |
+| `gradsize_topfrac_entries_layer` | entry | per-tensor independent top-fraction entries |
 | `prefix` | tensor | keep all tensors whose name starts with any prefix |
 | `prefix_topk` | tensor | within prefix groups, top-K per group |
 | `prefix_topfrac` | tensor | within prefix groups, top-fraction per group |
@@ -99,13 +100,13 @@ Two granularities: **tensor-wise** (keep whole parameter tensors) and **entry-wi
 build_gradient_mask(method, mask_mode, net, original_dy_dx,
                     prefixes=(), prefix_layer_fracs=None,
                     gradsize_topk=20, gradsize_topfrac=0.5,
-                    gradsize_threshold=None, gradsize_metric='l2')
+                    gradsize_metric='l2')
   -> (keep_ids: set|None, entry_masks: list[bool_tensor]|None)
 # Central dispatcher. method='idlg' → keep_ids=all, no entry_masks.
 # Invariant: last FC layer is ALWAYS included regardless of mask_mode —
 # tensor-wise via keep_ids union, entry-wise via all-True mask override.
 
-get_keep_ids_by_gradsize(original_dy_dx, mode, topk, top_frac, threshold,
+get_keep_ids_by_gradsize(original_dy_dx, mode, topk, top_frac,
                          metric, candidate_ids=None)
   -> (sorted keep_ids: list, sizes_sorted: list[(idx, score)])
 
@@ -164,9 +165,10 @@ save_recon_gif(results_list, save_dir, block_idx, dataset, mask_desc,
 ## Key functions — helper/Network.py
 
 ```python
-get_model(network: str, channel=3, num_classes=10, input_size=(32,32)) -> nn.Module
-# Wraps torchvision models. Replaces stem conv if channel≠3; replaces final FC.
-# Supported: resnet{18,34,50,101,152}, vgg{11,13,16,19}[_bn], wide_resnet50_2
+get_model(network: str, channel=3, num_classes=10, input_size=(32,32), pretrained=False) -> nn.Module
+# Handles ALL architectures: 'LeNet','LeNet_bigger','MediumCNN','BiggerCNN'
+# and any torchvision backbone (resnet*, vgg*, wide_resnet*, densenet*).
+# pretrained=True loads ImageNet DEFAULT weights for torchvision models.
 
 weights_init(m)   # uniform(-0.5, 0.5) for Conv2d / Linear layers
 ```
@@ -180,8 +182,8 @@ All consumed from the `config` dict passed by `iDLG_mask.py`:
 ```
 channel, num_classes, shape_img    dataset geometry
 lr, num_dummy, Iteration           optimizer/attack params
-MASK_MODE, PREFIXES, PREFIX_LAYER_FRACS, GRADSIZE_{TOPK,TOPFRAC,THRESHOLD,METRIC}
-NETWORK_NAME                       string forwarded to build_network()
+MASK_MODE, PREFIXES, PREFIX_LAYER_FRACS, GRADSIZE_{TOPK,TOPFRAC,METRIC}
+NETWORK_NAME                       string forwarded to get_model()
 METHODS                            'idlg' | 'masked' | 'both'
 COMPUTE_JACOBIAN_RANK, JACOBIAN_MAX_ENTRIES, JACOBIAN_SELECT_MODE
 TV_WEIGHT, OPTIMIZER, NUM_RESTARTS, MAX_ITERATION, HISTORY_SIZE
@@ -238,7 +240,6 @@ recon_frames                       dict {method: list of {iter,dummy,loss,mse}}
 --prefixes        str   'conv1:1.0,layer1:0.5,fc:1.0'
 --gradsize_topk   int                               default: 20
 --gradsize_topfrac float                            default: 0.5
---gradsize_threshold float                          default: None
 --gradsize_metric l2|mean_abs|sum_abs               default: l2
 --compute_jacobian_rank  flag
 --jacobian_max_entries   int                        default: 4000
@@ -305,5 +306,5 @@ med_best_loss, avg_best_loss, med_best_mse, avg_best_mse, avg_best_psnr, std_bes
 - **Jacobian OOM** — `jacobian_max_entries` caps the row count; rows are built one at a time.
 - **`gradsize_topk_entries` vs `gradsize_topk`** — former keeps top-K *scalar* entries; latter keeps top-K *tensors* (whole layers).
 - **Normalization** — GT is normalized via `(x - dm) / ds` before `net()` and before Jacobian; dummy is `sigmoid(dummy_data)` then normalized the same way.
-- **ResNet weights** — `get_model()` uses `weights=None` (random). Custom CNNs additionally call `net.apply(weights_init)` (uniform init).
+- **`weights_init` application** — `weights_init` (uniform init) is applied only to custom CNN architectures (`LeNet`, `LeNet_bigger`, `MediumCNN`, `BiggerCNN`) and only when `pretrained=False`. Torchvision backbones (ResNet, VGG, etc.) rely on PyTorch's own default initialization or their pretrained weights — do not apply `weights_init` to them.
 - **`prefix_topfrac_entries_layer`** — passes `prefix_top_fracs` (dict) to `get_entry_masks_by_prefix_group`; each prefix can have its own retention fraction via `--prefixes conv1:1.0,layer1:0.5,...`.

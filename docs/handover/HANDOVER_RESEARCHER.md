@@ -31,8 +31,8 @@ stable-ginv/
 ├── functions/               Core domain logic
 │   ├── masking.py           ALL gradient masking: build_gradient_mask, get_keep_ids*,
 │   │                        get_entry_masks*, flatten_observed_gradients
-│   ├── io_utils.py          Baseline registry, paired stats, CSV helpers
-│   ├── Dataset.py           Dataset loaders: MNIST, CIFAR-10/100, LFW
+│   ├── io_utils.py          Baseline registry, paired stats, CSV helpers, parse_prefixes_with_fracs
+│   ├── Dataset.py           load_dataset() (shared), MNIST/CIFAR/LFW loaders
 │   ├── consts.py            Normalization constants (single source of truth)
 │   └── jacobian_rank_sweep.py  Sweep masking params and compute Jacobian rank per config
 │
@@ -97,8 +97,7 @@ All entry points use a `config` dict. Edit it directly in the script — there i
 | `shape_img` | tuple | `(32, 32)` for CIFAR/LFW, `(28, 28)` for MNIST |
 | `MASK_MODE` | str | See masking modes below |
 | `GRADSIZE_TOPK` | int | Keep this many tensors (for `gradsize_topk`) |
-| `GRADSIZE_TOPFRAC` | float | 0.0–1.0, fraction to keep (for `gradsize_topfrac`) |
-| `GRADSIZE_THRESHOLD` | float or None | Magnitude threshold (for `gradsize_threshold`) |
+| `GRADSIZE_TOPFRAC` | float | 0.0–1.0, fraction to keep (for `gradsize_topfrac*` modes) |
 | `GRADSIZE_METRIC` | str | `'l2'`, `'mean_abs'`, `'sum_abs'` |
 | `PREFIXES` | tuple of str | Layer name prefixes for prefix-based modes, e.g. `('conv1', 'layer1')` |
 | `PREFIX_LAYER_FRACS` | dict | Per-prefix fractions for `prefix_topfrac_entries_layer` |
@@ -126,9 +125,10 @@ All masking is implemented in `functions/masking.py::build_gradient_mask()`. The
 |------|-------------|
 | `gradsize_topk` | Keep the K tensors (parameter tensors) with the largest gradient magnitude |
 | `gradsize_topfrac` | Keep the top fraction of tensors by gradient magnitude |
-| `gradsize_threshold` | Keep tensors whose gradient magnitude exceeds a threshold |
 | `gradsize_topk_entries` | Keep the K individual gradient scalar entries (across all tensors) with largest magnitude |
 | `gradsize_topfrac_entries` | Keep the top fraction of scalar entries across all tensors |
+| `gradsize_topk_entries_layer` | Per-tensor independent top-K entries — each parameter tensor keeps its own top K |
+| `gradsize_topfrac_entries_layer` | Per-tensor independent top-fraction entries — each tensor keeps its own top fraction |
 | `prefix` | Keep only tensors whose parameter name starts with one of the given prefixes |
 | `prefix_topk` | Within prefix-matched tensors, keep top-K by magnitude |
 | `prefix_topk_entries` | Within prefix-matched tensors, keep top-K scalar entries globally |
@@ -177,24 +177,24 @@ For each experiment, the flow is:
 
 ## 8. Recent Changes (as of 2026-05-23)
 
-- `functions/masking.py` — last FC layer now always preserved in `build_gradient_mask` (tensor-wise: force-unioned into keep_ids; entry-wise: all-True mask override); `_grad_magnitude` helper extracted to remove duplicated metric block; `get_keep_ids` prefix branch now delegates to `get_prefix_keep_ids`
-- `helper/Network.py` — `get_model` now handles all architectures including `LeNet`, `LeNet_bigger`, `MediumCNN`, `BiggerCNN`; no need to call `build_network` separately
+- `functions/masking.py` — last FC layer always preserved in `build_gradient_mask` (tensor-wise: union into keep_ids; entry-wise: all-True override); `_grad_magnitude` helper extracted; `gradsize_threshold` mode and parameter removed; `gradsize_topfrac_entries_layer` and `gradsize_topk_entries_layer` modes added (per-tensor independent selection via `get_entry_masks_by_prefix_group` with all param names as groups)
+- `functions/Dataset.py` — `load_dataset(dataset, data_path)` added as shared loader used by all entry points; `_Dataset_from_Image` renamed private
+- `functions/io_utils.py` — `parse_prefixes_with_fracs(prefixes_str)` added; parses `"conv1:0.5,layer1:1.0,fc"` into `(tuple, dict)`
+- `functions/jacobian_rank_sweep.py` — synced with `iDLG_mask.py`: uses `parse_prefixes_with_fracs`, `load_dataset`, correct `pretrained` normalization (imagenet stats when pretrained+RGB), `weights_init` only on custom CNNs, `gradsize_threshold` removed
+- `helper/Network.py` — `get_model` now handles all architectures; `pretrained` flag loads ImageNet weights for torchvision models
 - `helper/training_utils.py` — `build_network` deleted; only `make_scheduler` remains
-- `run_single_exp.py`, `functions/jacobian_rank_sweep.py` — updated to import `get_model` from `helper.Network` directly
-- `tests/test_masking.py` — 21 tests (up from 19); 2 new tests verify last-FC invariant
-- `run_single_exp.py` — 85-line inline masking dispatch removed; now calls `build_gradient_mask()` from `functions/masking.py`
-- `functions/Dataset.py` — `Dataset_from_Image` renamed to `_Dataset_from_Image` (private, only used inside `lfw_dataset()`)
-- `functions/Misc_functions.py` — deleted (was already a dead re-export shim)
+- `run_single_exp.py` — 85-line inline masking dispatch removed; uses `build_gradient_mask()` directly
+- `tests/test_masking.py` — 24 tests; covers last-FC invariant, per-layer entry modes, all routing paths
 
 From git log:
+- `426a021` — Sync jacobian_rank_sweep with main experiment scripts, remove gradsize_threshold
+- `81841c0` — Add gradsize_topfrac/topk_entries_layer modes via get_entry_masks_by_prefix_group
+- `cdb7c38` — Update docs to reflect masking refactor and model factory consolidation
+- `bd816f8` — Refactor masking internals, enforce last-FC invariant, consolidate model factory
 - `45ee353` — Added SSIM metric; added per-image SSIM and PSNR logging
 - `8707bbd` — L-BFGS now forces original iDLG hyperparameters (lr=1, iter=300, max_iter=20)
-- `1bfa981` — Removed gradient normalization when using L-BFGS optimizer
-- `ea7bd4e` — Fixed Jacobian rank script for new prefix masking setup; default restarts = 1
 - `50059fe` — Computed and hardcoded LFW normalization constants
 - `61de43c` — Implemented LFW dataset support
-- `c26a71c` — Gamma parameter now included in output field names
-- `123b1fa` — Made LR scheduler gamma an adjustable parameter
 
 ---
 

@@ -102,7 +102,7 @@ If the goal is to control the fraction of gradient *information* shared, use `gr
 
 Helper `_get_last_fc_param_indices(net)` walks `net.named_modules()` to find the last `nn.Linear`, then maps its weight/bias to their parameter indices.
 
-Two new tests added (`test_last_fc_always_preserved_in_topk`, `test_last_fc_always_preserved_in_entry_masks`) — total now 21 tests.
+Two new tests added (`test_last_fc_always_preserved_in_topk`, `test_last_fc_always_preserved_in_entry_masks`).
 
 ### `functions/masking.py` internal deduplication
 
@@ -112,6 +112,46 @@ Two new tests added (`test_last_fc_always_preserved_in_topk`, `test_last_fc_alwa
 ### Model factory consolidated into `get_model`
 
 `get_model` in `helper/Network.py` now handles all architectures: `LeNet`, `LeNet_bigger`, `MediumCNN`, `BiggerCNN` (custom CNNs) and all torchvision backbones. `build_network` in `helper/training_utils.py` was deleted; `training_utils.py` now contains only `make_scheduler`. Callers (`run_single_exp.py`, `functions/jacobian_rank_sweep.py`) updated to import `get_model` from `helper.Network` directly.
+
+---
+
+---
+
+## jacobian_rank_sweep.py sync + gradsize_threshold removal
+
+### `jacobian_rank_sweep.py` synced with main scripts
+
+`jacobian_rank_sweep.py` lagged behind `iDLG_mask.py` and `run_single_exp.py` in several ways. All gaps closed:
+
+- **Prefix parsing** — replaced a 20-line manual loop with `PREFIXES, PREFIX_LAYER_FRACS = parse_prefixes_with_fracs(args.prefixes)` (shared utility in `functions/io_utils.py`)
+- **Dataset loading** — now uses `load_dataset(args.dataset, data_path)` (shared utility in `functions/Dataset.py`)
+- **Normalization** — was always using dataset-specific stats even for pretrained networks. Fixed: when `--pretrained` and `channel == 3`, uses `consts.imagenet_mean / imagenet_std`; otherwise uses `{dataset}_mean / {dataset}_std`
+- **weights_init** — was applied to all non-resnet networks. Fixed: only applied to custom CNNs (`LeNet`, `LeNet_bigger`, `MediumCNN`, `BiggerCNN`) and only when not pretrained
+
+### `gradsize_threshold` mode removed everywhere
+
+The `gradsize_threshold` mask mode was never used in practice and was removed:
+- Removed `--gradsize_threshold` argparse argument from `iDLG_mask.py` and `jacobian_rank_sweep.py`
+- Removed `gradsize_threshold=None` parameter from `build_gradient_mask()`
+- Removed `elif mask_mode == "gradsize_threshold"` branch from `build_gradient_mask()`
+- Removed `GRADSIZE_THRESHOLD` from config dict and `run_single_exp.py`
+
+### New per-layer entry modes
+
+`gradsize_topfrac_entries_layer` and `gradsize_topk_entries_layer` added to `build_gradient_mask`. These apply the fraction/topk independently to each parameter tensor, so the overall gradient distribution is preserved across layers. Implemented as a sub-case of `get_entry_masks_by_prefix_group` with every param name as its own prefix — no new function needed.
+
+### Shared utility functions extracted
+
+| Function | Location | Purpose |
+|----------|----------|---------|
+| `load_dataset(dataset, data_path)` | `functions/Dataset.py` | Returns `(dst, channel, num_classes, shape_img)` |
+| `parse_prefixes_with_fracs(prefixes_str)` | `functions/io_utils.py` | Parses `"conv1:0.5,layer1:1.0,fc"` → `(tuple, dict)` |
+
+Both `iDLG_mask.py` and `jacobian_rank_sweep.py` now use these instead of inline logic.
+
+### Test count
+
+24 tests total (up from the 21 after last-FC work, 5 new per-layer mode tests added).
 
 ---
 

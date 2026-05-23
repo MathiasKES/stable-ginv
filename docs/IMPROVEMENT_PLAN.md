@@ -137,7 +137,6 @@ class ExperimentConfig:
     mask_mode: str = 'none'
     gradsize_topk: int = 50
     gradsize_topfrac: float = 0.5
-    gradsize_threshold: Optional[float] = None
     gradsize_metric: str = 'l2'
     prefixes: Tuple[str, ...] = field(default_factory=tuple)
     prefix_layer_fracs: dict = field(default_factory=dict)
