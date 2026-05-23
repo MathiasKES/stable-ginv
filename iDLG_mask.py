@@ -338,14 +338,6 @@ def main():
         'MAX_ITERATION': MAX_ITERATION,
         'HISTORY_SIZE': HISTORY_SIZE,
         'NETWORK_TRAINED': NETWORK_TRAINED,
-        'EarlyStop': {
-            'loss_tol': loss_tol,
-            'patience': patience,
-            'min_rel_improve': min_rel_improve,
-            'explode_factor': explode_factor,
-            'warmup': warmup,
-            'max_nan': max_nan,
-        },
         'SAVE_GIF': SAVE_GIF,
         'FRAME_INTERVAL': FRAME_INTERVAL,
     }
