@@ -31,7 +31,11 @@ def main():
         "  'gradsize_threshold'  - Keep only tensors whose gradient magnitude exceeds a fixed "
                                 "threshold, set via --gradsize_threshold.\n"
         "  'gradsize_topk_entries'    - Keep the highest-ranked tensors until at least --gradsize_topk scalar gradient entries are retained."
-        "  'gradsize_topfrac_entries' - Keep the highest-ranked tensors until at least the fraction --gradsize_topfrac of all scalar gradient entries are retained."                        
+        "  'gradsize_topfrac_entries' - Keep the highest-ranked tensors until at least the fraction --gradsize_topfrac of all scalar gradient entries are retained.\n"
+        "  'gradsize_topfrac_entries_layer' - For EACH layer independently, keep its top --gradsize_topfrac fraction of scalar gradient entries. "
+                                "Unlike gradsize_topfrac_entries (which selects globally and is dominated by large layers), "
+                                "this mode preserves the same fraction from every layer, maintaining the relative distribution across layers.\n"
+        "  'gradsize_topk_entries_layer' - For EACH layer independently, keep its top --gradsize_topk scalar gradient entries.\n"
         "  'prefix'              - Keep all parameters whose layer name starts with one of the "
                                 "prefixes listed in --prefixes (e.g. 'conv1,linear').\n"
         "  'prefix_topk'           - First restrict to --prefixes, then keep the top-K tensors by gradient magnitude within those layers.\n"
@@ -839,6 +843,7 @@ def main():
     if MASK_MODE in [
         "gradsize_topfrac",
         "gradsize_topfrac_entries",
+        "gradsize_topfrac_entries_layer",
         "prefix_topfrac",
         "prefix_topfrac_entries",
         "prefix_topfrac_entries_layer",
@@ -847,6 +852,7 @@ def main():
     elif MASK_MODE in [
         "gradsize_topk",
         "gradsize_topk_entries",
+        "gradsize_topk_entries_layer",
         "prefix_topk",
         "prefix_topk_entries",
         "prefix_topk_entries_layer",
@@ -917,10 +923,10 @@ def main():
     print("\n=== Average PSNR over all experiments ===")
     print(f"\nSaved CSV rows to: {csv_path}")
     print(f"Gamma for lr scheduler was: {GAMMA}")
-    if MASK_MODE == "gradsize_topfrac":
-        print(f"top fraction of gradient sizes kept: {GRADSIZE_TOPFRAC*100}%")
-    elif MASK_MODE == "gradsize_topk":
-        print(f"top-k gradient sizes kept: {GRADSIZE_TOPK}")
+    if MASK_MODE in ("gradsize_topfrac", "gradsize_topfrac_entries", "gradsize_topfrac_entries_layer"):
+        print(f"top fraction kept ({MASK_MODE}): {GRADSIZE_TOPFRAC*100}%")
+    elif MASK_MODE in ("gradsize_topk", "gradsize_topk_entries", "gradsize_topk_entries_layer"):
+        print(f"top-k kept ({MASK_MODE}): {GRADSIZE_TOPK}")
     print(f"Avg final loss iDLG: {avg_final_loss_idlg:.6f} | masked: {avg_final_loss_masked:.6f}")
     print(f"Avg final mse  iDLG: {avg_final_mse_idlg:.8f} | masked: {avg_final_mse_masked:.8f}")
     print(f"Median final loss iDLG: {med_final_loss_idlg:.6f} | masked: {med_final_loss_masked:.6f}")

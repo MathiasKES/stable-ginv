@@ -384,6 +384,20 @@ def build_gradient_mask(
             top_frac=gradsize_topfrac,
             prefix_top_fracs=prefix_layer_fracs,
         )
+    elif mask_mode == "gradsize_topfrac_entries_layer":
+        # Each parameter tensor is its own group → per-tensor independent selection.
+        # Equivalent to prefix_topfrac_entries_layer with every param name as its own prefix.
+        all_param_names = tuple(name for name, _ in net.named_parameters())
+        entry_masks, _, _ = get_entry_masks_by_prefix_group(
+            net=net, original_dy_dx=original_dy_dx, prefixes=all_param_names,
+            mode="topfrac_entries", top_frac=gradsize_topfrac,
+        )
+    elif mask_mode == "gradsize_topk_entries_layer":
+        all_param_names = tuple(name for name, _ in net.named_parameters())
+        entry_masks, _, _ = get_entry_masks_by_prefix_group(
+            net=net, original_dy_dx=original_dy_dx, prefixes=all_param_names,
+            mode="topk_entries", topk=gradsize_topk,
+        )
     elif mask_mode == "gradsize_threshold":
         keep_ids, _ = get_keep_ids_by_gradsize(
             original_dy_dx, mode="threshold", threshold=gradsize_threshold,

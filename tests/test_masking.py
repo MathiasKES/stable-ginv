@@ -212,3 +212,71 @@ def test_last_fc_always_preserved_in_entry_masks():
     # indices 2 and 3 are last FC — their masks must be all True
     assert entry_masks[2].all()
     assert entry_masks[3].all()
+
+
+# ── gradsize_topfrac_entries_layer / gradsize_topk_entries_layer ──────────────
+# These modes delegate to get_entry_masks_by_prefix_group with every param name
+# as its own prefix, giving per-tensor independent selection.
+
+def test_per_layer_topfrac_keeps_correct_fraction_each_layer():
+    # small_net: 0.weight=12, 0.bias=3, 1.weight=6, 1.bias=2
+    net = small_net()
+    grads = [torch.arange(1, 13, dtype=torch.float),   # 0.weight: 12 entries
+             torch.arange(1, 4,  dtype=torch.float),   # 0.bias:    3 entries
+             torch.arange(1, 7,  dtype=torch.float),   # 1.weight:  6 entries (last FC)
+             torch.arange(1, 3,  dtype=torch.float)]   # 1.bias:    2 entries (last FC)
+    _, masks = build_gradient_mask("masked", "gradsize_topfrac_entries_layer", net, grads, gradsize_topfrac=0.5)
+    assert masks[0].sum().item() == 6   # 50% of 12
+    assert masks[1].sum().item() == 2   # 50% of 3 (rounds to 2)
+    assert masks[2].all()               # last FC — always fully unmasked
+    assert masks[3].all()               # last FC — always fully unmasked
+
+
+def test_per_layer_each_layer_independent():
+    # Non-FC layer has tiny values; global topfrac would deprioritise it.
+    # Per-layer mode must still keep 50% of its own entries.
+    net = small_net()
+    grads = [torch.full((12,), 0.001),  # 0.weight — tiny values
+             torch.full((3,),  0.001),  # 0.bias   — tiny values
+             torch.full((6,),  100.0),  # 1.weight — large (last FC)
+             torch.full((2,),  100.0)]  # 1.bias   — large (last FC)
+    _, masks = build_gradient_mask("masked", "gradsize_topfrac_entries_layer", net, grads, gradsize_topfrac=0.5)
+    assert masks[0].sum().item() == 6   # 50% of tiny layer still kept
+    assert masks[1].sum().item() == 2   # 50% of tiny layer still kept
+    assert masks[2].all()
+    assert masks[3].all()
+
+
+def test_per_layer_shape_preserved():
+    net = small_net()
+    grads = small_grads(net)
+    _, masks = build_gradient_mask("masked", "gradsize_topfrac_entries_layer", net, grads, gradsize_topfrac=0.5)
+    for p, m in zip(net.parameters(), masks):
+        assert m.shape == p.shape
+
+
+def test_per_layer_none_gradient_skipped():
+    # Gradient at index 1 (0.bias) is None — its mask must remain None.
+    net = small_net()
+    grads = [torch.ones(12), None, torch.ones(6), torch.ones(2)]
+    _, masks = build_gradient_mask("masked", "gradsize_topfrac_entries_layer", net, grads, gradsize_topfrac=0.5)
+    assert masks[1] is None
+    assert masks[0] is not None
+
+
+def test_per_layer_mode_via_build_gradient_mask():
+    net = small_net()
+    grads = [torch.arange(1, 13, dtype=torch.float),  # 12 entries (0.weight)
+             torch.ones(3),                            # 3 entries  (0.bias)
+             torch.arange(1, 7,  dtype=torch.float),  # 6 entries  (1.weight)
+             torch.ones(2)]                            # 2 entries  (1.bias)
+    keep_ids, entry_masks = build_gradient_mask(
+        "masked", "gradsize_topfrac_entries_layer", net, grads, gradsize_topfrac=0.5
+    )
+    assert keep_ids is None
+    assert entry_masks is not None
+    # Each layer keeps 50% of its own entries
+    assert entry_masks[0].sum().item() == 6   # 50% of 12
+    assert entry_masks[1].sum().item() == 2   # 50% of 3 (rounded up from 1.5)
+    assert entry_masks[2].all()               # last FC — always fully unmasked
+    assert entry_masks[3].all()               # last FC — always fully unmasked
