@@ -1,4 +1,5 @@
-import os
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import csv
 import argparse
 from datetime import datetime
@@ -17,6 +18,7 @@ from helper.Network import weights_init
 from helper.training_utils import build_network
 from functions.masking import build_gradient_mask
 from helper.metrics import compute_jacobian_rank
+
 
 
 def load_dataset(dataset, data_path):
