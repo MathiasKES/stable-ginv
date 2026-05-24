@@ -404,6 +404,11 @@ def _run_inner(idx_net, device_id, dst, dataset_name, config, result_queue):
                 losses.append(current_loss)
                 mses.append(current_mse)
 
+                if current_loss < 1e-6:
+                    early_stop_reason = "converged"
+                    early_stop_iter = iters
+                    break
+
                 if iters % 1000 == 0:
                     current_lr = optimizer.param_groups[0]["lr"]
                     print(f'[GPU {device_id}] {OPTIMIZER} restart {restart_idx+1} iters {iters}, lr = {current_lr:.6g}, loss = {current_loss:.8f}, mse = {current_mse:.8f}')
