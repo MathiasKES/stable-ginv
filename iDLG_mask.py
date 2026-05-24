@@ -18,7 +18,37 @@ from functions.io_utils import (paired_summary, baseline_key_from_args, load_bas
 from functions.Dataset import load_dataset
 from run_single_exp import run_single_experiment
 from tqdm import tqdm
-from helper.masking_sweep import run_mse_sweep
+from helper.masking_sweep import run_mse_sweep, run_mse_calibration
+
+if os.environ.get("LSB_INTERACTIVE", default="N") == "Y":
+    class Tee:
+        def __init__(self, *streams):
+            self.streams = streams
+
+        def write(self, data):
+            for stream in self.streams:
+                stream.write(data)
+                stream.flush()
+
+        def flush(self):
+            for stream in self.streams:
+                stream.flush()
+
+    # Keep original stdout
+    terminal = sys.stdout
+
+    # Open log file
+    dt = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    if os.path.exists("/work3/s234843/bachelor/gpuout/idlg"):
+        path = f"/work3/s234843/bachelor/gpuout/idlg/i{dt}.out"
+    else:
+        os.makedirs("./gpuout", exist_ok=True)
+        path = f"./gpuout/i{dt}.out"
+
+    logfile = open(path, "w")
+
+    # Redirect stdout
+    sys.stdout = Tee(terminal, logfile)
 
 from functions.io_utils import setstdout
 setstdout()
@@ -214,15 +244,16 @@ def main():
     parser.add_argument("--gamma", type=float, default=0.5, help="gamma for learning rate scheduler")
 
     parser.add_argument("--mse_visualise", action="store_true", help=(
-        "Instead of running experiments, sweep gradsize_topfrac_entries and "
-        "gradsize_topfrac_entries_layer from 0.1 to 1.0 (step 0.1) and plot "
-        "the number of images reconstructed vs. fraction of gradient entries shared. "
-        "Requires --threshold_mse. Uses --num_exp images per sweep point."
+        "Instead of running experiments, run a calibration or sweep pass. "
+        "Without --threshold_mse: runs baseline iDLG on --num_exp images and saves "
+        "sorted_mse.png, mse_histogram.png, and recon_grid.png so you can pick a threshold. "
+        "With --threshold_mse: sweeps gradsize_topfrac_entries and "
+        "gradsize_topfrac_entries_layer from 0.1 to 1.0 (step 0.1) and plots "
+        "images reconstructed vs. fraction of gradient entries shared."
     ))
     parser.add_argument("--threshold_mse", type=float, default=None, help=(
         "MSE threshold below which an image counts as reconstructed. "
-        "Required when --mse_visualise is set. "
-        "Calibrate with helper/visualise_mse_threshold.py (baseline iDLG) first."
+        "Used with --mse_visualise to switch from calibration mode to sweep mode."
     ))
 
     args = parser.parse_args()
@@ -294,7 +325,10 @@ def main():
     dst, channel, num_classes, shape_img = load_dataset(dataset, data_path)
 
     if args.mse_visualise:
-        run_mse_sweep(args, dst, channel, num_classes, shape_img, save_path)
+        if args.threshold_mse is None:
+            run_mse_calibration(args, dst, channel, num_classes, shape_img, save_path)
+        else:
+            run_mse_sweep(args, dst, channel, num_classes, shape_img, save_path)
         return
 
     # -------- panel buffers --------

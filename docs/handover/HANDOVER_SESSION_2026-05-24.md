@@ -70,35 +70,46 @@ Uses cosine similarity loss and LBFGS, consistent with the main experiment pipel
 
 ---
 
-### MSE visualisation sweep — `helper/masking_sweep.py` + `iDLG_mask.py`
+### MSE visualisation sweep + calibration — `helper/masking_sweep.py` + `iDLG_mask.py`
 
-New feature for producing the "% gradients masked vs. images reconstructed" graph.
+New feature for producing the "% gradients masked vs. images reconstructed" graph, with integrated threshold calibration so the full workflow runs from `iDLG_mask.py` without a separate script.
 
-**`helper/masking_sweep.py`** — standalone module containing:
-- `_run_one()` — single iDLG experiment with a fixed entry-wise mask (supports lbfgs/adam/adamw, cos/l2 loss, TV)
-- `run_mse_sweep()` — sweeps both `gradsize_topfrac_entries` and `gradsize_topfrac_entries_layer` at fractions 0.1, 0.2, …, 1.0; saves `sweep_results.csv` and `sweep_plot.png`
+**`helper/masking_sweep.py`** — module with shared internals and two public functions:
+
+| Function | Purpose |
+|---|---|
+| `_setup(args, ...)` | Shared: builds network, criterion, dm/ds/lb/ub |
+| `_run_one(..., mask_mode=None, topfrac=None, return_images=False)` | Shared: one iDLG experiment; no masking when `mask_mode=None`; supports lbfgs/adam/adamw, cos/l2 loss, TV, restarts |
+| `run_mse_calibration(...)` | Baseline iDLG on N images → sorted_mse.png, recon_grid.png, mse_results.csv |
+| `run_mse_sweep(...)` | Masked sweep over `gradsize_topfrac_entries` and `gradsize_topfrac_entries_layer` → sweep_results.csv, sweep_plot.png |
+
+No code is duplicated between calibration and sweep — both call `_setup` and `_run_one`.
 
 **`iDLG_mask.py`** — two new args:
 
 | Arg | Type | Purpose |
 |---|---|---|
-| `--mse_visualise` | flag | Switch into sweep mode (skips normal experiment, runs sweep then exits) |
-| `--threshold_mse` | float | MSE below which an image counts as "reconstructed" (required with `--mse_visualise`) |
+| `--mse_visualise` | flag | Switch into calibration or sweep mode (skips normal experiment) |
+| `--threshold_mse` | float | MSE threshold; omit for calibration pass, supply for sweep pass |
 
-When `--mse_visualise` is set, `run_mse_sweep` is called immediately after `load_dataset()` and main() returns — no multiprocessing, no CSV/panel output, just the sweep.
+Routing: `--mse_visualise` alone → `run_mse_calibration`; `--mse_visualise --threshold_mse X` → `run_mse_sweep`. `signed_adam/signed_adamw` rejected at the routing point. Runs immediately after `load_dataset()`, returns before multiprocessing — no CSV/panel output.
 
-**Usage:**
+**Two-step workflow (entirely from `iDLG_mask.py`):**
 ```bash
-# Step 1 — calibrate threshold with baseline iDLG
-python helper/visualise_mse_threshold.py --network resnet18 --dataset cifar100 --num_exp 30
+# Step 1 — calibrate: inspect sorted_mse.png + recon_grid.png to pick a threshold
+python iDLG_mask.py --network resnet18 --dataset cifar100 \
+    --num_exp 30 --iteration 300 --mse_visualise
 
-# Step 2 — run sweep with chosen threshold
+# Step 2 — sweep with chosen threshold
 python iDLG_mask.py --network resnet18 --dataset cifar100 \
     --num_exp 20 --iteration 300 \
     --mse_visualise --threshold_mse 0.05
 ```
 
-Output saved to `results/sweep_<network>_<dataset>_<timestamp>/`.
+All other `iDLG_mask.py` args (`--lr`, `--optimizer`, `--grad_loss`, `--tv_weight`, `--num_restarts`, `--run_id`, `--pretrained`, `--gamma`) are passed through and respected by both modes.
+
+Step 1 output saved to `results/threshold_<network>_<dataset>_<timestamp>/`.
+Step 2 output saved to `results/sweep_<network>_<dataset>_<timestamp>/`.
 
 ---
 
