@@ -20,6 +20,36 @@ from run_single_exp import run_single_experiment
 from tqdm import tqdm
 from helper.masking_sweep import run_mse_sweep
 
+if os.environ.get("LSB_INTERACTIVE", default="N") == "Y":
+    class Tee:
+        def __init__(self, *streams):
+            self.streams = streams
+
+        def write(self, data):
+            for stream in self.streams:
+                stream.write(data)
+                stream.flush()
+
+        def flush(self):
+            for stream in self.streams:
+                stream.flush()
+
+    # Keep original stdout
+    terminal = sys.stdout
+
+    # Open log file
+    dt = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    if os.path.exists("/work3/s234843/bachelor/gpuout/idlg"):
+        path = f"/work3/s234843/bachelor/gpuout/idlg/i{dt}.out"
+    else:
+        os.makedirs("./gpuout", exist_ok=True)
+        path = f"./gpuout/i{dt}.out"
+
+    logfile = open(path, "w")
+
+    # Redirect stdout
+    sys.stdout = Tee(terminal, logfile)
+
 def main():
     parser = argparse.ArgumentParser()
 
