@@ -28,8 +28,6 @@ from helper.training_utils import make_scheduler
 from functions.masking import (build_gradient_mask, flatten_observed_gradients,
                                 _get_last_fc_param_indices)
 
-from functions.io_utils import setstdout
-setstdout()
 
 SWEEP_FRACS = [round(f * 0.1, 1) for f in range(1, 11)]   # 0.1 … 1.0
 

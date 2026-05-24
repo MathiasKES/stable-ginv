@@ -13,7 +13,6 @@ from helper.Network import get_model, weights_init
 from helper.training_utils import make_scheduler
 
 from functions.io_utils import setstdout
-setstdout()
 
 def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_queue):
     setstdout()

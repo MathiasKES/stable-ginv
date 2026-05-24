@@ -21,8 +21,6 @@ from helper.Network import get_model, weights_init
 from functions.masking import build_gradient_mask
 from helper.metrics import compute_jacobian_rank
 
-from functions.io_utils import setstdout
-setstdout()
 
 
 def _data_path():

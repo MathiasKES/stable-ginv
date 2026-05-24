@@ -36,7 +36,7 @@ def setstdout():
             os.makedirs("./gpuout", exist_ok=True)
             path = f"./gpuout/i{dt}.out"
 
-        logfile = open(path, "w")
+        logfile = open(path, "a")
 
         # Redirect stdout
         sys.stdout = Tee(terminal, logfile)
