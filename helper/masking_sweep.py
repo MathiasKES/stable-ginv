@@ -32,7 +32,7 @@ from functions.masking import (build_gradient_mask, flatten_observed_gradients,
                                 _get_last_fc_param_indices)
 
 
-SWEEP_FRACS = [round(f * 0.1, 1) for f in range(1, 11)]   # 0.1 … 1.0
+SWEEP_FRACS = [round(f * 0.05, 2) for f in range(1, 21)]   # 0.05 … 1.0
 
 
 # ---- Per-worker setup -----------------------------------------------------------
@@ -404,10 +404,10 @@ def run_mse_sweep(args, dst, channel, num_classes, shape_img, save_path):
 
     csv_rows = []
     for pt, frac in enumerate(SWEEP_FRACS, 1):
-        print(f'[{pt}/{len(SWEEP_FRACS)}] topfrac={frac:.1f}  ({int((1 - frac) * 100)}% masked)')
+        print(f'[{pt}/{len(SWEEP_FRACS)}] topfrac={frac:.2f}  ({int((1 - frac) * 100)}% masked)')
         mses = _run_parallel(args.num_exp, dst, args, channel, num_classes, shape_img,
                              mask_mode=args.mask_mode, topfrac=frac,
-                             desc=f'topfrac={frac:.1f}')
+                             desc=f'topfrac={frac:.2f}')
         mses = [m for m in mses if m is not None]
         n_recon = sum(1 for m in mses if m <= args.threshold_mse)
         row = {
@@ -439,24 +439,25 @@ def _save_sweep_csv(rows, out_dir):
 
 
 def _save_plot(rows, out_dir, threshold, num_exp, network, dataset, mask_mode):
-    rows = sorted(rows, key=lambda r: r['topfrac'])
-    fig, ax = plt.subplots(figsize=(9, 5))
-    ax.plot([r['topfrac'] for r in rows],
-            [r['n_reconstructed'] for r in rows],
+    rows = sorted(rows, key=lambda r: r['pct_masked'])
+    pct = [r['pct_masked'] for r in rows]
+    fig, ax = plt.subplots(figsize=(12, 5))
+    ax.plot(pct, [r['n_reconstructed'] for r in rows],
             marker='o', linewidth=1.8, label=mask_mode)
-    ax.set_xlabel('Fraction of gradient entries shared (topfrac)')
+    ax.set_xlabel('Gradient entries masked (%)')
     ax.set_ylabel(f'Images reconstructed  (MSE <= {threshold})')
     ax.set_title(f'Masking sweep — {network} / {dataset}  ({num_exp} images per point)\n'
                  f'{mask_mode}')
-    ax.set_xlim(0.05, 1.05)
+    ax.set_xlim(-2.5, max(pct) + 2.5)
     ax.set_ylim(-0.5, num_exp + 0.5)
-    ax.set_xticks(SWEEP_FRACS)
+    ax.set_xticks(pct)
+    ax.set_xticklabels([f'{p:.0f}%' for p in pct], rotation=45, ha='right', fontsize=8)
     ax.grid(True, alpha=0.3)
     ax2 = ax.twiny()
     ax2.set_xlim(ax.get_xlim())
-    ax2.set_xticks(SWEEP_FRACS)
-    ax2.set_xticklabels([f'{int((1 - f) * 100)}%' for f in SWEEP_FRACS])
-    ax2.set_xlabel('Gradient entries masked (%)')
+    ax2.set_xticks(pct)
+    ax2.set_xticklabels([f'{r["topfrac"]:.2f}' for r in rows], fontsize=8)
+    ax2.set_xlabel('Fraction of gradient entries shared')
     fig.tight_layout()
     path = os.path.join(out_dir, 'sweep_plot.png')
     fig.savefig(path, dpi=150)
