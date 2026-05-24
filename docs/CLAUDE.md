@@ -46,7 +46,7 @@ Compares baseline iDLG against masked variants (selective gradient disclosure) a
 | `helper/metrics.py` | `compute_psnr_from_mse`, `compute_ssim_batch`, `total_variation`, `compute_jacobian_rank`, `compute_grad_match_loss` |
 | `helper/training_utils.py` | `make_scheduler` only (`build_network` moved into `get_model`) |
 | `helper/visualization.py` | `save_recon_panel`, `save_recon_gif` |
-| `helper/visualise_mse_threshold.py` | Standalone script: run baseline iDLG on N images, visualise MSE distribution to calibrate reconstruction threshold |
+| `helper/masking_sweep.py` | `run_mse_calibration` (baseline iDLG on N images → sorted_mse/histogram/recon_grid/csv) and `run_mse_sweep` (topfrac 0.1→1.0 sweep → sweep_plot/csv); called from `iDLG_mask.py --mse_visualise` |
 
 **`archive/`** — retired scripts (not imported anywhere): `iDLG_original.py`, `jacobian_parallel.py`, `run_single_exp_batch.py`, old visualize/testing scripts.
 
@@ -191,7 +191,6 @@ COMPUTE_JACOBIAN_RANK, JACOBIAN_MAX_ENTRIES, JACOBIAN_SELECT_MODE
 TV_WEIGHT, OPTIMIZER, NUM_RESTARTS, MAX_ITERATION, HISTORY_SIZE
 SAVE_GIF, FRAME_INTERVAL           GIF frame capture (off by default)
 run_id                             seed offset (seed = run_id + idx_net + 1)
-EarlyStop: {loss_tol, patience, min_rel_improve, explode_factor, warmup, max_nan}
 ```
 
 Result dict keys (sent via `result_queue.put()`):
@@ -234,7 +233,7 @@ recon_frames                       dict {method: list of {iter,dummy,loss,mse}}
 --lr              float                             default: 1
 --iteration       int                               default: 1000
 --optimizer       lbfgs|adam|adamw|signed_adam|signed_adamw   default: lbfgs
---num_restarts    int                               default: 3
+--num_restarts    int                               default: 1
 --max_iteration   int   LBFGS inner iters           default: 20
 --history_size    int   LBFGS history               default: 100
 --tv_weight       float                             default: 0.0
@@ -247,8 +246,8 @@ recon_frames                       dict {method: list of {iter,dummy,loss,mse}}
 --jacobian_max_entries   int                        default: 4000
 --jacobian_select_mode   topk_abs|first|random      default: topk_abs
 --save_gif        flag
---frame_interval  int   iters between GIF frames    default: 20
---gif_fps         int                               default: 8
+--mse_visualise   flag  calibration (no --threshold_mse) or sweep (with --threshold_mse)
+--threshold_mse   float MSE threshold for sweep mode
 ```
 
 ---
@@ -277,12 +276,10 @@ Dummy data is in logit space; `sigmoid(dummy_data)` gives image in [0,1].
 
 ## Early stopping signals
 
-`plateau` — no relative improvement > `min_rel_improve` for `patience` steps after `warmup`  
-`loss_tol` — loss < `loss_tol` after warmup  
-`explosion` — current_loss > `explode_factor` × best_loss after warmup  
-`nan_or_inf` — NaN/Inf loss (up to `max_nan` occurrences before break)  
-`label_inference_unavailable` — final FC layer masked out  
-`too_few_gradients` — observed entries < image pixel count  
+`converged` — loss < 1e-6 at any iteration  
+`label_inference_unavailable` — final FC layer masked out (experiment skipped for that method)  
+`too_few_gradients` — observed entries < image pixel count (experiment skipped for that method)  
+`fixed_iterations` — ran to completion with no early-stop trigger  
 
 ---
 

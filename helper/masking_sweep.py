@@ -26,7 +26,7 @@ import matplotlib.pyplot as plt
 
 import functions.consts as consts
 from helper.Network import get_model, weights_init
-from helper.metrics import total_variation
+from helper.metrics import total_variation, compute_psnr_from_mse
 from helper.training_utils import make_scheduler
 from functions.masking import (build_gradient_mask, flatten_observed_gradients,
                                 _get_last_fc_param_indices)
@@ -171,6 +171,7 @@ def _run_one(idx_net, dst, net, criterion, dm, ds, lb, ub, args, device,
 
     if return_images:
         return {'idx': int(img_idx), 'best_mse': best_mse,
+                'best_psnr': compute_psnr_from_mse(best_mse),
                 'gt_np': gt_data.cpu().numpy()[0], 'recon_np': best_recon_np}
     return best_mse
 
@@ -276,6 +277,25 @@ def _save_sorted_mse(results, save_dir, threshold):
     print(f'Saved: {path}')
 
 
+def _save_histogram(results, save_dir, threshold):
+    mses = [r['best_mse'] for r in results]
+    fig, ax = plt.subplots(figsize=(6, 4))
+    ax.hist(mses, bins=min(20, len(mses)), edgecolor='black', alpha=0.75)
+    if threshold is not None:
+        ax.axvline(threshold, color='red', linestyle='--', linewidth=1.5,
+                   label=f'threshold = {threshold}')
+        ax.legend()
+    ax.set_xlabel('Best MSE')
+    ax.set_ylabel('Count')
+    ax.set_title('Distribution of best MSE values')
+    ax.grid(True, alpha=0.3)
+    fig.tight_layout()
+    path = os.path.join(save_dir, 'mse_histogram.png')
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    print(f'Saved: {path}')
+
+
 def _save_recon_grid(results, channel, save_dir, threshold):
     sorted_results = sorted(results, key=lambda r: r['best_mse'])
     n = len(sorted_results)
@@ -311,7 +331,7 @@ def _save_recon_grid(results, channel, save_dir, threshold):
 
 def _save_calibration_csv(results, save_dir, threshold):
     path = os.path.join(save_dir, 'mse_results.csv')
-    fieldnames = ['rank', 'idx', 'best_mse']
+    fieldnames = ['rank', 'idx', 'best_mse', 'best_psnr']
     if threshold is not None:
         fieldnames.append('reconstructed')
     sorted_results = sorted(results, key=lambda r: r['best_mse'])
@@ -319,7 +339,8 @@ def _save_calibration_csv(results, save_dir, threshold):
         w = csv.DictWriter(f, fieldnames=fieldnames)
         w.writeheader()
         for rank, r in enumerate(sorted_results, 1):
-            row = {'rank': rank, 'idx': r['idx'], 'best_mse': r['best_mse']}
+            row = {'rank': rank, 'idx': r['idx'], 'best_mse': r['best_mse'],
+                   'best_psnr': r['best_psnr']}
             if threshold is not None:
                 row['reconstructed'] = r['best_mse'] <= threshold
             w.writerow(row)
@@ -357,6 +378,7 @@ def run_mse_calibration(args, dst, channel, num_classes, shape_img, save_path):
         print(f'Reconstructed (MSE <= {threshold}): {n_ok}/{len(mses)}')
 
     _save_sorted_mse(results, out_dir, threshold)
+    _save_histogram(results, out_dir, threshold)
     _save_recon_grid(results, channel, out_dir, threshold)
     _save_calibration_csv(results, out_dir, threshold)
 

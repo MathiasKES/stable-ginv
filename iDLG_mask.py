@@ -217,9 +217,8 @@ def main():
     parser.add_argument("--mse_visualise", action="store_true", help=(
         "Instead of running experiments, run a calibration or sweep pass. "
         "Without --threshold_mse: runs baseline iDLG on --num_exp images and saves "
-        "sorted_mse.png, mse_histogram.png, and recon_grid.png so you can pick a threshold. "
-        "With --threshold_mse: sweeps gradsize_topfrac_entries and "
-        "gradsize_topfrac_entries_layer from 0.1 to 1.0 (step 0.1) and plots "
+        "sorted_mse.png, mse_histogram.png, recon_grid.png, and mse_results.csv so you can pick a threshold. "
+        "With --threshold_mse: sweeps --mask_mode at topfrac 0.1→1.0 (step 0.1) and plots "
         "images reconstructed vs. fraction of gradient entries shared."
     ))
     parser.add_argument("--threshold_mse", type=float, default=None, help=(
@@ -718,7 +717,7 @@ def main():
             psnr_normality_str = psnr_summary["normality_str"]
             mse_normality_str = mse_summary["normality_str"]
 
-            print(f"\nLoaded iDLG baseline (run_id={run_id}). Paired test uses {n_psnr}/{n_total} experiment(s).")
+            print(f"\nLoaded iDLG baseline (run_id={run_id}). Paired test uses {n_included}/{n_total} experiment(s).")
 
     # -------- Compute statistics --------
     avg_psnr_idlg           = float(np.mean(psnr_idlg_all))             if len(psnr_idlg_all)       else float("nan")
