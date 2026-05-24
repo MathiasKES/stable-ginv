@@ -186,17 +186,20 @@ def _worker_fn(idx_net, device_idx, dst, args, channel, num_classes, shape_img,
                           'result': None, 'error': str(e)})
 
 
+def _init_mp():
+    try:
+        mp.set_start_method('spawn', force=True)
+    except RuntimeError:
+        pass
+    mp.set_sharing_strategy('file_system')
+
+
 def _run_parallel(n_exp, dst, args, channel, num_classes, shape_img,
                   mask_mode=None, topfrac=None, return_images=False, desc='experiments'):
     """
     Dispatch n_exp experiments across all available GPUs (or CPU).
     Returns list of results in experiment order.
     """
-    try:
-        mp.set_start_method('spawn', force=True)
-    except RuntimeError:
-        pass
-    mp.set_sharing_strategy('file_system')
 
     num_gpus = torch.cuda.device_count() if torch.cuda.is_available() else 0
     n_slots = max(num_gpus, 1)
@@ -205,6 +208,7 @@ def _run_parallel(n_exp, dst, args, channel, num_classes, shape_img,
     result_queue = mp.SimpleQueue()
     jobs = list(range(n_exp))
     slot_busy = [False] * n_slots
+    active_procs = {}  # slot -> Process
     results = [None] * n_exp
     n_done = 0
 
@@ -220,9 +224,12 @@ def _run_parallel(n_exp, dst, args, channel, num_classes, shape_img,
                 )
                 p.start()
                 slot_busy[slot] = True
+                active_procs[slot] = p
 
             item = result_queue.get()
-            slot_busy[item['device_idx']] = False
+            slot = item['device_idx']
+            active_procs.pop(slot).join()
+            slot_busy[slot] = False
             results[item['idx_net']] = item['result']
             if 'error' in item:
                 print(f'\n  WARNING: exp {item["idx_net"]} failed: {item["error"]}')
@@ -322,6 +329,7 @@ def run_mse_calibration(args, dst, channel, num_classes, shape_img, save_path):
     Run baseline iDLG (no masking) on --num_exp images in parallel across GPUs.
     Called from iDLG_mask.main() when --mse_visualise is set without --threshold_mse.
     """
+    _init_mp()
     ts = datetime.now().strftime('%Y%m%d_%H%M%S')
     out_dir = os.path.join(save_path, f'threshold_{args.network}_{args.dataset}_{ts}')
     os.makedirs(out_dir, exist_ok=True)
@@ -357,6 +365,7 @@ def run_mse_sweep(args, dst, channel, num_classes, shape_img, save_path):
     Sweep args.mask_mode from topfrac 0.1 to 1.0 in parallel across GPUs.
     Called from iDLG_mask.main() when --mse_visualise and --threshold_mse are both set.
     """
+    _init_mp()
     ts = datetime.now().strftime('%Y%m%d_%H%M%S')
     out_dir = os.path.join(save_path, f'sweep_{args.network}_{args.dataset}_{ts}')
     os.makedirs(out_dir, exist_ok=True)
