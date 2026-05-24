@@ -68,6 +68,58 @@ Uses cosine similarity loss and LBFGS, consistent with the main experiment pipel
 
 ---
 
+---
+
+### MSE visualisation sweep — `helper/masking_sweep.py` + `iDLG_mask.py`
+
+New feature for producing the "% gradients masked vs. images reconstructed" graph.
+
+**`helper/masking_sweep.py`** — standalone module containing:
+- `_run_one()` — single iDLG experiment with a fixed entry-wise mask (supports lbfgs/adam/adamw, cos/l2 loss, TV)
+- `run_mse_sweep()` — sweeps both `gradsize_topfrac_entries` and `gradsize_topfrac_entries_layer` at fractions 0.1, 0.2, …, 1.0; saves `sweep_results.csv` and `sweep_plot.png`
+
+**`iDLG_mask.py`** — two new args:
+
+| Arg | Type | Purpose |
+|---|---|---|
+| `--mse_visualise` | flag | Switch into sweep mode (skips normal experiment, runs sweep then exits) |
+| `--threshold_mse` | float | MSE below which an image counts as "reconstructed" (required with `--mse_visualise`) |
+
+When `--mse_visualise` is set, `run_mse_sweep` is called immediately after `load_dataset()` and main() returns — no multiprocessing, no CSV/panel output, just the sweep.
+
+**Usage:**
+```bash
+# Step 1 — calibrate threshold with baseline iDLG
+python helper/visualise_mse_threshold.py --network resnet18 --dataset cifar100 --num_exp 30
+
+# Step 2 — run sweep with chosen threshold
+python iDLG_mask.py --network resnet18 --dataset cifar100 \
+    --num_exp 20 --iteration 300 \
+    --mse_visualise --threshold_mse 0.05
+```
+
+Output saved to `results/sweep_<network>_<dataset>_<timestamp>/`.
+
+---
+
+### Paired-list filtering bug fix — `iDLG_mask.py`
+
+**Root cause:** MSE and PSNR paired lists were built by two independent `if` blocks. An experiment where PSNR = +inf (MSE < 1e-12, near-perfect reconstruction) was dropped from the PSNR list but kept in the MSE list, giving Shapiro-Wilk different sample sizes for the two metrics — producing a spuriously high PSNR normality p-value (0.8 instead of 0.012 in a confirmed case with 28 vs 30 points).
+
+**Fix:** both `METHODS == "both"` and `METHODS == "masked"` paths now use a single joint validity check across all four values (mse_idlg, mse_masked, psnr_idlg, psnr_masked). An experiment is either included in both lists or excluded from both, with a warning printed. The fix is in `iDLG_mask.py` lines ~596–612 and ~657–672.
+
+---
+
+### Shapiro-Wilk normality check — confirmed correct (after fix)
+
+The Shapiro-Wilk test in `functions/io_utils.py:62` is applied to `d = x_masked - x_idlg` (the paired differences) — correct for a paired t-test.
+
+**High PSNR p-values / low MSE p-values are a genuine statistical property, not a bug.** PSNR = −10·log₁₀(MSE) is a log transform — a standard variance-stabilising technique that makes positively-skewed MSE differences more normal. MSE differences are bounded at 0 and right-skewed; PSNR differences are approximately normal. Both tests now always run on the same n experiments.
+
+**Note on low power:** with n < 30, Shapiro-Wilk has very low power. "normal (p=0.8)" means the test cannot detect non-normality at this sample size — not that the data is definitively normal.
+
+---
+
 ## Decisions carried forward
 
 - The LBFGS closure is called twice per iteration intentionally (matches the original iDLG paper).

@@ -18,6 +18,7 @@ from functions.io_utils import (paired_summary, baseline_key_from_args, load_bas
 from functions.Dataset import load_dataset
 from run_single_exp import run_single_experiment
 from tqdm import tqdm
+from helper.masking_sweep import run_mse_sweep
 
 def main():
     parser = argparse.ArgumentParser()
@@ -204,10 +205,22 @@ def main():
         help="Save an animated GIF showing reconstruction progress per experiment.")
 
     
-    parser.add_argument("--pretrained", action="store_true", 
+    parser.add_argument("--pretrained", action="store_true",
         help="Load ImageNet-pretrained torchvision weights for supported networks.")
-    
+
     parser.add_argument("--gamma", type=float, default=0.5, help="gamma for learning rate scheduler")
+
+    parser.add_argument("--mse_visualise", action="store_true", help=(
+        "Instead of running experiments, sweep gradsize_topfrac_entries and "
+        "gradsize_topfrac_entries_layer from 0.1 to 1.0 (step 0.1) and plot "
+        "the number of images reconstructed vs. fraction of gradient entries shared. "
+        "Requires --threshold_mse. Uses --num_exp images per sweep point."
+    ))
+    parser.add_argument("--threshold_mse", type=float, default=None, help=(
+        "MSE threshold below which an image counts as reconstructed. "
+        "Required when --mse_visualise is set. "
+        "Calibrate with helper/visualise_mse_threshold.py (baseline iDLG) first."
+    ))
 
     args = parser.parse_args()
 
@@ -215,7 +228,7 @@ def main():
         if "--max_iteration" in sys.argv or "--history_size" in sys.argv:
             parser.error("--max_iteration and --history_size can only be used when --optimizer lbfgs")
 
-    if not (0.0 < args.gradsize_topfrac <= 1.0):
+    if not args.mse_visualise and not (0.0 < args.gradsize_topfrac <= 1.0):
         parser.error(f"--gradsize_topfrac must be in (0, 1], got {args.gradsize_topfrac}")
 
     # -------- Masking config --------
@@ -277,6 +290,9 @@ def main():
     # -------- load data --------
     dst, channel, num_classes, shape_img = load_dataset(dataset, data_path)
 
+    if args.mse_visualise:
+        run_mse_sweep(args, dst, channel, num_classes, shape_img, save_path)
+        return
 
     # -------- panel buffers --------
     panel_block_size = num_exp
@@ -568,6 +584,7 @@ def main():
         paired_best_psnr_idlg = []
         paired_best_psnr_masked = []
 
+        n_total_both = len(all_results_by_idx)
         for idx in sorted(all_results_by_idx):
             result = all_results_by_idx[idx]
 
@@ -576,13 +593,23 @@ def main():
             psnr_idlg = result.get("best_psnr_idlg")
             psnr_masked = result.get("best_psnr_masked")
 
-            if mse_idlg is not None and mse_masked is not None and np.isfinite(mse_idlg) and np.isfinite(mse_masked):
-                paired_best_mse_idlg.append(mse_idlg)
-                paired_best_mse_masked.append(mse_masked)
+            all_valid = (
+                mse_idlg is not None and mse_masked is not None and
+                psnr_idlg is not None and psnr_masked is not None and
+                np.isfinite(mse_idlg) and np.isfinite(mse_masked) and
+                np.isfinite(psnr_idlg) and np.isfinite(psnr_masked)
+            )
+            if not all_valid:
+                tqdm.write(f"[WARNING] Experiment {idx}: excluded from paired tests (non-finite MSE or PSNR).")
+                continue
+            paired_best_mse_idlg.append(mse_idlg)
+            paired_best_mse_masked.append(mse_masked)
+            paired_best_psnr_idlg.append(psnr_idlg)
+            paired_best_psnr_masked.append(psnr_masked)
 
-            if psnr_idlg is not None and psnr_masked is not None and np.isfinite(psnr_idlg) and np.isfinite(psnr_masked):
-                paired_best_psnr_idlg.append(psnr_idlg)
-                paired_best_psnr_masked.append(psnr_masked)
+        if len(paired_best_psnr_masked) < n_total_both:
+            print(f"WARNING: {n_total_both - len(paired_best_psnr_masked)}/{n_total_both} "
+                  f"experiment(s) excluded from paired tests (non-finite values).")
 
         mse_summary = paired_summary(
             np.array(paired_best_mse_masked),
@@ -632,22 +659,25 @@ def main():
 
                 psnr_baseline = baseline_psnr_list[idx]
                 psnr_masked = result.get("best_psnr_masked")
-                if psnr_masked is not None and np.isfinite(psnr_masked) and np.isfinite(psnr_baseline):
-                    paired_best_psnr_idlg.append(psnr_baseline)
-                    paired_best_psnr_masked.append(psnr_masked)
-
                 mse_baseline = baseline_mse_list[idx]
                 mse_masked = result.get("best_mse_iDLG_masked")
-                if mse_masked is not None and np.isfinite(mse_masked) and np.isfinite(mse_baseline):
-                    paired_best_mse_idlg.append(mse_baseline)
-                    paired_best_mse_masked.append(mse_masked)
 
-            n_psnr = len(paired_best_psnr_masked)
-            n_mse = len(paired_best_mse_masked)
-            if n_psnr < n_total:
-                print(f"WARNING: {n_total - n_psnr}/{n_total} experiment(s) excluded from PSNR paired test (crashed or non-finite).")
-            if n_mse < n_total:
-                print(f"WARNING: {n_total - n_mse}/{n_total} experiment(s) excluded from MSE paired test (crashed or non-finite).")
+                all_valid = (
+                    psnr_masked is not None and mse_masked is not None and
+                    np.isfinite(psnr_masked) and np.isfinite(psnr_baseline) and
+                    np.isfinite(mse_masked) and np.isfinite(mse_baseline)
+                )
+                if not all_valid:
+                    print(f"WARNING: Experiment {idx} excluded from paired tests (non-finite values).")
+                    continue
+                paired_best_psnr_idlg.append(psnr_baseline)
+                paired_best_psnr_masked.append(psnr_masked)
+                paired_best_mse_idlg.append(mse_baseline)
+                paired_best_mse_masked.append(mse_masked)
+
+            n_included = len(paired_best_psnr_masked)
+            if n_included < n_total:
+                print(f"WARNING: {n_total - n_included}/{n_total} experiment(s) excluded from paired tests (non-finite values).")
 
             mse_summary = paired_summary(
                 np.array(paired_best_mse_masked),
