@@ -113,10 +113,7 @@ def main():
         "Maximum number of optimisation iterations to run for each gradient-inversion attack "
         "(both the baseline iDLG and the masked iDLG variant). At each iteration the dummy "
         "image is updated to minimise the distance between its gradient and the observed "
-        "gradient. Training may terminate earlier if the early-stopping criteria are met "
-        "(controlled by loss_tol, patience, min_rel_improve, explode_factor, and warmup "
-        "parameters hardcoded in main). Higher values allow more thorough optimisation at the "
-        "cost of longer runtime."
+        "gradient. Higher values allow more thorough optimisation at the cost of longer runtime."
     ))
 
     parser.add_argument("--num_exp", type=int, default=10, help=(
@@ -145,7 +142,7 @@ def main():
         "  'cifar10'  - 32x32 RGB, 10 classes.\n"
         "  'cifar100' - 32x32 RGB, 100 classes.\n"
         "  'lfw'      - Labelled Faces in the Wild, resized to 32x32 RGB, 5749 identity classes.\n"
-        "The dataset is downloaded automatically to --data_path if not already present."
+        "The dataset is downloaded automatically to ./data/ (or the HPC path) if not already present."
     ))
 
     parser.add_argument("--run_id", type=int, default=0, help=(
@@ -330,8 +327,7 @@ def main():
         'GRAD_LOSS': GRAD_LOSS,
         "GAMMA": GAMMA,
         'NETWORK_NAME': NETWORK_NAME,
-        'USE_INVERSEFED_IDLG': NETWORK_NAME.lower() == "resnet18",
-        'METHODS': METHODS,
+'METHODS': METHODS,
         'COMPUTE_JACOBIAN_RANK': COMPUTE_JACOBIAN_RANK,
         'JACOBIAN_MAX_ENTRIES': JACOBIAN_MAX_ENTRIES,
         'JACOBIAN_SELECT_MODE': JACOBIAN_SELECT_MODE,
@@ -769,10 +765,7 @@ def main():
     csv_path = os.path.join(save_path, "exp_results.csv")
     file_exists = os.path.isfile(csv_path)
 
-    png_display_prefix = "/work3/s234843/bachelor/results"
-    png_path_str = "|".join(
-        f"{png_display_prefix}/{os.path.basename(p)}" for p in panel_png_paths
-    )
+    png_path_str = "|".join(panel_png_paths)
 
     common = {
         "timestamp": timestamp_str,

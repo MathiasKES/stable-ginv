@@ -85,6 +85,7 @@ def paired_summary(x_masked, x_idlg, metric, confidence=0.95, ci_decimals=5):
             "stats": result,
             "ci_str": "",
             "significant_str": "",
+            "normality_str": "n/a",
         }
 
     significant = not (result["ci_low"] <= 0 <= result["ci_high"])

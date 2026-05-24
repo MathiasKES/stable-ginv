@@ -344,9 +344,14 @@ def build_gradient_mask(
             metric=gradsize_metric,
         )
     elif mask_mode == "prefix_topfrac":
-        keep_ids, _ = get_keep_ids_by_gradsize(
-            original_dy_dx, mode="topfrac", top_frac=gradsize_topfrac,
-            metric=gradsize_metric, candidate_ids=candidate_ids
+        keep_ids, _ = get_keep_ids_by_prefix_group(
+            net=net,
+            original_dy_dx=original_dy_dx,
+            prefixes=prefixes,
+            mode="topfrac",
+            top_frac=gradsize_topfrac,
+            prefix_top_fracs=prefix_layer_fracs,
+            metric=gradsize_metric,
         )
     elif mask_mode == "prefix_topk_entries":
         entry_masks, _, _ = get_entry_masks_by_gradsize(

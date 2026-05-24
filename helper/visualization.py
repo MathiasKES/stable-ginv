@@ -38,14 +38,6 @@ def save_recon_panel(params: dict, panel_gt_pil, panel_idlg_pil, panel_masked_pi
             if r == 0:
                 ax.set_title(f"exp {j}", fontsize=8)
 
-            if row_psnr is not None or row_ssim is not None:
-                parts = []
-                if row_psnr is not None and row_psnr[j] is not None:
-                    parts.append(f"PSNR:{row_psnr[j]:.2f}dB")
-                if row_ssim is not None and row_ssim[j] is not None:
-                    parts.append(f"SSIM:{row_ssim[j]:.3f}")
-                ax.set_xlabel("\n".join(parts), fontsize=7, labelpad=2)
-
             ax.axis('off')
             if row_psnr is not None or row_ssim is not None:
                 parts = []

@@ -6,7 +6,7 @@ import torch.nn as nn
 from torchvision import transforms
 import functions.consts as consts
 
-from functions.masking import build_gradient_mask
+from functions.masking import build_gradient_mask, _get_last_fc_param_indices
 from helper.metrics import (compute_psnr_from_mse, compute_jacobian_rank, total_variation,
     compute_grad_match_loss, compute_ssim_batch)
 from helper.Network import get_model, weights_init
@@ -165,7 +165,11 @@ def _run_inner(idx_net, device_id, dst, dataset_name, config, result_queue):
                 if g is not None and i in keep_ids
             )
 
-        final_weight_idx = len(original_dy_dx) - 2
+        _named_params_list = list(net.named_parameters())
+        _last_fc_ids = _get_last_fc_param_indices(net)
+        final_weight_idx = next(
+            i for i in sorted(_last_fc_ids) if _named_params_list[i][0].endswith('.weight')
+        )
 
         label_pred = None
         label_inference_available = False
@@ -429,10 +433,7 @@ def _run_inner(idx_net, device_id, dst, dataset_name, config, result_queue):
 
         if best_restart_dummy is not None:
             final_recon[method] = best_restart_dummy
-            _best_ssim[method] = compute_ssim_batch(
-                best_restart_dummy.unsqueeze(0) if best_restart_dummy.dim() == 3 else best_restart_dummy,
-                gt_data
-            )
+            _best_ssim[method] = compute_ssim_batch(best_restart_dummy, gt_data)
         else:
             final_recon[method] = torch.zeros_like(gt_data)
             _best_ssim[method] = None

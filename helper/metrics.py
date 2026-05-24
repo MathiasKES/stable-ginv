@@ -13,7 +13,7 @@ def compute_psnr_from_mse(mse: float, max_val: float = 1.0, eps: float = 1e-12) 
     mse = float(mse)
     if mse < eps:
         return float('inf')
-    return 10.0 * math.log10((max_val * max_val) / (mse + eps))
+    return 10.0 * math.log10((max_val * max_val) / mse)
 
 
 def compute_ssim_batch(x, y):
