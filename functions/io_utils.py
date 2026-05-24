@@ -10,36 +10,43 @@ from datetime import datetime
 import numpy as np
 from scipy import stats
 
-def setstdout():
-    if os.environ.get("LSB_INTERACTIVE", default="N") == "Y":
-        class Tee:
-            def __init__(self, *streams):
-                self.streams = streams
+def setstdout(ts=None, path=None):
+    """Set up stdout tee to a log file. Returns the path used, or None if not interactive.
 
-            def write(self, data):
-                for stream in self.streams:
-                    stream.write(data)
-                    stream.flush()
+    ts:   timestamp string to name a new log file (ignored if path is given).
+    path: full path to an existing log file to append to (worker processes pass this).
+    If neither is given, a new file is created using datetime.now().
+    """
+    if os.environ.get("LSB_INTERACTIVE", default="N") != "Y":
+        return None
 
-            def flush(self):
-                for stream in self.streams:
-                    stream.flush()
+    class Tee:
+        def __init__(self, *streams):
+            self.streams = streams
 
-        # Keep original stdout
-        terminal = sys.stdout
+        def write(self, data):
+            for stream in self.streams:
+                stream.write(data)
+                stream.flush()
 
-        # Open log file
-        dt = datetime.now().strftime("%Y%m%d_%H%M%S")
+        def flush(self):
+            for stream in self.streams:
+                stream.flush()
+
+    terminal = sys.stdout
+
+    if path is None:
+        if ts is None:
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         if os.path.exists("/work3/s234843/bachelor/gpuout/idlg"):
-            path = f"/work3/s234843/bachelor/gpuout/idlg/i{dt}.out"
+            path = f"/work3/s234843/bachelor/gpuout/idlg/i{ts}.out"
         else:
             os.makedirs("./gpuout", exist_ok=True)
-            path = f"./gpuout/i{dt}.out"
+            path = f"./gpuout/i{ts}.out"
 
-        logfile = open(path, "a")
-
-        # Redirect stdout
-        sys.stdout = Tee(terminal, logfile)
+    logfile = open(path, "a")
+    sys.stdout = Tee(terminal, logfile)
+    return path
 
 def parse_prefixes_with_fracs(prefixes_str):
     """Parse 'conv1:0.5,layer1:1.0,fc' into (prefixes_tuple, fracs_dict)."""

@@ -15,7 +15,7 @@ from helper.training_utils import make_scheduler
 from functions.io_utils import setstdout
 
 def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_queue):
-    setstdout()
+    setstdout(path=config.get('out_path'))
     try:
         _run_inner(idx_net, device_id, dst, dataset_name, config, result_queue)
     except Exception as exc:

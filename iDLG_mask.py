@@ -23,7 +23,8 @@ from helper.masking_sweep import run_mse_sweep, run_mse_calibration
 from functions.io_utils import setstdout
 
 def main():
-    setstdout()
+    timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+    out_path = setstdout(ts=timestamp_str)
     parser = argparse.ArgumentParser()
 
     parser.add_argument("--mask_mode", type=str, default="gradsize_topfrac", help=(
@@ -263,7 +264,6 @@ def main():
     NETWORK_TRAINED = args.pretrained
     dataset = args.dataset
     run_id = args.run_id
-    timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
 
     root_path = '.'
     if os.access('/work3/s234843/bachelor', os.R_OK | os.W_OK | os.X_OK):
@@ -362,6 +362,7 @@ def main():
         'NETWORK_TRAINED': NETWORK_TRAINED,
         'SAVE_GIF': SAVE_GIF,
         'FRAME_INTERVAL': FRAME_INTERVAL,
+        'out_path': out_path,
     }
 
     # -------- Run experiments in parallel --------
