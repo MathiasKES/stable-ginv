@@ -132,9 +132,11 @@ def _run_one(idx_net, dst, net, criterion, dm, ds, lb, ub, args, device,
                     diff.backward()
                     return diff
                 opt.step(closure)
-                closure()
+                current_loss = closure().item()
                 with torch.no_grad():
                     dummy.clamp_(lb, ub)
+                if current_loss < 1e-6:
+                    break
         else:
             signed = args.optimizer in ('signed_adam', 'signed_adamw')
             wd = 1e-5 if args.optimizer in ('adamw', 'signed_adamw') else 0.0
@@ -157,6 +159,8 @@ def _run_one(idx_net, dst, net, criterion, dm, ds, lb, ub, args, device,
                 sched.step()
                 with torch.no_grad():
                     dummy.clamp_(lb, ub)
+                if diff.item() < 1e-6:
+                    break
 
         current_x = (dummy.detach() * ds + dm).clamp(0.0, 1.0)
         mse = torch.mean((current_x - gt_data) ** 2).item()
