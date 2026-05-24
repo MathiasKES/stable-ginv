@@ -195,12 +195,15 @@ For each experiment, the flow is:
 - `iDLG_mask.py` — saves masked registry to `results/baselines/masked_registry.json` after each masked run; CSV now includes `psnr_normality` and `mse_normality` columns (Shapiro-Wilk result strings for paired PSNR/MSE differences)
 
 From git log:
+- `c5257f3` — Add MSE threshold visualisation script (`helper/visualise_mse_threshold.py`)
+- `b071e61` — Delete stale jacobian_parallel files from archive
+- `849651c` — Fix review findings: normality key bug, prefix_topfrac routing, fragile FC index, png path, dead code
+- `500d89b` — Add normality results to final summary print
 - `56c3c3e` — Add mse_normality column to CSV
 - `fff0688` — Add masked registry, Shapiro-Wilk, TV fix, and Jacobian rank monotonicity fix
 - `35be9ad` — Merge serial + parallel Jacobian rank sweep into one script
 - `22c9ad9` — Fix TV normalization (compute on dummy_data not x_raw)
 - `426a021` — Sync jacobian_rank_sweep with main experiment scripts, remove gradsize_threshold
-- `81841c0` — Add gradsize_topfrac/topk_entries_layer modes via get_entry_masks_by_prefix_group
 - `bd816f8` — Refactor masking internals, enforce last-FC invariant, consolidate model factory
 
 ---

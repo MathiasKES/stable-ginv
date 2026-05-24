@@ -46,6 +46,7 @@ Compares baseline iDLG against masked variants (selective gradient disclosure) a
 | `helper/metrics.py` | `compute_psnr_from_mse`, `compute_ssim_batch`, `total_variation`, `compute_jacobian_rank`, `compute_grad_match_loss` |
 | `helper/training_utils.py` | `make_scheduler` only (`build_network` moved into `get_model`) |
 | `helper/visualization.py` | `save_recon_panel`, `save_recon_gif` |
+| `helper/visualise_mse_threshold.py` | Standalone script: run baseline iDLG on N images, visualise MSE distribution to calibrate reconstruction threshold |
 
 **`archive/`** — retired scripts (not imported anywhere): `iDLG_original.py`, `jacobian_parallel.py`, `run_single_exp_batch.py`, old visualize/testing scripts.
 
@@ -302,6 +303,7 @@ med_best_loss, avg_best_loss, med_best_mse, avg_best_mse, avg_best_psnr, std_bes
 ## Gotchas
 
 - **Baseline registry is per-run-id, single-run.** `results/baselines/idlg_baselines_registry.json` stores one entry per `(hyperparams, run_id)` hash. Running `--methods idlg` or `--methods both` with a given `run_id` saves/overwrites the baseline for that slot. `--methods masked` with the same `run_id` loads it automatically. The registry uses keys `best_psnr_list` / `best_mse_list` — old files with `avg_best_psnr_list` must be deleted and re-run.
+- **`prefix_topfrac` uses per-prefix ranking** — consistent with `prefix_topk`. Any results produced before commit `849651c` using `prefix_topfrac` used global ranking instead and should be considered inconsistent.
 - **Masked registry** — `results/baselines/masked_registry.json` stores per-experiment PSNR and MSE lists for masked runs, keyed by MD5 hash of all reconstruction + masking hyperparameters. Saved automatically by `iDLG_mask.py` at end of run. Overwriting an existing key prints a warning. Shapiro-Wilk normality test result for PSNR differences is printed to stdout and saved in the `psnr_normality` CSV column.
 - **TV normalization** — TV is computed on `dummy_data` (normalized space, same as the network input), not on the de-normalized [0,1] image. This matches Geiping et al. Use `--tv_weight 0.01` for single-image trained-network experiments (paper value); default `0.0` means no TV.
 - **Label inference gating** — if the final FC layer is masked, the experiment is skipped for that method (no gradient inversion possible without knowing the label).
