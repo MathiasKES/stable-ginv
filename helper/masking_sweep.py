@@ -3,7 +3,9 @@ Entry-wise masking sweep: run iDLG at gradsize_topfrac_entries and
 gradsize_topfrac_entries_layer for fractions 0.1, 0.2, ..., 1.0 and plot the
 number of images reconstructed (best MSE <= threshold) vs. fraction shared.
 
-Imported and called from iDLG_mask.py when --mse_visualise is set.
+Also provides run_mse_calibration() for baseline threshold selection.
+
+Both functions are imported and called from iDLG_mask.py when --mse_visualise is set.
 """
 import os
 import csv
@@ -37,107 +39,10 @@ _MODE_COLORS = {
 }
 
 
-def _run_one(idx_net, dst, net, criterion, dm, ds, lb, ub, args, device,
-             mask_mode, topfrac):
-    """One iDLG experiment with a fixed entry-wise mask; returns best MSE."""
-    seed = args.run_id + idx_net + 1
-    torch.manual_seed(seed)
-    np.random.seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(seed)
+# ---- Shared setup ---------------------------------------------------------------
 
-    tt = transforms.Compose([transforms.ToTensor()])
-    img_idx = np.random.permutation(len(dst))[0]
-    gt_data = tt(dst[img_idx][0]).float().to(device).unsqueeze(0)
-    gt_label = torch.tensor([dst[img_idx][1]], dtype=torch.long, device=device)
-    gt_norm = (gt_data - dm) / ds
-
-    out = net(gt_norm)
-    loss = criterion(out, gt_label)
-    dy_dx = torch.autograd.grad(loss, net.parameters())
-    orig = [g.detach().clone() for g in dy_dx]
-
-    _, entry_masks = build_gradient_mask('masked', mask_mode, net, orig,
-                                         gradsize_topfrac=topfrac)
-    gy = flatten_observed_gradients(orig, entry_masks=entry_masks)
-
-    named_params = list(net.named_parameters())
-    last_fc_ids = _get_last_fc_param_indices(net)
-    fw_idx = next(i for i in sorted(last_fc_ids) if named_params[i][0].endswith('.weight'))
-    label_pred = torch.argmin(torch.sum(orig[fw_idx], dim=-1), dim=-1).detach().reshape((1,))
-
-    best_mse = float('inf')
-    for _ in range(args.num_restarts):
-        dummy = torch.randn_like(gt_norm).requires_grad_(True)
-
-        if args.optimizer == 'lbfgs':
-            opt = torch.optim.LBFGS([dummy], lr=args.lr,
-                                     max_iter=args.max_iteration,
-                                     history_size=args.history_size)
-            for _ in range(args.iteration):
-                def closure():
-                    opt.zero_grad()
-                    dummy_grads = torch.autograd.grad(
-                        criterion(net(dummy), label_pred),
-                        net.parameters(), create_graph=True,
-                    )
-                    gx = flatten_observed_gradients(list(dummy_grads), entry_masks=entry_masks)
-                    if args.grad_loss == 'cos':
-                        diff = 1.0 - F.cosine_similarity(
-                            gx.unsqueeze(0), gy.unsqueeze(0), dim=1, eps=1e-12)[0]
-                    else:
-                        diff = ((gx - gy) ** 2).sum()
-                    if args.tv_weight > 0:
-                        diff = diff + args.tv_weight * total_variation(dummy)
-                    diff.backward()
-                    return diff
-                opt.step(closure)
-                closure()
-                with torch.no_grad():
-                    dummy.clamp_(lb, ub)
-        else:
-            cls = torch.optim.AdamW if args.optimizer == 'adamw' else torch.optim.Adam
-            wd = 1e-5 if args.optimizer == 'adamw' else 0.0
-            opt = cls([dummy], lr=args.lr, weight_decay=wd)
-            sched = torch.optim.lr_scheduler.StepLR(opt, step_size=300, gamma=args.gamma)
-            for _ in range(args.iteration):
-                opt.zero_grad()
-                dummy_grads = torch.autograd.grad(
-                    criterion(net(dummy), label_pred),
-                    net.parameters(), create_graph=True,
-                )
-                gx = flatten_observed_gradients(list(dummy_grads), entry_masks=entry_masks)
-                if args.grad_loss == 'cos':
-                    diff = 1.0 - F.cosine_similarity(
-                        gx.unsqueeze(0), gy.unsqueeze(0), dim=1, eps=1e-12)[0]
-                else:
-                    diff = ((gx - gy) ** 2).sum()
-                if args.tv_weight > 0:
-                    diff = diff + args.tv_weight * total_variation(dummy)
-                diff.backward()
-                opt.step()
-                sched.step()
-                with torch.no_grad():
-                    dummy.clamp_(lb, ub)
-
-        mse = torch.mean(((dummy.detach() * ds + dm).clamp(0.0, 1.0) - gt_data) ** 2).item()
-        if mse < best_mse:
-            best_mse = mse
-
-    return best_mse
-
-
-def run_mse_sweep(args, dst, channel, num_classes, shape_img, save_path):
-    """
-    Sweep gradsize_topfrac_entries and gradsize_topfrac_entries_layer from 0.1 to 1.0.
-    Called from iDLG_mask.main() when --mse_visualise is set.
-    Requires args.threshold_mse to be set.
-    """
-    if args.threshold_mse is None:
-        raise ValueError('--threshold_mse is required when --mse_visualise is set.')
-    if args.optimizer in ('signed_adam', 'signed_adamw'):
-        raise ValueError('signed_adam/signed_adamw are not supported in --mse_visualise mode.')
-
+def _setup(args, channel, num_classes, shape_img):
+    """Build network, criterion, normalisation tensors, and pixel clamp bounds."""
     device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
     net = get_model(args.network, channel=channel, num_classes=num_classes,
                     input_size=shape_img, pretrained=args.pretrained)
@@ -156,6 +61,247 @@ def run_mse_sweep(args, dst, channel, num_classes, shape_img, save_path):
                           device=device).view(1, channel, 1, 1)
     lb = (-dm / ds).to(device)
     ub = ((1.0 - dm) / ds).to(device)
+    return device, net, criterion, dm, ds, lb, ub
+
+
+# ---- Shared experiment runner ---------------------------------------------------
+
+def _run_one(idx_net, dst, net, criterion, dm, ds, lb, ub, args, device,
+             mask_mode=None, topfrac=None, return_images=False):
+    """
+    One iDLG experiment.
+    mask_mode=None → baseline (no masking, full gradient vector).
+    mask_mode set  → entry-wise mask applied at the given topfrac.
+    return_images=True → include gt_np and recon_np in the returned dict.
+    Returns best_mse (float) or a result dict when return_images=True.
+    """
+    seed = args.run_id + idx_net + 1
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+
+    tt = transforms.Compose([transforms.ToTensor()])
+    img_idx = np.random.permutation(len(dst))[0]
+    gt_data = tt(dst[img_idx][0]).float().to(device).unsqueeze(0)
+    gt_label = torch.tensor([dst[img_idx][1]], dtype=torch.long, device=device)
+    gt_norm = (gt_data - dm) / ds
+
+    out = net(gt_norm)
+    loss = criterion(out, gt_label)
+    dy_dx = torch.autograd.grad(loss, net.parameters())
+    orig = [g.detach().clone() for g in dy_dx]
+
+    named_params = list(net.named_parameters())
+    last_fc_ids = _get_last_fc_param_indices(net)
+    fw_idx = next(i for i in sorted(last_fc_ids) if named_params[i][0].endswith('.weight'))
+    label_pred = torch.argmin(torch.sum(orig[fw_idx], dim=-1), dim=-1).detach().reshape((1,))
+
+    if mask_mode is not None:
+        _, entry_masks = build_gradient_mask('masked', mask_mode, net, orig,
+                                             gradsize_topfrac=topfrac)
+        gy = flatten_observed_gradients(orig, entry_masks=entry_masks)
+    else:
+        entry_masks = None
+        gy = torch.cat([g.reshape(-1) for g in orig])
+
+    def _cat_grads(grads):
+        if entry_masks is not None:
+            return flatten_observed_gradients(list(grads), entry_masks=entry_masks)
+        return torch.cat([g.reshape(-1) for g in grads])
+
+    def _grad_diff(gx):
+        if args.grad_loss == 'cos':
+            return 1.0 - F.cosine_similarity(gx.unsqueeze(0), gy.unsqueeze(0), dim=1, eps=1e-12)[0]
+        return ((gx - gy) ** 2).sum()
+
+    best_mse = float('inf')
+    best_recon_np = None
+
+    for _ in range(args.num_restarts):
+        dummy = torch.randn_like(gt_norm).requires_grad_(True)
+
+        if args.optimizer == 'lbfgs':
+            opt = torch.optim.LBFGS([dummy], lr=args.lr,
+                                     max_iter=args.max_iteration,
+                                     history_size=args.history_size)
+            for _ in range(args.iteration):
+                def closure():
+                    opt.zero_grad()
+                    dummy_grads = torch.autograd.grad(
+                        criterion(net(dummy), label_pred),
+                        net.parameters(), create_graph=True)
+                    diff = _grad_diff(_cat_grads(dummy_grads))
+                    if args.tv_weight > 0:
+                        diff = diff + args.tv_weight * total_variation(dummy)
+                    diff.backward()
+                    return diff
+                opt.step(closure)
+                closure()
+                with torch.no_grad():
+                    dummy.clamp_(lb, ub)
+        else:
+            cls = torch.optim.AdamW if args.optimizer == 'adamw' else torch.optim.Adam
+            wd = 1e-5 if args.optimizer == 'adamw' else 0.0
+            opt = cls([dummy], lr=args.lr, weight_decay=wd)
+            sched = torch.optim.lr_scheduler.StepLR(opt, step_size=300, gamma=args.gamma)
+            for _ in range(args.iteration):
+                opt.zero_grad()
+                dummy_grads = torch.autograd.grad(
+                    criterion(net(dummy), label_pred),
+                    net.parameters(), create_graph=True)
+                diff = _grad_diff(_cat_grads(dummy_grads))
+                if args.tv_weight > 0:
+                    diff = diff + args.tv_weight * total_variation(dummy)
+                diff.backward()
+                opt.step()
+                sched.step()
+                with torch.no_grad():
+                    dummy.clamp_(lb, ub)
+
+        current_x = (dummy.detach() * ds + dm).clamp(0.0, 1.0)
+        mse = torch.mean((current_x - gt_data) ** 2).item()
+        if mse < best_mse:
+            best_mse = mse
+            if return_images:
+                best_recon_np = current_x.cpu().numpy()[0]
+
+    if return_images:
+        return {'idx': int(img_idx), 'best_mse': best_mse,
+                'gt_np': gt_data.cpu().numpy()[0], 'recon_np': best_recon_np}
+    return best_mse
+
+
+# ---- Calibration output helpers -------------------------------------------------
+
+def _to_display(img_np, channel):
+    """[C,H,W] numpy → displayable (H,W) or (H,W,3) for imshow."""
+    if channel == 1:
+        return img_np[0]
+    return np.clip(np.transpose(img_np, (1, 2, 0)), 0.0, 1.0)
+
+
+def _save_sorted_mse(results, save_dir, threshold):
+    mses = [r['best_mse'] for r in results]
+    sorted_mses = sorted(mses)
+    n = len(sorted_mses)
+    fig, ax = plt.subplots(figsize=(max(6, n * 0.3 + 2), 4))
+    ax.plot(range(1, n + 1), sorted_mses, marker='o', markersize=4, linewidth=1.5)
+    if threshold is not None:
+        ax.axhline(threshold, color='red', linestyle='--', linewidth=1.5,
+                   label=f'threshold = {threshold}')
+        n_below = sum(1 for m in mses if m <= threshold)
+        ax.set_title(f'MSE sorted ascending  —  {n_below}/{n} images below threshold')
+        ax.legend()
+    else:
+        ax.set_title('MSE sorted ascending  —  look for natural break points')
+    ax.set_xlabel('Rank (best → worst)')
+    ax.set_ylabel('Best MSE')
+    ax.grid(True, alpha=0.3)
+    fig.tight_layout()
+    path = os.path.join(save_dir, 'sorted_mse.png')
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    print(f'Saved: {path}')
+
+
+def _save_recon_grid(results, channel, save_dir, threshold):
+    sorted_results = sorted(results, key=lambda r: r['best_mse'])
+    n = len(sorted_results)
+    cmap = 'gray' if channel == 1 else None
+    fig, axes = plt.subplots(2, n, figsize=(max(8, n * 1.5), 4),
+                              gridspec_kw={'hspace': 0.05, 'wspace': 0.05}, squeeze=False)
+    for col, r in enumerate(sorted_results):
+        mse = r['best_mse']
+        reconstructed = threshold is not None and mse <= threshold
+        color = 'green' if reconstructed else ('red' if threshold is not None else 'black')
+        ax_gt = axes[0, col]
+        ax_gt.imshow(_to_display(r['gt_np'], channel), cmap=cmap, interpolation='nearest')
+        ax_gt.axis('off')
+        if col == 0:
+            ax_gt.set_ylabel('GT', fontsize=7)
+        ax_r = axes[1, col]
+        ax_r.imshow(_to_display(r['recon_np'], channel), cmap=cmap, interpolation='nearest')
+        ax_r.axis('off')
+        ax_r.set_xlabel(f'{mse:.4f}', fontsize=6, color=color, labelpad=1)
+        if col == 0:
+            ax_r.set_ylabel('Recon', fontsize=7)
+    title = 'Reconstructions sorted by MSE (best → worst)'
+    if threshold is not None:
+        n_ok = sum(1 for r in results if r['best_mse'] <= threshold)
+        title += f'   |   green <= {threshold} ({n_ok}/{n} reconstructed)'
+    fig.suptitle(title, fontsize=8, y=1.01)
+    fig.tight_layout()
+    path = os.path.join(save_dir, 'recon_grid.png')
+    fig.savefig(path, dpi=150, bbox_inches='tight')
+    plt.close(fig)
+    print(f'Saved: {path}')
+
+
+def _save_calibration_csv(results, save_dir, threshold):
+    path = os.path.join(save_dir, 'mse_results.csv')
+    fieldnames = ['rank', 'idx', 'best_mse']
+    if threshold is not None:
+        fieldnames.append('reconstructed')
+    sorted_results = sorted(results, key=lambda r: r['best_mse'])
+    with open(path, 'w', newline='') as f:
+        w = csv.DictWriter(f, fieldnames=fieldnames)
+        w.writeheader()
+        for rank, r in enumerate(sorted_results, 1):
+            row = {'rank': rank, 'idx': r['idx'], 'best_mse': r['best_mse']}
+            if threshold is not None:
+                row['reconstructed'] = r['best_mse'] <= threshold
+            w.writerow(row)
+    print(f'Saved: {path}')
+
+
+# ---- Public API -----------------------------------------------------------------
+
+def run_mse_calibration(args, dst, channel, num_classes, shape_img, save_path):
+    """
+    Run baseline iDLG (no masking) on --num_exp images and save MSE distribution
+    plots so you can pick a threshold.  Called from iDLG_mask.main() when
+    --mse_visualise is set without --threshold_mse.
+    """
+    device, net, criterion, dm, ds, lb, ub = _setup(args, channel, num_classes, shape_img)
+
+    ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+    out_dir = os.path.join(save_path, f'threshold_{args.network}_{args.dataset}_{ts}')
+    os.makedirs(out_dir, exist_ok=True)
+
+    threshold = args.threshold_mse
+    print(f'Calibration: {args.network} / {args.dataset}  {args.num_exp} images  '
+          f'iter={args.iteration}' + (f'  threshold={threshold}' if threshold else ''))
+    print(f'Saving to: {out_dir}\n')
+
+    results = []
+    for idx_net in tqdm(range(args.num_exp), desc='baseline iDLG'):
+        r = _run_one(idx_net, dst, net, criterion, dm, ds, lb, ub, args, device,
+                     return_images=True)
+        results.append(r)
+        tqdm.write(f'  exp {idx_net:3d}  idx={r["idx"]:5d}  mse={r["best_mse"]:.6f}')
+
+    mses = [r['best_mse'] for r in results]
+    print(f'\nMSE  min={min(mses):.6f}  max={max(mses):.6f}  '
+          f'mean={np.mean(mses):.6f}  median={np.median(mses):.6f}')
+    if threshold is not None:
+        n_ok = sum(1 for m in mses if m <= threshold)
+        print(f'Reconstructed (MSE <= {threshold}): {n_ok}/{len(mses)}')
+
+    _save_sorted_mse(results, out_dir, threshold)
+    _save_recon_grid(results, channel, out_dir, threshold)
+    _save_calibration_csv(results, out_dir, threshold)
+
+    if threshold is None:
+        print('\nInspect sorted_mse.png and recon_grid.png, then re-run with --threshold_mse <value>.')
+
+
+def run_mse_sweep(args, dst, channel, num_classes, shape_img, save_path):
+    """
+    Sweep gradsize_topfrac_entries and gradsize_topfrac_entries_layer from 0.1 to 1.0.
+    Called from iDLG_mask.main() when --mse_visualise and --threshold_mse are both set.
+    """
+    device, net, criterion, dm, ds, lb, ub = _setup(args, channel, num_classes, shape_img)
 
     ts = datetime.now().strftime('%Y%m%d_%H%M%S')
     out_dir = os.path.join(save_path, f'sweep_{args.network}_{args.dataset}_{ts}')
@@ -167,37 +313,34 @@ def run_mse_sweep(args, dst, channel, num_classes, shape_img, save_path):
     print(f'Saving to: {out_dir}\n')
 
     csv_rows = []
-    pt = 0
-    for mask_mode in SWEEP_MODES:
-        for frac in SWEEP_FRACS:
-            pt += 1
-            print(f'[{pt}/{n_pts}] {mask_mode}  topfrac={frac:.1f}  '
-                  f'({int((1 - frac) * 100)}% masked)')
-            mses = []
-            for idx_net in tqdm(range(args.num_exp), desc='  experiments', leave=False):
-                mse = _run_one(idx_net, dst, net, criterion, dm, ds, lb, ub,
-                               args, device, mask_mode, frac)
-                mses.append(mse)
-            n_recon = sum(1 for m in mses if m <= args.threshold_mse)
-            row = {
-                'mask_mode':       mask_mode,
-                'topfrac':         frac,
-                'pct_masked':      round((1.0 - frac) * 100.0, 1),
-                'n_reconstructed': n_recon,
-                'n_total':         len(mses),
-                'avg_mse':         float(np.mean(mses)),
-                'median_mse':      float(np.median(mses)),
-            }
-            csv_rows.append(row)
-            print(f'  -> {n_recon}/{args.num_exp} reconstructed  '
-                  f'avg_mse={row["avg_mse"]:.6f}')
+    for pt, (mask_mode, frac) in enumerate(
+            ((m, f) for m in SWEEP_MODES for f in SWEEP_FRACS), 1):
+        print(f'[{pt}/{n_pts}] {mask_mode}  topfrac={frac:.1f}  '
+              f'({int((1 - frac) * 100)}% masked)')
+        mses = []
+        for idx_net in tqdm(range(args.num_exp), desc='  experiments', leave=False):
+            mse = _run_one(idx_net, dst, net, criterion, dm, ds, lb, ub,
+                           args, device, mask_mode=mask_mode, topfrac=frac)
+            mses.append(mse)
+        n_recon = sum(1 for m in mses if m <= args.threshold_mse)
+        row = {
+            'mask_mode':       mask_mode,
+            'topfrac':         frac,
+            'pct_masked':      round((1.0 - frac) * 100.0, 1),
+            'n_reconstructed': n_recon,
+            'n_total':         len(mses),
+            'avg_mse':         float(np.mean(mses)),
+            'median_mse':      float(np.median(mses)),
+        }
+        csv_rows.append(row)
+        print(f'  -> {n_recon}/{args.num_exp} reconstructed  avg_mse={row["avg_mse"]:.6f}')
 
-    _save_csv(csv_rows, out_dir)
+    _save_sweep_csv(csv_rows, out_dir)
     _save_plot(csv_rows, out_dir, args.threshold_mse, args.num_exp,
                args.network, args.dataset)
 
 
-def _save_csv(rows, out_dir):
+def _save_sweep_csv(rows, out_dir):
     path = os.path.join(out_dir, 'sweep_results.csv')
     fields = ['mask_mode', 'topfrac', 'pct_masked', 'n_reconstructed',
               'n_total', 'avg_mse', 'median_mse']
