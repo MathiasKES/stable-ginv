@@ -5,10 +5,10 @@ from torchvision import datasets, transforms
 import numpy as np
 
 from functions.io_utils import setstdout
-setstdout()
 
 
 def load_dataset(dataset, data_path):
+    setstdout()
     """Load a dataset by name; returns (dst, channel, num_classes, shape_img)."""
     if dataset == 'MNIST':
         return datasets.MNIST(data_path, download=True), 1, 10, (28, 28)

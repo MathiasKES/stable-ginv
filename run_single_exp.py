@@ -16,6 +16,7 @@ from functions.io_utils import setstdout
 setstdout()
 
 def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_queue):
+    setstdout()
     try:
         _run_inner(idx_net, device_id, dst, dataset_name, config, result_queue)
     except Exception as exc:

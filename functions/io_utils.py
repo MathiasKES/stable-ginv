@@ -41,8 +41,6 @@ def setstdout():
         # Redirect stdout
         sys.stdout = Tee(terminal, logfile)
 
-setstdout()
-
 def parse_prefixes_with_fracs(prefixes_str):
     """Parse 'conv1:0.5,layer1:1.0,fc' into (prefixes_tuple, fracs_dict)."""
     prefixes = []
