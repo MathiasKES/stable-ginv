@@ -1,11 +1,13 @@
 """
-Entry-wise masking sweep: run iDLG at gradsize_topfrac_entries and
-gradsize_topfrac_entries_layer for fractions 0.1, 0.2, ..., 1.0 and plot the
-number of images reconstructed (best MSE <= threshold) vs. fraction shared.
+MSE calibration and masking sweep, parallelised across GPUs.
 
-Also provides run_mse_calibration() for baseline threshold selection.
+Calibration (--mse_visualise, no --threshold_mse):
+  Run baseline iDLG on N images → sorted_mse.png, recon_grid.png, mse_results.csv
 
-Both functions are imported and called from iDLG_mask.py when --mse_visualise is set.
+Sweep (--mse_visualise --threshold_mse X):
+  Run args.mask_mode at topfrac 0.1→1.0 → sweep_plot.png, sweep_results.csv
+
+Both imported and called from iDLG_mask.py.
 """
 import os
 import csv
@@ -15,6 +17,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torch.multiprocessing as mp
 from torchvision import transforms
 from tqdm import tqdm
 import matplotlib
@@ -32,11 +35,10 @@ from functions.masking import (build_gradient_mask, flatten_observed_gradients,
 SWEEP_FRACS = [round(f * 0.1, 1) for f in range(1, 11)]   # 0.1 … 1.0
 
 
-# ---- Shared setup ---------------------------------------------------------------
+# ---- Per-worker setup -----------------------------------------------------------
 
-def _setup(args, channel, num_classes, shape_img):
+def _setup(args, channel, num_classes, shape_img, device):
     """Build network, criterion, normalisation tensors, and pixel clamp bounds."""
-    device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
     net = get_model(args.network, channel=channel, num_classes=num_classes,
                     input_size=shape_img, pretrained=args.pretrained)
     if not args.pretrained and args.network in ('LeNet', 'LeNet_bigger', 'MediumCNN', 'BiggerCNN'):
@@ -54,10 +56,10 @@ def _setup(args, channel, num_classes, shape_img):
                           device=device).view(1, channel, 1, 1)
     lb = (-dm / ds).to(device)
     ub = ((1.0 - dm) / ds).to(device)
-    return device, net, criterion, dm, ds, lb, ub
+    return net, criterion, dm, ds, lb, ub
 
 
-# ---- Shared experiment runner ---------------------------------------------------
+# ---- Single experiment ----------------------------------------------------------
 
 def _run_one(idx_net, dst, net, criterion, dm, ds, lb, ub, args, device,
              mask_mode=None, topfrac=None, return_images=False):
@@ -169,6 +171,67 @@ def _run_one(idx_net, dst, net, criterion, dm, ds, lb, ub, args, device,
     return best_mse
 
 
+# ---- Parallel dispatcher --------------------------------------------------------
+
+def _worker_fn(idx_net, device_idx, dst, args, channel, num_classes, shape_img,
+               device, mask_mode, topfrac, return_images, result_queue):
+    try:
+        net, criterion, dm, ds, lb, ub = _setup(args, channel, num_classes, shape_img, device)
+        result = _run_one(idx_net, dst, net, criterion, dm, ds, lb, ub,
+                          args, device, mask_mode=mask_mode, topfrac=topfrac,
+                          return_images=return_images)
+        result_queue.put({'idx_net': idx_net, 'device_idx': device_idx, 'result': result})
+    except Exception as e:
+        result_queue.put({'idx_net': idx_net, 'device_idx': device_idx,
+                          'result': None, 'error': str(e)})
+
+
+def _run_parallel(n_exp, dst, args, channel, num_classes, shape_img,
+                  mask_mode=None, topfrac=None, return_images=False, desc='experiments'):
+    """
+    Dispatch n_exp experiments across all available GPUs (or CPU).
+    Returns list of results in experiment order.
+    """
+    try:
+        mp.set_start_method('spawn', force=True)
+    except RuntimeError:
+        pass
+    mp.set_sharing_strategy('file_system')
+
+    num_gpus = torch.cuda.device_count() if torch.cuda.is_available() else 0
+    n_slots = max(num_gpus, 1)
+    devices = [f'cuda:{i}' for i in range(num_gpus)] if num_gpus > 0 else ['cpu']
+
+    result_queue = mp.SimpleQueue()
+    jobs = list(range(n_exp))
+    slot_busy = [False] * n_slots
+    results = [None] * n_exp
+    n_done = 0
+
+    with tqdm(total=n_exp, desc=f'  {desc}') as pbar:
+        while n_done < n_exp:
+            while jobs and not all(slot_busy):
+                slot = next(i for i, busy in enumerate(slot_busy) if not busy)
+                idx_net = jobs.pop(0)
+                p = mp.Process(
+                    target=_worker_fn,
+                    args=(idx_net, slot, dst, args, channel, num_classes, shape_img,
+                          devices[slot], mask_mode, topfrac, return_images, result_queue),
+                )
+                p.start()
+                slot_busy[slot] = True
+
+            item = result_queue.get()
+            slot_busy[item['device_idx']] = False
+            results[item['idx_net']] = item['result']
+            if 'error' in item:
+                print(f'\n  WARNING: exp {item["idx_net"]} failed: {item["error"]}')
+            n_done += 1
+            pbar.update(1)
+
+    return results
+
+
 # ---- Calibration output helpers -------------------------------------------------
 
 def _to_display(img_np, channel):
@@ -256,27 +319,23 @@ def _save_calibration_csv(results, save_dir, threshold):
 
 def run_mse_calibration(args, dst, channel, num_classes, shape_img, save_path):
     """
-    Run baseline iDLG (no masking) on --num_exp images and save MSE distribution
-    plots so you can pick a threshold.  Called from iDLG_mask.main() when
-    --mse_visualise is set without --threshold_mse.
+    Run baseline iDLG (no masking) on --num_exp images in parallel across GPUs.
+    Called from iDLG_mask.main() when --mse_visualise is set without --threshold_mse.
     """
-    device, net, criterion, dm, ds, lb, ub = _setup(args, channel, num_classes, shape_img)
-
     ts = datetime.now().strftime('%Y%m%d_%H%M%S')
     out_dir = os.path.join(save_path, f'threshold_{args.network}_{args.dataset}_{ts}')
     os.makedirs(out_dir, exist_ok=True)
 
     threshold = args.threshold_mse
+    num_gpus = torch.cuda.device_count() if torch.cuda.is_available() else 0
     print(f'Calibration: {args.network} / {args.dataset}  {args.num_exp} images  '
-          f'iter={args.iteration}' + (f'  threshold={threshold}' if threshold else ''))
+          f'iter={args.iteration}  GPUs={max(num_gpus, 1)}'
+          + (f'  threshold={threshold}' if threshold else ''))
     print(f'Saving to: {out_dir}\n')
 
-    results = []
-    for idx_net in tqdm(range(args.num_exp), desc='baseline iDLG'):
-        r = _run_one(idx_net, dst, net, criterion, dm, ds, lb, ub, args, device,
-                     return_images=True)
-        results.append(r)
-        tqdm.write(f'  exp {idx_net:3d}  idx={r["idx"]:5d}  mse={r["best_mse"]:.6f}')
+    results = _run_parallel(args.num_exp, dst, args, channel, num_classes, shape_img,
+                            mask_mode=None, return_images=True, desc='baseline iDLG')
+    results = [r for r in results if r is not None]
 
     mses = [r['best_mse'] for r in results]
     print(f'\nMSE  min={min(mses):.6f}  max={max(mses):.6f}  '
@@ -295,28 +354,26 @@ def run_mse_calibration(args, dst, channel, num_classes, shape_img, save_path):
 
 def run_mse_sweep(args, dst, channel, num_classes, shape_img, save_path):
     """
-    Sweep args.mask_mode from topfrac 0.1 to 1.0 (step 0.1).
+    Sweep args.mask_mode from topfrac 0.1 to 1.0 in parallel across GPUs.
     Called from iDLG_mask.main() when --mse_visualise and --threshold_mse are both set.
     """
-    device, net, criterion, dm, ds, lb, ub = _setup(args, channel, num_classes, shape_img)
-
     ts = datetime.now().strftime('%Y%m%d_%H%M%S')
     out_dir = os.path.join(save_path, f'sweep_{args.network}_{args.dataset}_{ts}')
     os.makedirs(out_dir, exist_ok=True)
 
-    n_pts = len(SWEEP_FRACS)
-    print(f'MSE sweep: {args.mask_mode}  {n_pts} fracs  '
-          f'({n_pts * args.num_exp} total runs)  threshold={args.threshold_mse}')
+    num_gpus = torch.cuda.device_count() if torch.cuda.is_available() else 0
+    print(f'MSE sweep: {args.mask_mode}  {len(SWEEP_FRACS)} fracs  '
+          f'({len(SWEEP_FRACS) * args.num_exp} total runs)  '
+          f'GPUs={max(num_gpus, 1)}  threshold={args.threshold_mse}')
     print(f'Saving to: {out_dir}\n')
 
     csv_rows = []
     for pt, frac in enumerate(SWEEP_FRACS, 1):
-        print(f'[{pt}/{n_pts}] topfrac={frac:.1f}  ({int((1 - frac) * 100)}% masked)')
-        mses = []
-        for idx_net in tqdm(range(args.num_exp), desc='  experiments', leave=False):
-            mse = _run_one(idx_net, dst, net, criterion, dm, ds, lb, ub,
-                           args, device, mask_mode=args.mask_mode, topfrac=frac)
-            mses.append(mse)
+        print(f'[{pt}/{len(SWEEP_FRACS)}] topfrac={frac:.1f}  ({int((1 - frac) * 100)}% masked)')
+        mses = _run_parallel(args.num_exp, dst, args, channel, num_classes, shape_img,
+                             mask_mode=args.mask_mode, topfrac=frac,
+                             desc=f'topfrac={frac:.1f}')
+        mses = [m for m in mses if m is not None]
         n_recon = sum(1 for m in mses if m <= args.threshold_mse)
         row = {
             'mask_mode':       args.mask_mode,
@@ -328,7 +385,7 @@ def run_mse_sweep(args, dst, channel, num_classes, shape_img, save_path):
             'median_mse':      float(np.median(mses)),
         }
         csv_rows.append(row)
-        print(f'  -> {n_recon}/{args.num_exp} reconstructed  avg_mse={row["avg_mse"]:.6f}')
+        print(f'  -> {n_recon}/{len(mses)} reconstructed  avg_mse={row["avg_mse"]:.6f}')
 
     _save_sweep_csv(csv_rows, out_dir)
     _save_plot(csv_rows, out_dir, args.threshold_mse, args.num_exp,
