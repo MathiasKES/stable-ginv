@@ -322,8 +322,6 @@ def main():
     dst, channel, num_classes, shape_img = load_dataset(dataset, data_path)
 
     if args.mse_visualise:
-        if args.optimizer in ('signed_adam', 'signed_adamw'):
-            parser.error('--optimizer signed_adam/signed_adamw are not supported with --mse_visualise')
         if args.threshold_mse is None:
             run_mse_calibration(args, dst, channel, num_classes, shape_img, save_path)
         else:

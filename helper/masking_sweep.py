@@ -24,6 +24,7 @@ import matplotlib.pyplot as plt
 import functions.consts as consts
 from helper.Network import get_model, weights_init
 from helper.metrics import total_variation
+from helper.training_utils import make_scheduler
 from functions.masking import (build_gradient_mask, flatten_observed_gradients,
                                 _get_last_fc_param_indices)
 
@@ -141,10 +142,11 @@ def _run_one(idx_net, dst, net, criterion, dm, ds, lb, ub, args, device,
                 with torch.no_grad():
                     dummy.clamp_(lb, ub)
         else:
-            cls = torch.optim.AdamW if args.optimizer == 'adamw' else torch.optim.Adam
-            wd = 1e-5 if args.optimizer == 'adamw' else 0.0
+            signed = args.optimizer in ('signed_adam', 'signed_adamw')
+            wd = 1e-5 if args.optimizer in ('adamw', 'signed_adamw') else 0.0
+            cls = torch.optim.AdamW if args.optimizer in ('adamw', 'signed_adamw') else torch.optim.Adam
             opt = cls([dummy], lr=args.lr, weight_decay=wd)
-            sched = torch.optim.lr_scheduler.StepLR(opt, step_size=300, gamma=args.gamma)
+            sched = make_scheduler(opt, args.iteration, args.gamma)
             for _ in range(args.iteration):
                 opt.zero_grad()
                 dummy_grads = torch.autograd.grad(
@@ -154,6 +156,9 @@ def _run_one(idx_net, dst, net, criterion, dm, ds, lb, ub, args, device,
                 if args.tv_weight > 0:
                     diff = diff + args.tv_weight * total_variation(dummy)
                 diff.backward()
+                if signed and dummy.grad is not None:
+                    with torch.no_grad():
+                        dummy.grad.sign_()
                 opt.step()
                 sched.step()
                 with torch.no_grad():
