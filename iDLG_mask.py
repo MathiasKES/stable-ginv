@@ -20,6 +20,9 @@ from run_single_exp import run_single_experiment
 from tqdm import tqdm
 from helper.masking_sweep import run_mse_sweep
 
+from functions.io_utils import setstdout
+setstdout()
+
 def main():
     parser = argparse.ArgumentParser()
 

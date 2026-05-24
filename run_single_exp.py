@@ -12,6 +12,9 @@ from helper.metrics import (compute_psnr_from_mse, compute_jacobian_rank, total_
 from helper.Network import get_model, weights_init
 from helper.training_utils import make_scheduler
 
+from functions.io_utils import setstdout
+setstdout()
+
 def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_queue):
     try:
         _run_inner(idx_net, device_id, dst, dataset_name, config, result_queue)

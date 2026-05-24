@@ -4,6 +4,9 @@ import PIL.Image as Image
 from torchvision import datasets, transforms
 import numpy as np
 
+from functions.io_utils import setstdout
+setstdout()
+
 
 def load_dataset(dataset, data_path):
     """Load a dataset by name; returns (dst, channel, num_classes, shape_img)."""

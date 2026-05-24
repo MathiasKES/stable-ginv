@@ -25,6 +25,9 @@ from helper.metrics import total_variation
 from functions.masking import (build_gradient_mask, flatten_observed_gradients,
                                 _get_last_fc_param_indices)
 
+from functions.io_utils import setstdout
+setstdout()
+
 SWEEP_FRACS = [round(f * 0.1, 1) for f in range(1, 11)]   # 0.1 … 1.0
 SWEEP_MODES = ['gradsize_topfrac_entries', 'gradsize_topfrac_entries_layer']
 _MODE_LABELS = {

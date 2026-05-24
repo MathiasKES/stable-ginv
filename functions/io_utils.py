@@ -4,9 +4,44 @@ import json
 import math
 import os
 
+import sys
+from datetime import datetime
+
 import numpy as np
 from scipy import stats
 
+def setstdout():
+    if os.environ.get("LSB_INTERACTIVE", default="N") == "Y":
+        class Tee:
+            def __init__(self, *streams):
+                self.streams = streams
+
+            def write(self, data):
+                for stream in self.streams:
+                    stream.write(data)
+                    stream.flush()
+
+            def flush(self):
+                for stream in self.streams:
+                    stream.flush()
+
+        # Keep original stdout
+        terminal = sys.stdout
+
+        # Open log file
+        dt = datetime.now().strftime("%Y%m%d_%H%M%S")
+        if os.path.exists("/work3/s234843/bachelor/gpuout/idlg"):
+            path = f"/work3/s234843/bachelor/gpuout/idlg/i{dt}.out"
+        else:
+            os.makedirs("./gpuout", exist_ok=True)
+            path = f"./gpuout/i{dt}.out"
+
+        logfile = open(path, "w")
+
+        # Redirect stdout
+        sys.stdout = Tee(terminal, logfile)
+
+setstdout()
 
 def parse_prefixes_with_fracs(prefixes_str):
     """Parse 'conv1:0.5,layer1:1.0,fc' into (prefixes_tuple, fracs_dict)."""

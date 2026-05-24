@@ -5,6 +5,8 @@ import os
 
 import numpy as np
 
+from functions.io_utils import setstdout
+setstdout()
 
 def save_recon_panel(params: dict, panel_gt_pil, panel_idlg_pil, panel_masked_pil,
                      save_dir, block_idx, dataset, mask_desc: str, timestamp_str: str,

@@ -38,6 +38,8 @@ from helper.Network import get_model, weights_init
 from helper.metrics import compute_psnr_from_mse, total_variation
 from functions.masking import _get_last_fc_param_indices
 
+from functions.io_utils import setstdout
+setstdout()
 
 def _run_one(idx_net, dst, net, dm, ds, lower_bound, upper_bound, criterion, args, device):
     """Run iDLG on a single experiment; return result dict."""

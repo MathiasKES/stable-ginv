@@ -21,6 +21,9 @@ from helper.Network import get_model, weights_init
 from functions.masking import build_gradient_mask
 from helper.metrics import compute_jacobian_rank
 
+from functions.io_utils import setstdout
+setstdout()
+
 
 def _data_path():
     if os.access('/work3/s234843/bachelor', os.R_OK | os.W_OK | os.X_OK):

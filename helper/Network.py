@@ -2,6 +2,9 @@ import torch.nn as nn
 import torch
 from torchvision import models
 
+from functions.io_utils import setstdout
+setstdout()
+
 
 def get_model(network, channel=3, num_classes=10, input_size=(32, 32), pretrained=False):
     if network == "LeNet":
