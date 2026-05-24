@@ -9,25 +9,25 @@ import numpy as np
 def save_recon_panel(params: dict, panel_gt_pil, panel_idlg_pil, panel_masked_pil,
                      save_dir, block_idx, dataset, mask_desc: str, timestamp_str: str,
                      methods: str = "both",
-                     psnr_idlg=None, ssim_idlg=None,
-                     psnr_masked=None, ssim_masked=None):
+                     psnr_idlg=None, ssim_idlg=None, mse_idlg=None,
+                     psnr_masked=None, ssim_masked=None, mse_masked=None):
     """Save a PNG reconstruction panel; rows adapt to which methods were run."""
     n = len(panel_gt_pil)
     if n == 0:
         return
 
-    rows = [("GT", panel_gt_pil, None, None)]
+    rows = [("GT", panel_gt_pil, None, None, None)]
 
     if methods in ["idlg", "both"]:
-        rows.append(("iDLG", panel_idlg_pil, psnr_idlg, ssim_idlg))
+        rows.append(("iDLG", panel_idlg_pil, psnr_idlg, ssim_idlg, mse_idlg))
 
     if methods in ["masked", "both"]:
-        rows.append(("iDLG_masked", panel_masked_pil, psnr_masked, ssim_masked))
+        rows.append(("iDLG_masked", panel_masked_pil, psnr_masked, ssim_masked, mse_masked))
 
     num_rows = len(rows)
     fig = plt.figure(figsize=(2.2 * n + 1.6, 2.5 * num_rows))
 
-    for r, (row_name, row_imgs, row_psnr, row_ssim) in enumerate(rows):
+    for r, (row_name, row_imgs, row_psnr, row_ssim, row_mse) in enumerate(rows):
         y = 1.0 - (r + 0.5) / num_rows
         fig.text(0.01, y, row_name, va='center', ha='left',
                  fontsize=14, fontweight='bold')
@@ -39,12 +39,14 @@ def save_recon_panel(params: dict, panel_gt_pil, panel_idlg_pil, panel_masked_pi
                 ax.set_title(f"exp {j}", fontsize=8)
 
             ax.axis('off')
-            if row_psnr is not None or row_ssim is not None:
+            if row_psnr is not None or row_ssim is not None or row_mse is not None:
                 parts = []
                 if row_psnr is not None and row_psnr[j] is not None:
                     parts.append(f"PSNR:{row_psnr[j]:.2f}dB")
                 if row_ssim is not None and row_ssim[j] is not None:
                     parts.append(f"SSIM:{row_ssim[j]:.3f}")
+                if row_mse is not None and row_mse[j] is not None:
+                    parts.append(f"MSE:{row_mse[j]:.4f}")
                 ax.text(0.5, -0.05, "\n".join(parts), transform=ax.transAxes,
                         fontsize=7, ha='center', va='top')
 

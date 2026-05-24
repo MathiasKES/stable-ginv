@@ -310,8 +310,10 @@ def main():
     panel_png_paths = []
     panel_psnr_idlg = []
     panel_ssim_idlg = []
+    panel_mse_idlg = []
     panel_psnr_masked = []
     panel_ssim_masked = []
+    panel_mse_masked = []
 
     psnr_idlg_all = []
     psnr_masked_all = []
@@ -475,16 +477,18 @@ def main():
 
             panel_psnr_idlg.append(result.get('best_psnr_idlg'))
             panel_ssim_idlg.append(result.get('best_ssim_idlg'))
+            panel_mse_idlg.append(result.get('best_mse_iDLG'))
             panel_psnr_masked.append(result.get('best_psnr_masked'))
             panel_ssim_masked.append(result.get('best_ssim_masked'))
+            panel_mse_masked.append(result.get('best_mse_iDLG_masked'))
 
             if len(panel_gt_pil) == panel_block_size:
                 panel_path = save_recon_panel(
                 params, panel_gt_pil, panel_idlg_pil, panel_masked_pil,
                 save_path, panel_block_idx, dataset, mask_desc, timestamp_str,
                 methods=METHODS,
-                psnr_idlg=panel_psnr_idlg, ssim_idlg=panel_ssim_idlg,
-                psnr_masked=panel_psnr_masked, ssim_masked=panel_ssim_masked,
+                psnr_idlg=panel_psnr_idlg, ssim_idlg=panel_ssim_idlg, mse_idlg=panel_mse_idlg,
+                psnr_masked=panel_psnr_masked, ssim_masked=panel_ssim_masked, mse_masked=panel_mse_masked,
             )
                 if panel_path:
                     panel_png_paths.append(panel_path)
@@ -494,8 +498,10 @@ def main():
                 panel_masked_pil.clear()
                 panel_psnr_idlg.clear()
                 panel_ssim_idlg.clear()
+                panel_mse_idlg.clear()
                 panel_psnr_masked.clear()
                 panel_ssim_masked.clear()
+                panel_mse_masked.clear()
 
             es_r = result.get("early_stop_reason", {})
             es_i = result.get("early_stop_iter", {})
@@ -547,8 +553,8 @@ def main():
         params, panel_gt_pil, panel_idlg_pil, panel_masked_pil,
         save_path, panel_block_idx, dataset, mask_desc, timestamp_str,
         methods=METHODS,
-        psnr_idlg=panel_psnr_idlg, ssim_idlg=panel_ssim_idlg,
-        psnr_masked=panel_psnr_masked, ssim_masked=panel_ssim_masked,
+        psnr_idlg=panel_psnr_idlg, ssim_idlg=panel_ssim_idlg, mse_idlg=panel_mse_idlg,
+        psnr_masked=panel_psnr_masked, ssim_masked=panel_ssim_masked, mse_masked=panel_mse_masked,
     )
         if panel_path:
             panel_png_paths.append(panel_path)
