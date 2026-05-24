@@ -29,15 +29,6 @@ from functions.masking import (build_gradient_mask, flatten_observed_gradients,
                                 _get_last_fc_param_indices)
 
 SWEEP_FRACS = [round(f * 0.1, 1) for f in range(1, 11)]   # 0.1 … 1.0
-SWEEP_MODES = ['gradsize_topfrac_entries', 'gradsize_topfrac_entries_layer']
-_MODE_LABELS = {
-    'gradsize_topfrac_entries':       'global (topfrac_entries)',
-    'gradsize_topfrac_entries_layer': 'per-layer (topfrac_entries_layer)',
-}
-_MODE_COLORS = {
-    'gradsize_topfrac_entries':       'steelblue',
-    'gradsize_topfrac_entries_layer': 'darkorange',
-}
 
 
 # ---- Shared setup ---------------------------------------------------------------
@@ -303,7 +294,7 @@ def run_mse_calibration(args, dst, channel, num_classes, shape_img, save_path):
 
 def run_mse_sweep(args, dst, channel, num_classes, shape_img, save_path):
     """
-    Sweep gradsize_topfrac_entries and gradsize_topfrac_entries_layer from 0.1 to 1.0.
+    Sweep args.mask_mode from topfrac 0.1 to 1.0 (step 0.1).
     Called from iDLG_mask.main() when --mse_visualise and --threshold_mse are both set.
     """
     device, net, criterion, dm, ds, lb, ub = _setup(args, channel, num_classes, shape_img)
@@ -312,24 +303,22 @@ def run_mse_sweep(args, dst, channel, num_classes, shape_img, save_path):
     out_dir = os.path.join(save_path, f'sweep_{args.network}_{args.dataset}_{ts}')
     os.makedirs(out_dir, exist_ok=True)
 
-    n_pts = len(SWEEP_MODES) * len(SWEEP_FRACS)
-    print(f'MSE sweep: {len(SWEEP_MODES)} modes x {len(SWEEP_FRACS)} fracs = {n_pts} points  '
+    n_pts = len(SWEEP_FRACS)
+    print(f'MSE sweep: {args.mask_mode}  {n_pts} fracs  '
           f'({n_pts * args.num_exp} total runs)  threshold={args.threshold_mse}')
     print(f'Saving to: {out_dir}\n')
 
     csv_rows = []
-    for pt, (mask_mode, frac) in enumerate(
-            ((m, f) for m in SWEEP_MODES for f in SWEEP_FRACS), 1):
-        print(f'[{pt}/{n_pts}] {mask_mode}  topfrac={frac:.1f}  '
-              f'({int((1 - frac) * 100)}% masked)')
+    for pt, frac in enumerate(SWEEP_FRACS, 1):
+        print(f'[{pt}/{n_pts}] topfrac={frac:.1f}  ({int((1 - frac) * 100)}% masked)')
         mses = []
         for idx_net in tqdm(range(args.num_exp), desc='  experiments', leave=False):
             mse = _run_one(idx_net, dst, net, criterion, dm, ds, lb, ub,
-                           args, device, mask_mode=mask_mode, topfrac=frac)
+                           args, device, mask_mode=args.mask_mode, topfrac=frac)
             mses.append(mse)
         n_recon = sum(1 for m in mses if m <= args.threshold_mse)
         row = {
-            'mask_mode':       mask_mode,
+            'mask_mode':       args.mask_mode,
             'topfrac':         frac,
             'pct_masked':      round((1.0 - frac) * 100.0, 1),
             'n_reconstructed': n_recon,
@@ -342,7 +331,7 @@ def run_mse_sweep(args, dst, channel, num_classes, shape_img, save_path):
 
     _save_sweep_csv(csv_rows, out_dir)
     _save_plot(csv_rows, out_dir, args.threshold_mse, args.num_exp,
-               args.network, args.dataset)
+               args.network, args.dataset, args.mask_mode)
 
 
 def _save_sweep_csv(rows, out_dir):
@@ -356,26 +345,19 @@ def _save_sweep_csv(rows, out_dir):
     print(f'Saved: {path}')
 
 
-def _save_plot(rows, out_dir, threshold, num_exp, network, dataset):
+def _save_plot(rows, out_dir, threshold, num_exp, network, dataset, mask_mode):
+    rows = sorted(rows, key=lambda r: r['topfrac'])
     fig, ax = plt.subplots(figsize=(9, 5))
-    by_mode = {}
-    for row in rows:
-        by_mode.setdefault(row['mask_mode'], []).append(row)
-    for mode, mode_rows in by_mode.items():
-        mode_rows = sorted(mode_rows, key=lambda r: r['topfrac'])
-        ax.plot([r['topfrac'] for r in mode_rows],
-                [r['n_reconstructed'] for r in mode_rows],
-                marker='o', linewidth=1.8,
-                label=_MODE_LABELS.get(mode, mode),
-                color=_MODE_COLORS.get(mode))
+    ax.plot([r['topfrac'] for r in rows],
+            [r['n_reconstructed'] for r in rows],
+            marker='o', linewidth=1.8, label=mask_mode)
     ax.set_xlabel('Fraction of gradient entries shared (topfrac)')
     ax.set_ylabel(f'Images reconstructed  (MSE <= {threshold})')
-    ax.set_title(f'Entry-wise masking sweep — {network} / {dataset}  '
-                 f'({num_exp} images per point)')
+    ax.set_title(f'Masking sweep — {network} / {dataset}  ({num_exp} images per point)\n'
+                 f'{mask_mode}')
     ax.set_xlim(0.05, 1.05)
     ax.set_ylim(-0.5, num_exp + 0.5)
     ax.set_xticks(SWEEP_FRACS)
-    ax.legend()
     ax.grid(True, alpha=0.3)
     ax2 = ax.twiny()
     ax2.set_xlim(ax.get_xlim())
