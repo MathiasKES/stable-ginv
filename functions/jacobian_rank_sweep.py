@@ -140,7 +140,6 @@ def _worker_core(args, sample_indices, device, row_counts, prefixes, prefix_laye
                 max_entries=rows,
                 select_mode=args.jacobian_select_mode,
                 device_for_J="cpu",
-                rank_tol=args.rank_tol,
             )
             results[rows].append(jac_rank)
             if rows == max(row_counts):
@@ -203,9 +202,6 @@ def main():
                         default="3072,3500,4000,4500,5000,5500,6000,6500,7000,7500,8000,8500,9000,9500,10000")
     parser.add_argument("--jacobian_select_mode", type=str, default="topk_abs",
                         choices=["topk_abs", "first", "random"])
-    parser.add_argument("--rank_tol", type=float, default=1e-6,
-                        help="Relative tolerance for numerical Jacobian rank.")
-
     parser.add_argument("--num_samples", type=int, default=3)
     parser.add_argument("--run_id", type=int, default=0)
     parser.add_argument("--device", type=str, default="cuda:0")
