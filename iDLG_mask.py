@@ -468,11 +468,11 @@ def main():
         if result.get('last_loss_iDLG') is not None:
             print('last_loss_iDLG:', result['last_loss_iDLG'], 'last_mse_iDLG:', result['last_mse_iDLG'])
         if result.get('best_loss_iDLG') is not None:
-            print('best_loss_iDLG:', result['best_loss_iDLG'], 'best_mse_iDLG:', result['best_mse_iDLG'])
+            print('best_loss_iDLG:', result['best_loss_iDLG'], 'best_mse_iDLG:', result['best_mse_iDLG'], 'exp_idx:', idx)
         if result.get('last_loss_iDLG_masked') is not None:
             print('last_loss_iDLG_masked:', result['last_loss_iDLG_masked'], 'last_mse_iDLG_masked:', result['last_mse_iDLG_masked'])
         if result.get('best_loss_iDLG_masked') is not None:
-            print('best_loss_iDLG_masked:', result['best_loss_iDLG_masked'], 'best_mse_iDLG_masked:', result['best_mse_iDLG_masked'])
+            print('best_loss_iDLG_masked:', result['best_loss_iDLG_masked'], 'best_mse_iDLG_masked:', result['best_mse_iDLG_masked'], 'exp_idx:', idx)
         if result.get('jac_rank_iDLG') is not None:
             print('jac_rank_iDLG:', result['jac_rank_iDLG'], 'jac_shape_iDLG:', result['jac_shape_iDLG'])
         if result.get('jac_rank_iDLG_masked') is not None:
