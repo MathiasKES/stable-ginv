@@ -111,6 +111,52 @@ This produces:
 
 ---
 
+---
+
+## Post-handover fixes (same session, continued)
+
+### Restart image figure bugs fixed — `8462f2b`
+
+Three bugs in `restart_images_<ts>.png`:
+
+1. **GT k=5 column was gray** — `img_list[k-1]` indexed position 4 into a list with only `len(display_ks)=3` elements. Fixed by pre-building display-indexed lists (one entry per column, ordered by `display_ks`) for all rows before the plotting loop. All indexing now uses `c_idx`.
+
+2. **Row labels ("GT", "iDLG", "masked") invisible** — `ax.axis('off')` suppresses `set_ylabel`. Replaced with `ax.text(..., transform=ax.transAxes, ha='right')` positioned to the left of the first column.
+
+3. **MSE/PSNR/SSIM annotations invisible** — same cause: `set_xlabel` is suppressed after `axis('off')`. Replaced with `ax.text(0.5, -0.02, ..., transform=ax.transAxes)` positioned below each cell.
+
+Also: row label for iDLG now reads `"iDLG\n(baseline)"` to be clearer.
+
+---
+
+### Jacobian rank: switched to PyTorch default rtol — `74b67f7`
+
+**File:** `helper/metrics.py`, `functions/jacobian_rank_sweep.py`
+
+The old `rank_tol=1e-6` was used as `atol` with `rtol=0.0`. For float64 with a 5000×3072 normalized matrix, PyTorch's default threshold is `~7.7e-11` — the old value was ~10,000× larger, silently undercounting rank.
+
+**Fix:** `torch.linalg.matrix_rank(J_norm)` — no tolerance args, PyTorch default `rtol = max(M,N)·ε` applied to `σ_max(J_norm)`. Row normalization is retained (keeps `σ_max ≤ √M`).
+
+**Removed:** `rank_tol` parameter from `compute_jacobian_rank` and `--rank_tol` CLI flag from `jacobian_rank_sweep.py`. Any prior sweep results used `rank_tol=1e-6` and should be treated as potentially undercounting rank — re-run if used for thesis.
+
+---
+
+### Parallel restart round-robin task ordering — `d90e1d1`
+
+**File:** `iDLG_mask.py`, parallel restart dispatch block
+
+**Before:** tasks ordered as all restarts for exp 0, then all for exp 1:
+`[(0,r0),(0,r1),(0,r2),(0,r3),(0,r4),(1,r0),(1,r1),...]`
+
+**After:** round-robin across images — one restart per image before doing a second:
+`[(0,r0),(1,r0),(0,r1),(1,r1),(0,r2),(1,r2),(0,r3),(1,r3),(0,r4),(1,r4)]`
+
+**Why:** with 5 restarts and 4 GPUs across 2 images, the old ordering put all of image 0's restarts first. After 4 of them finished, only one GPU started image 0's 5th restart while the other three were idle briefly before image 1's tasks appeared in the queue. Round-robin interleaving ensures all images are always active and no GPU ever idles while tasks remain.
+
+The normal (non-parallel-restart) dispatch was always correct — each GPU immediately picks the next experiment from the queue.
+
+---
+
 ## Decisions carried forward
 
 - `parallel_restarts` is automatic: triggered when `num_exp < num_gpus AND NUM_RESTARTS > 1`. No flag needed.
