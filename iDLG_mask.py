@@ -511,6 +511,20 @@ def main():
                 out.append(best)
             return out
 
+        def _running_best_img(img_key, mse_key):
+            best_mse = None
+            best_img = None
+            out = []
+            for i in sorted_idxs:
+                imgs = rdict[i].get(img_key)
+                img = imgs[0] if imgs else None
+                mse = rdict[i].get(mse_key)
+                if mse is not None and img is not None and (best_mse is None or mse < best_mse):
+                    best_mse = mse
+                    best_img = img
+                out.append(best_img)
+            return out
+
         merged_recon = {}
         merged_recon.update(best_idlg.get('final_recon', {}))
         merged_recon.update(best_masked.get('final_recon', {}))
@@ -540,6 +554,8 @@ def main():
             'last_mse_iDLG_masked': last_r.get('last_mse_iDLG_masked'),
             'psnr_per_restart_idlg': _running_best_psnr('psnr_per_restart_idlg'),
             'psnr_per_restart_masked': _running_best_psnr('psnr_per_restart_masked'),
+            'img_per_restart_idlg': _running_best_img('img_per_restart_idlg', 'best_mse_iDLG'),
+            'img_per_restart_masked': _running_best_img('img_per_restart_masked', 'best_mse_iDLG_masked'),
             'jac_rank_iDLG': best_idlg.get('jac_rank_iDLG'),
             'jac_shape_iDLG': best_idlg.get('jac_shape_iDLG'),
             'jac_rank_iDLG_masked': best_masked.get('jac_rank_iDLG_masked'),
@@ -699,7 +715,7 @@ def main():
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
 
-        restart_csv_path = os.path.join(save_path, "restart_curve.csv")
+        restart_csv_path = os.path.join(save_path, f"restart_curve_{timestamp_str}.csv")
         restart_x = list(range(1, NUM_RESTARTS + 1))
 
         def _restart_stats(per_exp_lists):
@@ -750,10 +766,59 @@ def main():
         ax.legend()
         ax.grid(True, linestyle="--", alpha=0.5)
         plt.tight_layout()
-        restart_plot_path = os.path.join(save_path, "restart_curve.png")
+        restart_plot_path = os.path.join(save_path, f"restart_curve_{timestamp_str}.png")
         fig.savefig(restart_plot_path, dpi=200)
         plt.close(fig)
         print(f"\nRestart curve saved: {restart_csv_path}, {restart_plot_path}")
+
+        # Per-restart image figure (only meaningful with a single experiment)
+        if num_exp == 1 and all_results_by_idx:
+            result1 = next(iter(all_results_by_idx.values()))
+            imgs_i = result1.get('img_per_restart_idlg') or []
+            imgs_m = result1.get('img_per_restart_masked') or []
+            psnrs_i = result1.get('psnr_per_restart_idlg') or []
+            psnrs_m = result1.get('psnr_per_restart_masked') or []
+            gt_np = result1['gt_data']  # (1, C, H, W)
+
+            def _to_hwc(arr):
+                if arr is None:
+                    return None
+                x = arr[0]  # (C, H, W)
+                return x.transpose(1, 2, 0) if x.shape[0] > 1 else x[0]
+
+            rows = [("GT", [gt_np] * NUM_RESTARTS, [None] * NUM_RESTARTS)]
+            if imgs_i:
+                rows.append(("iDLG", imgs_i, psnrs_i))
+            if imgs_m:
+                rows.append((f"masked\n({MASK_MODE})", imgs_m, psnrs_m))
+
+            n_cols = NUM_RESTARTS
+            n_rows = len(rows)
+            fig_img, axes = plt.subplots(n_rows, n_cols, figsize=(2.5 * n_cols, 2.5 * n_rows),
+                                         squeeze=False)
+            cmap = 'gray' if gt_np.shape[1] == 1 else None
+            for r_idx, (label, img_list, psnr_list) in enumerate(rows):
+                for c_idx in range(n_cols):
+                    ax = axes[r_idx][c_idx]
+                    hwc = _to_hwc(img_list[c_idx] if c_idx < len(img_list) else None)
+                    if hwc is not None:
+                        ax.imshow(hwc.clip(0, 1), cmap=cmap)
+                    else:
+                        ax.set_facecolor('lightgray')
+                    ax.axis('off')
+                    if r_idx == 0:
+                        ax.set_title(f"k={c_idx + 1}", fontsize=9)
+                    p = psnr_list[c_idx] if c_idx < len(psnr_list) else None
+                    if p is not None and np.isfinite(p):
+                        ax.set_xlabel(f"{p:.2f} dB", fontsize=8)
+                axes[r_idx][0].set_ylabel(label, fontsize=9)
+
+            fig_img.suptitle(f"Best reconstruction after k restarts — {NETWORK_NAME} / {dataset}", fontsize=10)
+            plt.tight_layout()
+            img_fig_path = os.path.join(save_path, f"restart_images_{timestamp_str}.png")
+            fig_img.savefig(img_fig_path, dpi=200)
+            plt.close(fig_img)
+            print(f"Restart image figure saved: {img_fig_path}")
 
     # -------- Paired statistics --------
     empty_stats = {

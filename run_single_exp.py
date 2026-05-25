@@ -125,6 +125,7 @@ def _run_inner(idx_net, device_id, dst, dataset_name, config, result_queue):
     _jac_rank = {}
     _jac_shape = {}
     _psnr_per_restart = {}
+    _img_per_restart = {}
 
     if METHODS == "idlg":
         methods_to_run = ["iDLG"]
@@ -294,6 +295,7 @@ def _run_inner(idx_net, device_id, dst, dataset_name, config, result_queue):
         selected_entry_masks = [entry_masks[i] for i in selected_ids] if entry_masks is not None else None
 
         _best_mse_per_restart = []
+        _best_img_per_restart = []
         _restart_range = [SINGLE_RESTART_IDX] if SINGLE_RESTART_IDX is not None else range(NUM_RESTARTS)
 
         for restart_idx in _restart_range:
@@ -441,11 +443,13 @@ def _run_inner(idx_net, device_id, dst, dataset_name, config, result_queue):
                         _best_restart_frames = _restart_frames[:]
 
             _best_mse_per_restart.append(best_restart_mse_value)
+            _best_img_per_restart.append(best_restart_dummy.cpu().numpy() if best_restart_dummy is not None else None)
 
         _psnr_per_restart[method] = [
             compute_psnr_from_mse(m, max_val=1.0) if (m is not None and np.isfinite(m)) else None
             for m in _best_mse_per_restart
         ]
+        _img_per_restart[method] = _best_img_per_restart
 
         if SAVE_GIF:
             init_frames_by_method[method] = _best_restart_init_np
@@ -503,6 +507,8 @@ def _run_inner(idx_net, device_id, dst, dataset_name, config, result_queue):
         'early_stop_iter': early_stop_iter_dict,
         'psnr_per_restart_idlg':   _psnr_per_restart.get('iDLG'),
         'psnr_per_restart_masked': _psnr_per_restart.get('iDLG_masked'),
+        'img_per_restart_idlg':    _img_per_restart.get('iDLG'),
+        'img_per_restart_masked':  _img_per_restart.get('iDLG_masked'),
         'restart_idx': SINGLE_RESTART_IDX,
         'init_frames': init_frames_by_method,
         'recon_frames': recon_frames_by_method,
