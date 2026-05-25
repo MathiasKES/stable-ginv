@@ -811,6 +811,13 @@ def main():
         gain_ks = [k for k in [5, 10] if k <= NUM_RESTARTS]
         gain_rows_extra = {k: {} for k in gain_ks}
 
+        def _normality_str(ci):
+            sw_p = ci.get("shapiro_p", float("nan"))
+            if np.isnan(sw_p):
+                return "normality: n/a"
+            label = "normal" if sw_p > 0.05 else "NON-NORMAL"
+            return f"normality: {label} (W={ci['shapiro_stat']:.4f}, p={sw_p:.4f})"
+
         def _gain_ci_str(all_rows, k, fmt=".3f"):
             pairs = [(row[0], row[k - 1]) for row in (all_rows or [])
                      if row and row[0] is not None and row[k - 1] is not None]
@@ -840,19 +847,26 @@ def main():
                     continue
                 gain_key = "idlg" if method_label == "iDLG" else "masked"
                 row_str = f"  {method_label:<10s}"
+                norm_str = f"  {'':10s}"
                 for k in gain_ks:
                     psnr_str, psnr_ci = _gain_ci_str(psnr_all, k, ".3f")
                     mse_str,  mse_ci  = _gain_ci_str(mse_all,  k, ".5f")
-                    row_str += f"  {psnr_str:<32s}  {mse_str:<32s}"
+                    row_str  += f"  {psnr_str:<32s}  {mse_str:<32s}"
+                    psnr_norm = _normality_str(psnr_ci) if psnr_ci else "normality: n/a"
+                    mse_norm  = _normality_str(mse_ci)  if mse_ci  else "normality: n/a"
+                    norm_str += f"  {psnr_norm:<44s}  {mse_norm:<44s}"
                     if psnr_ci is not None:
-                        gain_rows_extra[k][f"gain_psnr_{gain_key}"]    = round(psnr_ci["mean_diff"], 5)
-                        gain_rows_extra[k][f"ci_low_psnr_{gain_key}"]  = round(psnr_ci["ci_low"], 5)
-                        gain_rows_extra[k][f"ci_high_psnr_{gain_key}"] = round(psnr_ci["ci_high"], 5)
+                        gain_rows_extra[k][f"gain_psnr_{gain_key}"]           = round(psnr_ci["mean_diff"], 5)
+                        gain_rows_extra[k][f"ci_low_psnr_{gain_key}"]         = round(psnr_ci["ci_low"], 5)
+                        gain_rows_extra[k][f"ci_high_psnr_{gain_key}"]        = round(psnr_ci["ci_high"], 5)
+                        gain_rows_extra[k][f"normality_psnr_{gain_key}"]      = _normality_str(psnr_ci)
                     if mse_ci is not None:
-                        gain_rows_extra[k][f"gain_mse_{gain_key}"]     = round(mse_ci["mean_diff"], 7)
-                        gain_rows_extra[k][f"ci_low_mse_{gain_key}"]   = round(mse_ci["ci_low"], 7)
-                        gain_rows_extra[k][f"ci_high_mse_{gain_key}"]  = round(mse_ci["ci_high"], 7)
+                        gain_rows_extra[k][f"gain_mse_{gain_key}"]            = round(mse_ci["mean_diff"], 7)
+                        gain_rows_extra[k][f"ci_low_mse_{gain_key}"]          = round(mse_ci["ci_low"], 7)
+                        gain_rows_extra[k][f"ci_high_mse_{gain_key}"]         = round(mse_ci["ci_high"], 7)
+                        gain_rows_extra[k][f"normality_mse_{gain_key}"]       = _normality_str(mse_ci)
                 print(row_str)
+                print(norm_str)
 
         # Re-write CSV with gain columns appended to k=5 and k=10 rows
         if gain_ks and any(gain_rows_extra[k] for k in gain_ks):
