@@ -380,35 +380,283 @@ def main():
 
     result_queue = mp.SimpleQueue()
     active_processes = {}
-    next_exp = 0
-    completed = 0
     all_results_by_idx = {}
 
-    # Start one experiment per GPU initially
-    for device_id in range(min(num_gpus, num_exp)):
-        p = mp.Process(
-            target=run_single_experiment,
-            args=(next_exp, device_id, dst, dataset, config, result_queue)
-        )
-        p.start()
-        active_processes[device_id] = p
-        next_exp += 1
+    parallel_restarts = num_exp < num_gpus and NUM_RESTARTS > 1
 
-    # Keep launching a new experiment whenever one finishes
-    with tqdm(total=num_exp, desc="Experiments", position=0) as pbar:
-        while completed < num_exp:
-            result = result_queue.get()
-            completed += 1
-            pbar.update(1)
-            pbar.set_postfix(last_exp=result["idx_net"], gpu=result["device_id"])
+    # ---- _handle_result closure: accumulates lists, builds panel, prints ----
+    def _handle_result(result):
+        nonlocal panel_block_idx
+        idx = result['idx_net']
+        all_results_by_idx[idx] = result
 
-            idx_net = result['idx_net']
-            finished_device = result['device_id']
+        if result.get('best_ssim_idlg') is not None:
+            best_ssim_idlg_all.append(result['best_ssim_idlg'])
+        if result.get('best_ssim_masked') is not None:
+            best_ssim_masked_all.append(result['best_ssim_masked'])
+        if result.get('last_psnr_idlg') is not None:
+            psnr_idlg_all.append(result['last_psnr_idlg'])
+        if result.get('last_psnr_masked') is not None:
+            psnr_masked_all.append(result['last_psnr_masked'])
+        if result.get('last_loss_iDLG') is not None:
+            final_loss_idlg_all.append(result['last_loss_iDLG'])
+        if result.get('last_mse_iDLG') is not None:
+            final_mse_idlg_all.append(result['last_mse_iDLG'])
+        if result.get('last_loss_iDLG_masked') is not None:
+            final_loss_masked_all.append(result['last_loss_iDLG_masked'])
+        if result.get('last_mse_iDLG_masked') is not None:
+            final_mse_masked_all.append(result['last_mse_iDLG_masked'])
+        if result.get('best_psnr_idlg') is not None:
+            best_psnr_idlg_all.append(result['best_psnr_idlg'])
+        if result.get('best_psnr_masked') is not None:
+            best_psnr_masked_all.append(result['best_psnr_masked'])
+        if result.get('best_loss_iDLG') is not None:
+            best_loss_idlg_all.append(result['best_loss_iDLG'])
+        if result.get('best_mse_iDLG') is not None:
+            best_mse_idlg_all.append(result['best_mse_iDLG'])
+        if result.get('best_loss_iDLG_masked') is not None:
+            best_loss_masked_all.append(result['best_loss_iDLG_masked'])
+        if result.get('best_mse_iDLG_masked') is not None:
+            best_mse_masked_all.append(result['best_mse_iDLG_masked'])
+        if result.get('psnr_per_restart_idlg') is not None:
+            psnr_per_restart_idlg_all.append(result['psnr_per_restart_idlg'])
+        if result.get('psnr_per_restart_masked') is not None:
+            psnr_per_restart_masked_all.append(result['psnr_per_restart_masked'])
 
-            if result.get('error') is not None:
-                print(f"\n[ERROR] Experiment {idx_net} on GPU {finished_device} failed:")
-                print(result['traceback'])
+        gt_pil = tp(torch.from_numpy(result['gt_data'])[0])
+        panel_gt_pil.append(gt_pil)
+        if 'iDLG' not in result['final_recon']:
+            idlg_pil = gt_pil
+        elif result.get('best_psnr_idlg') is None:
+            tqdm.write(f"[WARNING] Experiment {idx}: iDLG reconstruction failed (all restarts diverged); showing blank in panel.")
+            idlg_pil = gt_pil
+        else:
+            idlg_pil = tp(torch.from_numpy(result['final_recon']['iDLG'])[0])
+        panel_idlg_pil.append(idlg_pil)
+        if 'iDLG_masked' not in result['final_recon']:
+            masked_pil = gt_pil
+        elif result.get('best_psnr_masked') is None:
+            tqdm.write(f"[WARNING] Experiment {idx}: masked iDLG reconstruction failed (all restarts diverged); showing blank in panel.")
+            masked_pil = gt_pil
+        else:
+            masked_pil = tp(torch.from_numpy(result['final_recon']['iDLG_masked'])[0])
+        panel_masked_pil.append(masked_pil)
+        panel_psnr_idlg.append(result.get('best_psnr_idlg'))
+        panel_ssim_idlg.append(result.get('best_ssim_idlg'))
+        panel_mse_idlg.append(result.get('best_mse_iDLG'))
+        panel_psnr_masked.append(result.get('best_psnr_masked'))
+        panel_ssim_masked.append(result.get('best_ssim_masked'))
+        panel_mse_masked.append(result.get('best_mse_iDLG_masked'))
+        if len(panel_gt_pil) == panel_block_size:
+            panel_path = save_recon_panel(
+                params, panel_gt_pil, panel_idlg_pil, panel_masked_pil,
+                save_path, panel_block_idx, dataset, mask_desc, timestamp_str,
+                methods=METHODS,
+                psnr_idlg=panel_psnr_idlg, ssim_idlg=panel_ssim_idlg, mse_idlg=panel_mse_idlg,
+                psnr_masked=panel_psnr_masked, ssim_masked=panel_ssim_masked, mse_masked=panel_mse_masked,
+            )
+            if panel_path:
+                panel_png_paths.append(panel_path)
+            panel_block_idx += 1
+            panel_gt_pil.clear(); panel_idlg_pil.clear(); panel_masked_pil.clear()
+            panel_psnr_idlg.clear(); panel_ssim_idlg.clear(); panel_mse_idlg.clear()
+            panel_psnr_masked.clear(); panel_ssim_masked.clear(); panel_mse_masked.clear()
+
+        es_r = result.get("early_stop_reason", {})
+        es_i = result.get("early_stop_iter", {})
+        print(f"early_stop iDLG: {es_r.get('iDLG')} @ {es_i.get('iDLG')}")
+        if result.get('last_loss_iDLG') is not None:
+            print('last_loss_iDLG:', result['last_loss_iDLG'], 'last_mse_iDLG:', result['last_mse_iDLG'])
+        if result.get('best_loss_iDLG') is not None:
+            print('best_loss_iDLG:', result['best_loss_iDLG'], 'best_mse_iDLG:', result['best_mse_iDLG'])
+        if result.get('last_loss_iDLG_masked') is not None:
+            print('last_loss_iDLG_masked:', result['last_loss_iDLG_masked'], 'last_mse_iDLG_masked:', result['last_mse_iDLG_masked'])
+        if result.get('best_loss_iDLG_masked') is not None:
+            print('best_loss_iDLG_masked:', result['best_loss_iDLG_masked'], 'best_mse_iDLG_masked:', result['best_mse_iDLG_masked'])
+        if result.get('jac_rank_iDLG') is not None:
+            print('jac_rank_iDLG:', result['jac_rank_iDLG'], 'jac_shape_iDLG:', result['jac_shape_iDLG'])
+        if result.get('jac_rank_iDLG_masked') is not None:
+            print('jac_rank_iDLG_masked:', result['jac_rank_iDLG_masked'], 'jac_shape_iDLG_masked:', result['jac_shape_iDLG_masked'])
+        print('gt_label:', result['gt_label'],
+              'lab_iDLG:', result['label_iDLG'], 'lab_iDLG_masked:', result['label_iDLG_masked'])
+        print('----------------------\n\n')
+
+    # ---- _merge_restart_results: combine per-restart results for one experiment ----
+    def _merge_restart_results(rdict):
+        sorted_idxs = sorted(rdict.keys())
+        base = rdict[sorted_idxs[0]]
+
+        def _best_of(key, pick='min'):
+            candidates = [(i, rdict[i].get(key)) for i in sorted_idxs if rdict[i].get(key) is not None]
+            if not candidates:
+                return None, None
+            fn = min if pick == 'min' else max
+            best_i, _ = fn(candidates, key=lambda x: x[1])
+            return best_i, rdict[best_i].get(key)
+
+        best_idlg_i, _ = _best_of('best_mse_iDLG', 'min')
+        best_masked_i, _ = _best_of('best_mse_iDLG_masked', 'min')
+        best_idlg = rdict[best_idlg_i] if best_idlg_i is not None else base
+        best_masked = rdict[best_masked_i] if best_masked_i is not None else base
+        last_r = rdict[sorted_idxs[-1]]
+
+        def _running_best_psnr(key):
+            best = None
+            out = []
+            for i in sorted_idxs:
+                p = rdict[i].get(key)
+                v = p[0] if p else None
+                if v is not None and (best is None or v > best):
+                    best = v
+                out.append(best)
+            return out
+
+        merged_recon = {}
+        merged_recon.update(best_idlg.get('final_recon', {}))
+        merged_recon.update(best_masked.get('final_recon', {}))
+
+        return {
+            'idx_net': base['idx_net'],
+            'device_id': base['device_id'],
+            'gt_data': base['gt_data'],
+            'gt_label': base['gt_label'],
+            'imidx_list': base['imidx_list'],
+            'label_iDLG': base.get('label_iDLG'),
+            'label_iDLG_masked': base.get('label_iDLG_masked'),
+            'final_recon': merged_recon,
+            'best_psnr_idlg': best_idlg.get('best_psnr_idlg'),
+            'best_psnr_masked': best_masked.get('best_psnr_masked'),
+            'best_loss_iDLG': best_idlg.get('best_loss_iDLG'),
+            'best_mse_iDLG': best_idlg.get('best_mse_iDLG'),
+            'best_loss_iDLG_masked': best_masked.get('best_loss_iDLG_masked'),
+            'best_mse_iDLG_masked': best_masked.get('best_mse_iDLG_masked'),
+            'best_ssim_idlg': best_idlg.get('best_ssim_idlg'),
+            'best_ssim_masked': best_masked.get('best_ssim_masked'),
+            'last_psnr_idlg': last_r.get('last_psnr_idlg'),
+            'last_psnr_masked': last_r.get('last_psnr_masked'),
+            'last_loss_iDLG': last_r.get('last_loss_iDLG'),
+            'last_mse_iDLG': last_r.get('last_mse_iDLG'),
+            'last_loss_iDLG_masked': last_r.get('last_loss_iDLG_masked'),
+            'last_mse_iDLG_masked': last_r.get('last_mse_iDLG_masked'),
+            'psnr_per_restart_idlg': _running_best_psnr('psnr_per_restart_idlg'),
+            'psnr_per_restart_masked': _running_best_psnr('psnr_per_restart_masked'),
+            'jac_rank_iDLG': best_idlg.get('jac_rank_iDLG'),
+            'jac_shape_iDLG': best_idlg.get('jac_shape_iDLG'),
+            'jac_rank_iDLG_masked': best_masked.get('jac_rank_iDLG_masked'),
+            'jac_shape_iDLG_masked': best_masked.get('jac_shape_iDLG_masked'),
+            'early_stop_reason': best_idlg.get('early_stop_reason', {}),
+            'early_stop_iter': best_idlg.get('early_stop_iter', {}),
+            'init_frames': best_idlg.get('init_frames', {}),
+            'recon_frames': best_idlg.get('recon_frames', {}),
+            'restart_idx': None,
+        }
+
+    if parallel_restarts:
+        print(f"[INFO] Parallel restart mode: {num_exp} exp × {NUM_RESTARTS} restarts across {num_gpus} GPUs")
+        tasks = [(exp_i, r_i) for exp_i in range(num_exp) for r_i in range(NUM_RESTARTS)]
+        total_tasks = len(tasks)
+        restart_buf = {exp_i: {} for exp_i in range(num_exp)}
+        next_task = 0
+        completed_tasks = 0
+
+        for device_id in range(min(num_gpus, total_tasks)):
+            exp_i, r_i = tasks[next_task]
+            task_cfg = {**config, 'SINGLE_RESTART_IDX': r_i}
+            p = mp.Process(target=run_single_experiment,
+                           args=(exp_i, device_id, dst, dataset, task_cfg, result_queue))
+            p.start()
+            active_processes[device_id] = p
+            next_task += 1
+
+        with tqdm(total=total_tasks, desc="Restart tasks", position=0) as pbar:
+            while completed_tasks < total_tasks:
+                result = result_queue.get()
+                completed_tasks += 1
+                pbar.update(1)
+                finished_device = result['device_id']
                 active_processes[finished_device].join()
+
+                if result.get('error') is not None:
+                    print(f"\n[ERROR] exp {result['idx_net']} restart {result.get('restart_idx')} failed:")
+                    print(result['traceback'])
+                else:
+                    exp_i = result['idx_net']
+                    r_i = result.get('restart_idx', 0)
+                    restart_buf[exp_i][r_i] = result
+
+                if next_task < total_tasks:
+                    exp_i, r_i = tasks[next_task]
+                    task_cfg = {**config, 'SINGLE_RESTART_IDX': r_i}
+                    p = mp.Process(target=run_single_experiment,
+                                   args=(exp_i, finished_device, dst, dataset, task_cfg, result_queue))
+                    p.start()
+                    active_processes[finished_device] = p
+                    next_task += 1
+
+        for p in active_processes.values():
+            p.join()
+
+        for exp_i in range(num_exp):
+            if restart_buf[exp_i]:
+                _handle_result(_merge_restart_results(restart_buf[exp_i]))
+
+        if len(panel_gt_pil) > 0:
+            panel_path = save_recon_panel(
+                params, panel_gt_pil, panel_idlg_pil, panel_masked_pil,
+                save_path, panel_block_idx, dataset, mask_desc, timestamp_str,
+                methods=METHODS,
+                psnr_idlg=panel_psnr_idlg, ssim_idlg=panel_ssim_idlg, mse_idlg=panel_mse_idlg,
+                psnr_masked=panel_psnr_masked, ssim_masked=panel_ssim_masked, mse_masked=panel_mse_masked,
+            )
+            if panel_path:
+                panel_png_paths.append(panel_path)
+
+    else:
+        next_exp = 0
+        completed = 0
+
+        # Start one experiment per GPU initially
+        for device_id in range(min(num_gpus, num_exp)):
+            p = mp.Process(
+                target=run_single_experiment,
+                args=(next_exp, device_id, dst, dataset, config, result_queue)
+            )
+            p.start()
+            active_processes[device_id] = p
+            next_exp += 1
+
+        # Keep launching a new experiment whenever one finishes
+        with tqdm(total=num_exp, desc="Experiments", position=0) as pbar:
+            while completed < num_exp:
+                result = result_queue.get()
+                completed += 1
+                pbar.update(1)
+                pbar.set_postfix(last_exp=result["idx_net"], gpu=result["device_id"])
+
+                idx_net = result['idx_net']
+                finished_device = result['device_id']
+
+                if result.get('error') is not None:
+                    print(f"\n[ERROR] Experiment {idx_net} on GPU {finished_device} failed:")
+                    print(result['traceback'])
+                    active_processes[finished_device].join()
+                    if next_exp < num_exp:
+                        p = mp.Process(
+                            target=run_single_experiment,
+                            args=(next_exp, finished_device, dst, dataset, config, result_queue)
+                        )
+                        p.start()
+                        active_processes[finished_device] = p
+                        tqdm.write(f"Launching experiment {next_exp} on GPU {finished_device}")
+                        next_exp += 1
+                    continue
+
+                _handle_result(result)
+
+                # Clean up the finished process on that GPU
+                active_processes[finished_device].join()
+
+                # Start the next experiment immediately on the freed GPU
                 if next_exp < num_exp:
                     p = mp.Process(
                         target=run_single_experiment,
@@ -418,152 +666,21 @@ def main():
                     active_processes[finished_device] = p
                     tqdm.write(f"Launching experiment {next_exp} on GPU {finished_device}")
                     next_exp += 1
-                continue
 
-            all_results_by_idx[idx_net] = result
-
-            if result.get('best_ssim_idlg') is not None:
-                best_ssim_idlg_all.append(result['best_ssim_idlg'])
-            if result.get('best_ssim_masked') is not None:
-                best_ssim_masked_all.append(result['best_ssim_masked'])
-            if result.get('last_psnr_idlg') is not None:
-                psnr_idlg_all.append(result['last_psnr_idlg'])
-            if result.get('last_psnr_masked') is not None:
-                psnr_masked_all.append(result['last_psnr_masked'])
-
-            if result.get('last_loss_iDLG') is not None:
-                final_loss_idlg_all.append(result['last_loss_iDLG'])
-            if result.get('last_mse_iDLG') is not None:
-                final_mse_idlg_all.append(result['last_mse_iDLG'])
-            if result.get('last_loss_iDLG_masked') is not None:
-                final_loss_masked_all.append(result['last_loss_iDLG_masked'])
-            if result.get('last_mse_iDLG_masked') is not None:
-                final_mse_masked_all.append(result['last_mse_iDLG_masked'])
-
-            if result.get('best_psnr_idlg') is not None:
-                best_psnr_idlg_all.append(result['best_psnr_idlg'])
-            if result.get('best_psnr_masked') is not None:
-                best_psnr_masked_all.append(result['best_psnr_masked'])
-
-            if result.get('psnr_per_restart_idlg') is not None:
-                psnr_per_restart_idlg_all.append(result['psnr_per_restart_idlg'])
-            if result.get('psnr_per_restart_masked') is not None:
-                psnr_per_restart_masked_all.append(result['psnr_per_restart_masked'])
-
-            if result.get('best_loss_iDLG') is not None:
-                best_loss_idlg_all.append(result['best_loss_iDLG'])
-            if result.get('best_mse_iDLG') is not None:
-                best_mse_idlg_all.append(result['best_mse_iDLG'])
-            if result.get('best_loss_iDLG_masked') is not None:
-                best_loss_masked_all.append(result['best_loss_iDLG_masked'])
-            if result.get('best_mse_iDLG_masked') is not None:
-                best_mse_masked_all.append(result['best_mse_iDLG_masked'])
-
-            # ---- accumulate recon panel ----
-            gt_pil = tp(torch.from_numpy(result['gt_data'])[0])
-            panel_gt_pil.append(gt_pil)
-
-            if 'iDLG' not in result['final_recon']:
-                idlg_pil = gt_pil
-            elif result.get('best_psnr_idlg') is None:
-                tqdm.write(f"[WARNING] Experiment {idx_net}: iDLG reconstruction failed (all restarts diverged); showing blank in panel.")
-                idlg_pil = gt_pil
-            else:
-                idlg_pil = tp(torch.from_numpy(result['final_recon']['iDLG'])[0])
-            panel_idlg_pil.append(idlg_pil)
-
-            if 'iDLG_masked' not in result['final_recon']:
-                masked_pil = gt_pil
-            elif result.get('best_psnr_masked') is None:
-                tqdm.write(f"[WARNING] Experiment {idx_net}: masked iDLG reconstruction failed (all restarts diverged); showing blank in panel.")
-                masked_pil = gt_pil
-            else:
-                masked_pil = tp(torch.from_numpy(result['final_recon']['iDLG_masked'])[0])
-            panel_masked_pil.append(masked_pil)
-
-            panel_psnr_idlg.append(result.get('best_psnr_idlg'))
-            panel_ssim_idlg.append(result.get('best_ssim_idlg'))
-            panel_mse_idlg.append(result.get('best_mse_iDLG'))
-            panel_psnr_masked.append(result.get('best_psnr_masked'))
-            panel_ssim_masked.append(result.get('best_ssim_masked'))
-            panel_mse_masked.append(result.get('best_mse_iDLG_masked'))
-
-            if len(panel_gt_pil) == panel_block_size:
-                panel_path = save_recon_panel(
+        # Final cleanup
+        for p in active_processes.values():
+            p.join()
+        # save any remaining
+        if len(panel_gt_pil) > 0:
+            panel_path = save_recon_panel(
                 params, panel_gt_pil, panel_idlg_pil, panel_masked_pil,
                 save_path, panel_block_idx, dataset, mask_desc, timestamp_str,
                 methods=METHODS,
                 psnr_idlg=panel_psnr_idlg, ssim_idlg=panel_ssim_idlg, mse_idlg=panel_mse_idlg,
                 psnr_masked=panel_psnr_masked, ssim_masked=panel_ssim_masked, mse_masked=panel_mse_masked,
             )
-                if panel_path:
-                    panel_png_paths.append(panel_path)
-                panel_block_idx += 1
-                panel_gt_pil.clear()
-                panel_idlg_pil.clear()
-                panel_masked_pil.clear()
-                panel_psnr_idlg.clear()
-                panel_ssim_idlg.clear()
-                panel_mse_idlg.clear()
-                panel_psnr_masked.clear()
-                panel_ssim_masked.clear()
-                panel_mse_masked.clear()
-
-            es_r = result.get("early_stop_reason", {})
-            es_i = result.get("early_stop_iter", {})
-
-            print(f"early_stop iDLG: {es_r.get('iDLG')} @ {es_i.get('iDLG')}")
-
-            if result.get('last_loss_iDLG') is not None:
-                print('last_loss_iDLG:', result['last_loss_iDLG'], 'last_mse_iDLG:', result['last_mse_iDLG'])
-            if result.get('best_loss_iDLG') is not None:
-                print('best_loss_iDLG:', result['best_loss_iDLG'], 'best_mse_iDLG:', result['best_mse_iDLG'])
-
-            if result.get('last_loss_iDLG_masked') is not None:
-                print('last_loss_iDLG_masked:', result['last_loss_iDLG_masked'], 'last_mse_iDLG_masked:', result['last_mse_iDLG_masked'])
-            if result.get('best_loss_iDLG_masked') is not None:
-                print('best_loss_iDLG_masked:', result['best_loss_iDLG_masked'], 'best_mse_iDLG_masked:', result['best_mse_iDLG_masked'])
-                
-            if result.get('jac_rank_iDLG') is not None:
-                print('jac_rank_iDLG:', result['jac_rank_iDLG'],
-                    'jac_shape_iDLG:', result['jac_shape_iDLG'])
-
-            if result.get('jac_rank_iDLG_masked') is not None:
-                print('jac_rank_iDLG_masked:', result['jac_rank_iDLG_masked'],
-                    'jac_shape_iDLG_masked:', result['jac_shape_iDLG_masked'])
-
-            print('gt_label:', result['gt_label'],
-                'lab_iDLG:', result['label_iDLG'], 'lab_iDLG_masked:', result['label_iDLG_masked'])
-            print('----------------------\n\n')
-
-            # Clean up the finished process on that GPU
-            active_processes[finished_device].join()
-
-            # Start the next experiment immediately on the freed GPU
-            if next_exp < num_exp:
-                p = mp.Process(
-                    target=run_single_experiment,
-                    args=(next_exp, finished_device, dst, dataset, config, result_queue)
-                )
-                p.start()
-                active_processes[finished_device] = p
-                tqdm.write(f"Launching experiment {next_exp} on GPU {finished_device}")
-                next_exp += 1
-
-    # Final cleanup
-    for p in active_processes.values():
-        p.join()
-    # save any remaining
-    if len(panel_gt_pil) > 0:
-        panel_path = save_recon_panel(
-        params, panel_gt_pil, panel_idlg_pil, panel_masked_pil,
-        save_path, panel_block_idx, dataset, mask_desc, timestamp_str,
-        methods=METHODS,
-        psnr_idlg=panel_psnr_idlg, ssim_idlg=panel_ssim_idlg, mse_idlg=panel_mse_idlg,
-        psnr_masked=panel_psnr_masked, ssim_masked=panel_ssim_masked, mse_masked=panel_mse_masked,
-    )
-        if panel_path:
-            panel_png_paths.append(panel_path)
+            if panel_path:
+                panel_png_paths.append(panel_path)
 
     # -------- Save animated GIFs --------
     if SAVE_GIF:

@@ -53,6 +53,7 @@ def _run_inner(idx_net, device_id, dst, dataset_name, config, result_queue):
     TV_WEIGHT = config.get('TV_WEIGHT', 0.0)
     OPTIMIZER = config.get('OPTIMIZER', 'lbfgs')
     NUM_RESTARTS = config.get('NUM_RESTARTS', 1)
+    SINGLE_RESTART_IDX = config.get('SINGLE_RESTART_IDX')  # None = run all restarts
     MAX_ITERATION = config.get('MAX_ITERATION', 20)
     HISTORY_SIZE = config.get('HISTORY_SIZE', 100)
     SAVE_GIF = config.get('SAVE_GIF', False)
@@ -293,8 +294,9 @@ def _run_inner(idx_net, device_id, dst, dataset_name, config, result_queue):
         selected_entry_masks = [entry_masks[i] for i in selected_ids] if entry_masks is not None else None
 
         _best_mse_per_restart = []
+        _restart_range = [SINGLE_RESTART_IDX] if SINGLE_RESTART_IDX is not None else range(NUM_RESTARTS)
 
-        for restart_idx in range(NUM_RESTARTS):
+        for restart_idx in _restart_range:
             restart_seed = seed * 1000 + restart_idx
             torch.manual_seed(restart_seed)
             np.random.seed(restart_seed)
@@ -501,6 +503,7 @@ def _run_inner(idx_net, device_id, dst, dataset_name, config, result_queue):
         'early_stop_iter': early_stop_iter_dict,
         'psnr_per_restart_idlg':   _psnr_per_restart.get('iDLG'),
         'psnr_per_restart_masked': _psnr_per_restart.get('iDLG_masked'),
+        'restart_idx': SINGLE_RESTART_IDX,
         'init_frames': init_frames_by_method,
         'recon_frames': recon_frames_by_method,
     }
