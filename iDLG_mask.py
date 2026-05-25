@@ -885,7 +885,7 @@ def main():
 
         # Per-restart image figure: fixed columns k=1, k=5, k=10
         if all_results_by_idx:
-            display_ks = [k for k in [1, 5, 10] if k <= NUM_RESTARTS]
+            display_ks = [k for k in [1, 3, 5, 10] if k <= NUM_RESTARTS]
             if display_ks:
                 # Pick representative experiment: closest to median PSNR at max(display_ks)
                 ref_k = max(display_ks)
