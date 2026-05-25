@@ -11,10 +11,10 @@ import json
 import torch.multiprocessing as mp
 import argparse
 from helper.visualization import save_recon_panel, save_recon_gif
-from functions.io_utils import (paired_summary, baseline_key_from_args, load_baseline_registry,
-    save_baseline_registry, update_idlg_baseline, write_baseline_summary_csv,
-    parse_prefixes_with_fracs, masked_key_from_args, load_masked_registry,
-    save_masked_registry, update_masked_registry)
+from functions.io_utils import (paired_summary, paired_t_ci, baseline_key_from_args,
+    load_baseline_registry, save_baseline_registry, update_idlg_baseline,
+    write_baseline_summary_csv, parse_prefixes_with_fracs, masked_key_from_args,
+    load_masked_registry, save_masked_registry, update_masked_registry)
 from functions.Dataset import load_dataset
 from run_single_exp import run_single_experiment
 from tqdm import tqdm
@@ -331,6 +331,8 @@ def main():
     best_ssim_masked_all = []
     psnr_per_restart_idlg_all = []
     psnr_per_restart_masked_all = []
+    mse_per_restart_idlg_all = []
+    mse_per_restart_masked_all = []
 
     mask_desc = MASK_MODE
     params = {"num-exp": num_exp, "lr": lr, "batchsize": num_dummy, "iters": Iteration}
@@ -422,6 +424,10 @@ def main():
             psnr_per_restart_idlg_all.append(result['psnr_per_restart_idlg'])
         if result.get('psnr_per_restart_masked') is not None:
             psnr_per_restart_masked_all.append(result['psnr_per_restart_masked'])
+        if result.get('mse_per_restart_idlg') is not None:
+            mse_per_restart_idlg_all.append(result['mse_per_restart_idlg'])
+        if result.get('mse_per_restart_masked') is not None:
+            mse_per_restart_masked_all.append(result['mse_per_restart_masked'])
 
         gt_pil = tp(torch.from_numpy(result['gt_data'])[0])
         panel_gt_pil.append(gt_pil)
@@ -525,6 +531,32 @@ def main():
                 out.append(best_img)
             return out
 
+        def _running_best_mse(key):
+            best = None
+            out = []
+            for i in sorted_idxs:
+                vals = rdict[i].get(key)
+                v = vals[0] if vals else None
+                if v is not None and (best is None or v < best):
+                    best = v
+                out.append(best)
+            return out
+
+        def _running_best_ssim(ssim_key, mse_key):
+            best_mse = None
+            best_ssim = None
+            out = []
+            for i in sorted_idxs:
+                ssims = rdict[i].get(ssim_key)
+                s = ssims[0] if ssims else None
+                mses = rdict[i].get(mse_key)
+                m = mses[0] if mses else None
+                if m is not None and s is not None and (best_mse is None or m < best_mse):
+                    best_mse = m
+                    best_ssim = s
+                out.append(best_ssim)
+            return out
+
         merged_recon = {}
         merged_recon.update(best_idlg.get('final_recon', {}))
         merged_recon.update(best_masked.get('final_recon', {}))
@@ -554,8 +586,12 @@ def main():
             'last_mse_iDLG_masked': last_r.get('last_mse_iDLG_masked'),
             'psnr_per_restart_idlg': _running_best_psnr('psnr_per_restart_idlg'),
             'psnr_per_restart_masked': _running_best_psnr('psnr_per_restart_masked'),
-            'img_per_restart_idlg': _running_best_img('img_per_restart_idlg', 'best_mse_iDLG'),
-            'img_per_restart_masked': _running_best_img('img_per_restart_masked', 'best_mse_iDLG_masked'),
+            'img_per_restart_idlg':  _running_best_img('img_per_restart_idlg', 'best_mse_iDLG'),
+            'img_per_restart_masked':_running_best_img('img_per_restart_masked', 'best_mse_iDLG_masked'),
+            'mse_per_restart_idlg':  _running_best_mse('mse_per_restart_idlg'),
+            'mse_per_restart_masked':_running_best_mse('mse_per_restart_masked'),
+            'ssim_per_restart_idlg': _running_best_ssim('ssim_per_restart_idlg', 'mse_per_restart_idlg'),
+            'ssim_per_restart_masked':_running_best_ssim('ssim_per_restart_masked', 'mse_per_restart_masked'),
             'jac_rank_iDLG': best_idlg.get('jac_rank_iDLG'),
             'jac_shape_iDLG': best_idlg.get('jac_shape_iDLG'),
             'jac_rank_iDLG_masked': best_masked.get('jac_rank_iDLG_masked'),
@@ -771,54 +807,155 @@ def main():
         plt.close(fig)
         print(f"\nRestart curve saved: {restart_csv_path}, {restart_plot_path}")
 
-        # Per-restart image figure (only meaningful with a single experiment)
-        if num_exp == 1 and all_results_by_idx:
-            result1 = next(iter(all_results_by_idx.values()))
-            imgs_i = result1.get('img_per_restart_idlg') or []
-            imgs_m = result1.get('img_per_restart_masked') or []
-            psnrs_i = result1.get('psnr_per_restart_idlg') or []
-            psnrs_m = result1.get('psnr_per_restart_masked') or []
-            gt_np = result1['gt_data']  # (1, C, H, W)
+        # ---- Gain table: PSNR + MSE improvement at k=5 and k=10 vs k=1 ----
+        gain_ks = [k for k in [5, 10] if k <= NUM_RESTARTS]
+        gain_rows_extra = {k: {} for k in gain_ks}
 
-            def _to_hwc(arr):
-                if arr is None:
-                    return None
-                x = arr[0]  # (C, H, W)
-                return x.transpose(1, 2, 0) if x.shape[0] > 1 else x[0]
+        def _gain_ci_str(all_rows, k, fmt=".3f"):
+            pairs = [(row[0], row[k - 1]) for row in (all_rows or [])
+                     if row and row[0] is not None and row[k - 1] is not None]
+            if len(pairs) < 2:
+                return "n/a", None
+            x_k = [p[1] for p in pairs]
+            x_1 = [p[0] for p in pairs]
+            ci = paired_t_ci(x_k, x_1)
+            sign = "+" if ci["mean_diff"] >= 0 else ""
+            s = (f"{sign}{ci['mean_diff']:{fmt}} "
+                 f"[{ci['ci_low']:{fmt}}, {ci['ci_high']:{fmt}}]"
+                 f" p={ci['p_value']:.3f}")
+            return s, ci
 
-            rows = [("GT", [gt_np] * NUM_RESTARTS, [None] * NUM_RESTARTS)]
-            if imgs_i:
-                rows.append(("iDLG", imgs_i, psnrs_i))
-            if imgs_m:
-                rows.append((f"masked\n({MASK_MODE})", imgs_m, psnrs_m))
+        if gain_ks:
+            print(f"\nRestart gain summary vs k=1 (95% paired CI):")
+            header = f"  {'':10s}"
+            for k in gain_ks:
+                header += f"  PSNR gain k={k:<3d}              MSE gain k={k:<3d}    "
+            print(header)
 
-            n_cols = NUM_RESTARTS
-            n_rows = len(rows)
-            fig_img, axes = plt.subplots(n_rows, n_cols, figsize=(2.5 * n_cols, 2.5 * n_rows),
-                                         squeeze=False)
-            cmap = 'gray' if gt_np.shape[1] == 1 else None
-            for r_idx, (label, img_list, psnr_list) in enumerate(rows):
-                for c_idx in range(n_cols):
-                    ax = axes[r_idx][c_idx]
-                    hwc = _to_hwc(img_list[c_idx] if c_idx < len(img_list) else None)
-                    if hwc is not None:
-                        ax.imshow(hwc.clip(0, 1), cmap=cmap)
-                    else:
-                        ax.set_facecolor('lightgray')
-                    ax.axis('off')
-                    if r_idx == 0:
-                        ax.set_title(f"k={c_idx + 1}", fontsize=9)
-                    p = psnr_list[c_idx] if c_idx < len(psnr_list) else None
+            for method_label, psnr_all, mse_all in [
+                ("iDLG",   psnr_per_restart_idlg_all,   mse_per_restart_idlg_all),
+                ("masked", psnr_per_restart_masked_all, mse_per_restart_masked_all),
+            ]:
+                if not psnr_all and not mse_all:
+                    continue
+                gain_key = "idlg" if method_label == "iDLG" else "masked"
+                row_str = f"  {method_label:<10s}"
+                for k in gain_ks:
+                    psnr_str, psnr_ci = _gain_ci_str(psnr_all, k, ".3f")
+                    mse_str,  mse_ci  = _gain_ci_str(mse_all,  k, ".5f")
+                    row_str += f"  {psnr_str:<32s}  {mse_str:<32s}"
+                    if psnr_ci is not None:
+                        gain_rows_extra[k][f"gain_psnr_{gain_key}"]    = round(psnr_ci["mean_diff"], 5)
+                        gain_rows_extra[k][f"ci_low_psnr_{gain_key}"]  = round(psnr_ci["ci_low"], 5)
+                        gain_rows_extra[k][f"ci_high_psnr_{gain_key}"] = round(psnr_ci["ci_high"], 5)
+                    if mse_ci is not None:
+                        gain_rows_extra[k][f"gain_mse_{gain_key}"]     = round(mse_ci["mean_diff"], 7)
+                        gain_rows_extra[k][f"ci_low_mse_{gain_key}"]   = round(mse_ci["ci_low"], 7)
+                        gain_rows_extra[k][f"ci_high_mse_{gain_key}"]  = round(mse_ci["ci_high"], 7)
+                print(row_str)
+
+        # Re-write CSV with gain columns appended to k=5 and k=10 rows
+        if gain_ks and any(gain_rows_extra[k] for k in gain_ks):
+            gain_extra_fields = []
+            for k in gain_ks:
+                gain_extra_fields += list(gain_rows_extra[k].keys())
+            gain_extra_fields = list(dict.fromkeys(gain_extra_fields))
+            new_fieldnames = restart_fieldnames + [f for f in gain_extra_fields if f not in restart_fieldnames]
+            for row in rows_restart:
+                if row["num_restarts"] in gain_rows_extra:
+                    row.update(gain_rows_extra[row["num_restarts"]])
+            with open(restart_csv_path, "w", newline="") as f:
+                writer = csv.DictWriter(f, fieldnames=new_fieldnames, extrasaction='ignore')
+                writer.writeheader()
+                writer.writerows(rows_restart)
+
+        # Per-restart image figure: fixed columns k=1, k=5, k=10
+        if all_results_by_idx:
+            display_ks = [k for k in [1, 5, 10] if k <= NUM_RESTARTS]
+            if display_ks:
+                # Pick representative experiment: closest to median PSNR at max(display_ks)
+                ref_k = max(display_ks)
+                ref_pool = psnr_per_restart_idlg_all or psnr_per_restart_masked_all
+                rep_result = None
+                if num_exp > 1 and ref_pool:
+                    ref_vals = [row[ref_k - 1] for row in ref_pool if row and row[ref_k - 1] is not None]
+                    if ref_vals:
+                        median_val = float(np.median(ref_vals))
+                        sorted_results = sorted(all_results_by_idx.values(),
+                            key=lambda r: abs((r.get('psnr_per_restart_idlg') or
+                                               r.get('psnr_per_restart_masked') or [None])[ref_k - 1] or float('inf')
+                                              - median_val))
+                        rep_result = sorted_results[0]
+                if rep_result is None:
+                    rep_result = next(iter(all_results_by_idx.values()))
+
+                imgs_i  = rep_result.get('img_per_restart_idlg') or []
+                imgs_m  = rep_result.get('img_per_restart_masked') or []
+                psnrs_i = rep_result.get('psnr_per_restart_idlg') or []
+                psnrs_m = rep_result.get('psnr_per_restart_masked') or []
+                mses_i  = rep_result.get('mse_per_restart_idlg') or []
+                mses_m  = rep_result.get('mse_per_restart_masked') or []
+                ssims_i = rep_result.get('ssim_per_restart_idlg') or []
+                ssims_m = rep_result.get('ssim_per_restart_masked') or []
+                gt_np   = rep_result['gt_data']  # (1, C, H, W)
+
+                def _to_hwc(arr):
+                    if arr is None:
+                        return None
+                    x = arr[0]
+                    return x.transpose(1, 2, 0) if x.shape[0] > 1 else x[0]
+
+                def _metric_str(k, mse_list, psnr_list, ssim_list):
+                    idx = k - 1
+                    parts = []
+                    m = mse_list[idx] if idx < len(mse_list) else None
+                    p = psnr_list[idx] if idx < len(psnr_list) else None
+                    s = ssim_list[idx] if idx < len(ssim_list) else None
+                    if m is not None and np.isfinite(m):
+                        parts.append(f"MSE: {m:.5f}")
                     if p is not None and np.isfinite(p):
-                        ax.set_xlabel(f"{p:.2f} dB", fontsize=8)
-                axes[r_idx][0].set_ylabel(label, fontsize=9)
+                        parts.append(f"PSNR: {p:.2f} dB")
+                    if s is not None and np.isfinite(s):
+                        parts.append(f"SSIM: {s:.3f}")
+                    return "\n".join(parts)
 
-            fig_img.suptitle(f"Best reconstruction after k restarts — {NETWORK_NAME} / {dataset}", fontsize=10)
-            plt.tight_layout()
-            img_fig_path = os.path.join(save_path, f"restart_images_{timestamp_str}.png")
-            fig_img.savefig(img_fig_path, dpi=200)
-            plt.close(fig_img)
-            print(f"Restart image figure saved: {img_fig_path}")
+                rows_fig = [("GT", [gt_np] * len(display_ks), [], [], [])]
+                if imgs_i:
+                    rows_fig.append(("iDLG", imgs_i, psnrs_i, mses_i, ssims_i))
+                if imgs_m:
+                    rows_fig.append((f"masked\n({MASK_MODE})", imgs_m, psnrs_m, mses_m, ssims_m))
+
+                n_cols_fig = len(display_ks)
+                n_rows_fig = len(rows_fig)
+                fig_img, axes = plt.subplots(n_rows_fig, n_cols_fig,
+                                             figsize=(3 * n_cols_fig, 3.4 * n_rows_fig),
+                                             squeeze=False)
+                cmap = 'gray' if gt_np.shape[1] == 1 else None
+                for r_idx, (label, img_list, psnr_list, mse_list, ssim_list) in enumerate(rows_fig):
+                    for c_idx, k in enumerate(display_ks):
+                        ax = axes[r_idx][c_idx]
+                        hwc = _to_hwc(img_list[k - 1] if (k - 1) < len(img_list) else None)
+                        if hwc is not None:
+                            ax.imshow(hwc.clip(0, 1), cmap=cmap)
+                        else:
+                            ax.set_facecolor('lightgray')
+                        ax.axis('off')
+                        if r_idx == 0:
+                            ax.set_title(f"k={k}", fontsize=10)
+                        if r_idx > 0:
+                            ms = _metric_str(k, mse_list, psnr_list, ssim_list)
+                            ax.set_xlabel(ms, fontsize=7.5, linespacing=1.4)
+                    axes[r_idx][0].set_ylabel(label, fontsize=9)
+
+                title_suffix = f" (representative of {num_exp} images)" if num_exp > 1 else ""
+                fig_img.suptitle(
+                    f"Best reconstruction after k restarts — {NETWORK_NAME} / {dataset}{title_suffix}",
+                    fontsize=10)
+                plt.tight_layout()
+                img_fig_path = os.path.join(save_path, f"restart_images_{timestamp_str}.png")
+                fig_img.savefig(img_fig_path, dpi=200)
+                plt.close(fig_img)
+                print(f"Restart image figure saved: {img_fig_path}")
 
     # -------- Paired statistics --------
     empty_stats = {
