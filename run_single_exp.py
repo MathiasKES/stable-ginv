@@ -123,6 +123,7 @@ def _run_inner(idx_net, device_id, dst, dataset_name, config, result_queue):
     _best_ssim = {}
     _jac_rank = {}
     _jac_shape = {}
+    _psnr_per_restart = {}
 
     if METHODS == "idlg":
         methods_to_run = ["iDLG"]
@@ -291,6 +292,8 @@ def _run_inner(idx_net, device_id, dst, dataset_name, config, result_queue):
         selected_original = [original_dy_dx[i] for i in selected_ids]
         selected_entry_masks = [entry_masks[i] for i in selected_ids] if entry_masks is not None else None
 
+        _best_mse_per_restart = []
+
         for restart_idx in range(NUM_RESTARTS):
             restart_seed = seed * 1000 + restart_idx
             torch.manual_seed(restart_seed)
@@ -435,6 +438,13 @@ def _run_inner(idx_net, device_id, dst, dataset_name, config, result_queue):
                         _best_restart_init_np = _restart_init_np
                         _best_restart_frames = _restart_frames[:]
 
+            _best_mse_per_restart.append(best_restart_mse_value)
+
+        _psnr_per_restart[method] = [
+            compute_psnr_from_mse(m, max_val=1.0) if (m is not None and np.isfinite(m)) else None
+            for m in _best_mse_per_restart
+        ]
+
         if SAVE_GIF:
             init_frames_by_method[method] = _best_restart_init_np
             recon_frames_by_method[method] = _best_restart_frames
@@ -489,6 +499,8 @@ def _run_inner(idx_net, device_id, dst, dataset_name, config, result_queue):
         'imidx_list': imidx_list,
         'early_stop_reason': early_stop_reason_dict,
         'early_stop_iter': early_stop_iter_dict,
+        'psnr_per_restart_idlg':   _psnr_per_restart.get('iDLG'),
+        'psnr_per_restart_masked': _psnr_per_restart.get('iDLG_masked'),
         'init_frames': init_frames_by_method,
         'recon_frames': recon_frames_by_method,
     }

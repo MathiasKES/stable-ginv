@@ -329,6 +329,8 @@ def main():
     best_mse_masked_all = []
     best_ssim_idlg_all = []
     best_ssim_masked_all = []
+    psnr_per_restart_idlg_all = []
+    psnr_per_restart_masked_all = []
 
     mask_desc = MASK_MODE
     params = {"num-exp": num_exp, "lr": lr, "batchsize": num_dummy, "iters": Iteration}
@@ -442,6 +444,11 @@ def main():
                 best_psnr_idlg_all.append(result['best_psnr_idlg'])
             if result.get('best_psnr_masked') is not None:
                 best_psnr_masked_all.append(result['best_psnr_masked'])
+
+            if result.get('psnr_per_restart_idlg') is not None:
+                psnr_per_restart_idlg_all.append(result['psnr_per_restart_idlg'])
+            if result.get('psnr_per_restart_masked') is not None:
+                psnr_per_restart_masked_all.append(result['psnr_per_restart_masked'])
 
             if result.get('best_loss_iDLG') is not None:
                 best_loss_idlg_all.append(result['best_loss_iDLG'])
@@ -568,6 +575,68 @@ def main():
                 block, save_path, b_idx, dataset, mask_desc, timestamp_str,
                 methods=METHODS, fps=GIF_FPS,
             )
+
+    # -------- Restart curve: CSV + plot --------
+    if NUM_RESTARTS > 1 and (psnr_per_restart_idlg_all or psnr_per_restart_masked_all):
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+
+        restart_csv_path = os.path.join(save_path, "restart_curve.csv")
+        restart_x = list(range(1, NUM_RESTARTS + 1))
+
+        def _restart_stats(per_exp_lists):
+            arr = np.array(
+                [[v if v is not None else float("nan") for v in row] for row in per_exp_lists],
+                dtype=float,
+            )
+            means = np.nanmean(arr, axis=0)
+            stds = np.nanstd(arr, axis=0, ddof=1) if arr.shape[0] > 1 else np.zeros(arr.shape[1])
+            return means, stds
+
+        rows_restart = []
+        for k in range(NUM_RESTARTS):
+            row = {"num_restarts": k + 1}
+            if psnr_per_restart_idlg_all:
+                means_i, stds_i = _restart_stats(psnr_per_restart_idlg_all)
+                row["mean_psnr_idlg"] = round(float(means_i[k]), 5)
+                row["std_psnr_idlg"] = round(float(stds_i[k]), 5)
+            if psnr_per_restart_masked_all:
+                means_m, stds_m = _restart_stats(psnr_per_restart_masked_all)
+                row["mean_psnr_masked"] = round(float(means_m[k]), 5)
+                row["std_psnr_masked"] = round(float(stds_m[k]), 5)
+            rows_restart.append(row)
+
+        restart_fieldnames = ["num_restarts"]
+        if psnr_per_restart_idlg_all:
+            restart_fieldnames += ["mean_psnr_idlg", "std_psnr_idlg"]
+        if psnr_per_restart_masked_all:
+            restart_fieldnames += ["mean_psnr_masked", "std_psnr_masked"]
+
+        with open(restart_csv_path, "w", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=restart_fieldnames)
+            writer.writeheader()
+            writer.writerows(rows_restart)
+
+        fig, ax = plt.subplots(figsize=(6, 4))
+        if psnr_per_restart_idlg_all:
+            means_i, stds_i = _restart_stats(psnr_per_restart_idlg_all)
+            ax.plot(restart_x, means_i, marker="o", label="iDLG (no mask)")
+            ax.fill_between(restart_x, means_i - stds_i, means_i + stds_i, alpha=0.2)
+        if psnr_per_restart_masked_all:
+            means_m, stds_m = _restart_stats(psnr_per_restart_masked_all)
+            ax.plot(restart_x, means_m, marker="s", label=f"masked ({MASK_MODE})")
+            ax.fill_between(restart_x, means_m - stds_m, means_m + stds_m, alpha=0.2)
+        ax.set_xlabel("Number of restarts used")
+        ax.set_ylabel("Mean best PSNR (dB)")
+        ax.set_title(f"Effect of restarts — {NETWORK_NAME} / {dataset}")
+        ax.legend()
+        ax.grid(True, linestyle="--", alpha=0.5)
+        plt.tight_layout()
+        restart_plot_path = os.path.join(save_path, "restart_curve.png")
+        fig.savefig(restart_plot_path, dpi=200)
+        plt.close(fig)
+        print(f"\nRestart curve saved: {restart_csv_path}, {restart_plot_path}")
 
     # -------- Paired statistics --------
     empty_stats = {
