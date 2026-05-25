@@ -920,11 +920,12 @@ def main():
                     return x.transpose(1, 2, 0) if x.shape[0] > 1 else x[0]
 
                 def _metric_str(k, mse_list, psnr_list, ssim_list):
-                    idx = k - 1
+                    # Lists are already display-indexed (one entry per column, ordered by display_ks)
+                    c = display_ks.index(k)
                     parts = []
-                    m = mse_list[idx] if idx < len(mse_list) else None
-                    p = psnr_list[idx] if idx < len(psnr_list) else None
-                    s = ssim_list[idx] if idx < len(ssim_list) else None
+                    m = mse_list[c] if c < len(mse_list) else None
+                    p = psnr_list[c] if c < len(psnr_list) else None
+                    s = ssim_list[c] if c < len(ssim_list) else None
                     if m is not None and np.isfinite(m):
                         parts.append(f"MSE: {m:.5f}")
                     if p is not None and np.isfinite(p):
@@ -933,22 +934,33 @@ def main():
                         parts.append(f"SSIM: {s:.3f}")
                     return "\n".join(parts)
 
-                rows_fig = [("GT", [gt_np] * len(display_ks), [], [], [])]
+                # Pre-build display-indexed lists (one entry per column) to avoid k-1 indexing bugs
+                def _disp_list(src, is_gt=False):
+                    if is_gt:
+                        return [gt_np] * len(display_ks)
+                    return [src[k - 1] if (k - 1) < len(src) else None for k in display_ks]
+
+                rows_fig = [("GT", _disp_list([], is_gt=True), [], [], [])]
                 if imgs_i:
-                    rows_fig.append(("iDLG", imgs_i, psnrs_i, mses_i, ssims_i))
+                    rows_fig.append(("iDLG\n(baseline)", _disp_list(imgs_i),
+                                     _disp_list(psnrs_i), _disp_list(mses_i), _disp_list(ssims_i)))
                 if imgs_m:
-                    rows_fig.append((f"masked\n({MASK_MODE})", imgs_m, psnrs_m, mses_m, ssims_m))
+                    rows_fig.append((f"masked\n({MASK_MODE})", _disp_list(imgs_m),
+                                     _disp_list(psnrs_m), _disp_list(mses_m), _disp_list(ssims_m)))
 
                 n_cols_fig = len(display_ks)
                 n_rows_fig = len(rows_fig)
                 fig_img, axes = plt.subplots(n_rows_fig, n_cols_fig,
-                                             figsize=(3 * n_cols_fig, 3.4 * n_rows_fig),
+                                             figsize=(3.2 * n_cols_fig + 0.8, 3.8 * n_rows_fig),
                                              squeeze=False)
+                fig_img.subplots_adjust(left=0.12, right=0.98, top=0.93, bottom=0.02,
+                                        hspace=0.35, wspace=0.05)
                 cmap = 'gray' if gt_np.shape[1] == 1 else None
                 for r_idx, (label, img_list, psnr_list, mse_list, ssim_list) in enumerate(rows_fig):
-                    for c_idx, k in enumerate(display_ks):
+                    for c_idx in range(n_cols_fig):
+                        k = display_ks[c_idx]
                         ax = axes[r_idx][c_idx]
-                        hwc = _to_hwc(img_list[k - 1] if (k - 1) < len(img_list) else None)
+                        hwc = _to_hwc(img_list[c_idx])
                         if hwc is not None:
                             ax.imshow(hwc.clip(0, 1), cmap=cmap)
                         else:
@@ -956,10 +968,15 @@ def main():
                         ax.axis('off')
                         if r_idx == 0:
                             ax.set_title(f"k={k}", fontsize=10)
-                        if r_idx > 0:
+                        if r_idx > 0 and psnr_list:
                             ms = _metric_str(k, mse_list, psnr_list, ssim_list)
-                            ax.set_xlabel(ms, fontsize=7.5, linespacing=1.4)
-                    axes[r_idx][0].set_ylabel(label, fontsize=9)
+                            if ms:
+                                ax.text(0.5, -0.02, ms, transform=ax.transAxes,
+                                        ha='center', va='top', fontsize=7, linespacing=1.5)
+                    # Row label on the left using text (set_ylabel is suppressed by axis('off'))
+                    axes[r_idx][0].text(-0.08, 0.5, label, transform=axes[r_idx][0].transAxes,
+                                        ha='right', va='center', fontsize=9,
+                                        rotation=90, multialignment='center')
 
                 title_suffix = f" (representative of {num_exp} images)" if num_exp > 1 else ""
                 fig_img.suptitle(
