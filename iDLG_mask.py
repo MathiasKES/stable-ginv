@@ -605,7 +605,9 @@ def main():
 
     if parallel_restarts:
         print(f"[INFO] Parallel restart mode: {num_exp} exp × {NUM_RESTARTS} restarts across {num_gpus} GPUs")
-        tasks = [(exp_i, r_i) for exp_i in range(num_exp) for r_i in range(NUM_RESTARTS)]
+        # Round-robin across images so all experiments get restarts interleaved —
+        # prevents 3 GPUs idling while only one image's final restart is running.
+        tasks = [(exp_i, r_i) for r_i in range(NUM_RESTARTS) for exp_i in range(num_exp)]
         total_tasks = len(tasks)
         restart_buf = {exp_i: {} for exp_i in range(num_exp)}
         next_task = 0
