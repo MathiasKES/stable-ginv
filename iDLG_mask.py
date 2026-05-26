@@ -765,17 +765,17 @@ def main():
             means = np.nanmean(arr, axis=0)
             stds = np.nanstd(arr, axis=0, ddof=1) if arr.shape[0] > 1 else np.zeros(arr.shape[1])
             sems = stds / np.sqrt(n)
-            return means, sems
+            return means, stds, sems
 
         rows_restart = []
         for k in range(NUM_RESTARTS):
             row = {"num_restarts": k + 1}
             if psnr_per_restart_idlg_all:
-                means_i, stds_i = _restart_stats(psnr_per_restart_idlg_all)
+                means_i, stds_i, _ = _restart_stats(psnr_per_restart_idlg_all)
                 row["mean_psnr_idlg"] = round(float(means_i[k]), 5)
                 row["std_psnr_idlg"] = round(float(stds_i[k]), 5)
             if psnr_per_restart_masked_all:
-                means_m, stds_m = _restart_stats(psnr_per_restart_masked_all)
+                means_m, stds_m, _ = _restart_stats(psnr_per_restart_masked_all)
                 row["mean_psnr_masked"] = round(float(means_m[k]), 5)
                 row["std_psnr_masked"] = round(float(stds_m[k]), 5)
             rows_restart.append(row)
@@ -793,11 +793,11 @@ def main():
 
         fig, ax = plt.subplots(figsize=(6, 4))
         if psnr_per_restart_idlg_all:
-            means_i, sems_i = _restart_stats(psnr_per_restart_idlg_all)
+            means_i, _, sems_i = _restart_stats(psnr_per_restart_idlg_all)
             ax.plot(restart_x, means_i, marker="o", label="iDLG (no mask)")
             ax.fill_between(restart_x, means_i - sems_i, means_i + sems_i, alpha=0.2)
         if psnr_per_restart_masked_all:
-            means_m, sems_m = _restart_stats(psnr_per_restart_masked_all)
+            means_m, _, sems_m = _restart_stats(psnr_per_restart_masked_all)
             ax.plot(restart_x, means_m, marker="s", label=f"masked ({MASK_MODE})")
             ax.fill_between(restart_x, means_m - sems_m, means_m + sems_m, alpha=0.2)
         ax.set_xlabel("Number of restarts used")
