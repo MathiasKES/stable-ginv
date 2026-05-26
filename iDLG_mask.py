@@ -900,9 +900,10 @@ def main():
                     if ref_vals:
                         median_val = float(np.median(ref_vals))
                         sorted_results = sorted(all_results_by_idx.values(),
-                            key=lambda r: abs((r.get('psnr_per_restart_idlg') or
-                                               r.get('psnr_per_restart_masked') or [None])[ref_k - 1] or float('inf')
-                                              - median_val))
+                            key=lambda r: abs(
+                                ((r.get('psnr_per_restart_idlg') or
+                                  r.get('psnr_per_restart_masked') or [None])[ref_k - 1] or float('inf'))
+                                - median_val))
                         rep_result = sorted_results[0]
                 if rep_result is None:
                     rep_result = next(iter(all_results_by_idx.values()))
