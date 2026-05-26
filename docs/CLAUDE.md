@@ -60,8 +60,8 @@ Paths: data → `./data` or `/work3/s234843/bachelor/datasets`; results → `./h
 1. Sample GT image x from dataset
 2. Forward/backward on frozen net → g_obs = ∇_θ CrossEntropy(net(x), label)
 3. Apply mask → g_public  (subset of g_obs, same mask applied every step)
-4. Init dummy x_d ~ N(0,1)
-5. Optimize:  min_{x_d}  ||mask(∇_θ CE(net(sigmoid(x_d)), label_pred)) - g_public||² + λ·TV(x_d)
+4. Init dummy x_d ~ N(0,1)  [in normalized space]
+5. Optimize:  min_{x_d}  ||mask(∇_θ CE(net(x_d), label_pred)) - g_public||² + λ·TV(x_d)
 6. label_pred inferred from final FC layer gradient (iDLG trick); last FC is never masked (enforced by build_gradient_mask)
 ```
 
@@ -266,11 +266,11 @@ GPU count drives pool size: `min(num_gpus, num_exp)` processes start, and each f
 | Name | Behaviour |
 |---|---|
 | `lbfgs` | Quasi-Newton; `MAX_ITERATION` inner steps per outer iter |
-| `adam` | Adam with StepLR (step=300, γ=0.5) |
+| `adam` | Adam with MultiStepLR (milestones 3T/8, 5T/8, 7T/8; γ=`--gamma`, default 0.5) |
 | `adamw` | Same with weight decay 1e-5 |
 | `signed_adam` / `signed_adamw` | Sign-gradient variants of the above |
 
-Dummy data is in logit space; `sigmoid(dummy_data)` gives image in [0,1].
+Dummy data is in **normalized space** throughout (not logit space). It is initialized via `torch.randn` and clamped to `[lower_bound, upper_bound]` (the normalized-space equivalents of pixel range [0,1]) after each step. De-normalization `x = dummy_data * ds + dm` is applied only for metrics.
 
 ---
 
