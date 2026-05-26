@@ -1231,7 +1231,7 @@ def main():
         print(f"masked_key: {masked_key}")
         print(f"registry: {masked_registry_path}")
 
-    csv_path = os.path.join(save_path, "exp_results.csv")
+    csv_path = os.path.join(save_path, f"exp_results_{NETWORK_NAME}.csv")
     file_exists = os.path.isfile(csv_path)
 
     png_path_str = "|".join(panel_png_paths)
