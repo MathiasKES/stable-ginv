@@ -761,9 +761,11 @@ def main():
                 [[v if v is not None else float("nan") for v in row] for row in per_exp_lists],
                 dtype=float,
             )
+            n = np.sum(~np.isnan(arr), axis=0).clip(min=1)
             means = np.nanmean(arr, axis=0)
             stds = np.nanstd(arr, axis=0, ddof=1) if arr.shape[0] > 1 else np.zeros(arr.shape[1])
-            return means, stds
+            sems = stds / np.sqrt(n)
+            return means, sems
 
         rows_restart = []
         for k in range(NUM_RESTARTS):
@@ -791,15 +793,15 @@ def main():
 
         fig, ax = plt.subplots(figsize=(6, 4))
         if psnr_per_restart_idlg_all:
-            means_i, stds_i = _restart_stats(psnr_per_restart_idlg_all)
+            means_i, sems_i = _restart_stats(psnr_per_restart_idlg_all)
             ax.plot(restart_x, means_i, marker="o", label="iDLG (no mask)")
-            ax.fill_between(restart_x, means_i - stds_i, means_i + stds_i, alpha=0.2)
+            ax.fill_between(restart_x, means_i - sems_i, means_i + sems_i, alpha=0.2)
         if psnr_per_restart_masked_all:
-            means_m, stds_m = _restart_stats(psnr_per_restart_masked_all)
+            means_m, sems_m = _restart_stats(psnr_per_restart_masked_all)
             ax.plot(restart_x, means_m, marker="s", label=f"masked ({MASK_MODE})")
-            ax.fill_between(restart_x, means_m - stds_m, means_m + stds_m, alpha=0.2)
+            ax.fill_between(restart_x, means_m - sems_m, means_m + sems_m, alpha=0.2)
         ax.set_xlabel("Number of restarts used")
-        ax.set_ylabel("Mean best PSNR (dB)")
+        ax.set_ylabel("Mean best PSNR (dB) ± SEM")
         ax.set_title(f"Effect of restarts — {NETWORK_NAME} / {dataset}")
         ymin, ymax = ax.get_ylim()
         ax.set_ylim(ymin, ymax * 1.12)
