@@ -63,8 +63,17 @@ def compute_jacobian_rank(
     max_entries=None,
     select_mode="topk_abs",
     device_for_J="cpu",
+    atol=None,
+    print_svd_info=False,
 ):
-    """Rank of J = d vec(g_obs) / d vec(x), built row-by-row to avoid OOM."""
+    """Rank of J = d vec(g_obs) / d vec(x), built row-by-row to avoid OOM.
+
+    atol: if set, use a fixed absolute threshold on singular values (rtol=0).
+          This makes the rank estimate independent of matrix size, avoiding the
+          default threshold growing with M. If None, uses PyTorch's default.
+    print_svd_info: if True, print the 10 smallest singular values so the gap
+                    between real directions and noise can be inspected.
+    """
     params = tuple(net.parameters())
     x_norm = x_norm.detach().clone().requires_grad_(True)
 
@@ -114,14 +123,21 @@ def compute_jacobian_rank(
         J[i] = grad_i.reshape(-1).detach().to(device_for_J)
 
     # Normalize rows so σ_max(J_norm) ≤ √M instead of O(M).
-    # Without this, the standard threshold max(M,N)·ε·σ_max grows as O(M²·ε),
-    # causing rank to decline as more rows are added.
     row_norms = torch.norm(J, dim=1, keepdim=True).clamp_min(1e-30)
     J_norm = J / row_norms
 
-    # Use PyTorch's default rtol = max(M,N)·ε applied to σ_max(J_norm).
-    # After normalization σ_max ≤ √M, so the threshold is O(M^1.5·ε) — correct.
-    jac_rank = int(torch.linalg.matrix_rank(J_norm).item())
+    if atol is not None or print_svd_info:
+        svd_vals = torch.linalg.svdvals(J_norm)  # descending
+        if print_svd_info:
+            bottom = svd_vals[-10:].tolist()
+            print(f"  [SVD] M={used_entries}, bottom-10 singular values: "
+                  f"{[f'{v:.3e}' for v in bottom]}", flush=True)
+        if atol is not None:
+            jac_rank = int((svd_vals > atol).sum().item())
+        else:
+            jac_rank = int(torch.linalg.matrix_rank(J_norm).item())
+    else:
+        jac_rank = int(torch.linalg.matrix_rank(J_norm).item())
 
     return jac_rank, tuple(J.shape), used_entries, unknowns
 

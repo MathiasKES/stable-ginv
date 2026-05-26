@@ -140,6 +140,8 @@ def _worker_core(args, sample_indices, device, row_counts, prefixes, prefix_laye
                 max_entries=rows,
                 select_mode=args.jacobian_select_mode,
                 device_for_J="cpu",
+                atol=args.atol,
+                print_svd_info=args.print_svd_info,
             )
             results[rows].append(jac_rank)
             if rows == max(row_counts):
@@ -207,6 +209,13 @@ def main():
     parser.add_argument("--device", type=str, default="cuda:0")
     parser.add_argument("--num_workers", type=int, default=1,
                         help="Number of parallel workers (1 = serial, 2-4 = one process per GPU).")
+    parser.add_argument("--atol", type=float, default=None,
+                        help="Fixed absolute tolerance for matrix_rank. If set, rtol=0 so the "
+                             "threshold is constant regardless of matrix size. If unset, uses "
+                             "PyTorch's default (threshold grows with M).")
+    parser.add_argument("--print_svd_info", action="store_true",
+                        help="Print the 10 smallest singular values at each row count to help "
+                             "choose an appropriate atol.")
 
     args = parser.parse_args()
 
