@@ -218,12 +218,17 @@ def main():
         "Instead of running experiments, run a calibration or sweep pass. "
         "Without --threshold_mse: runs baseline iDLG on --num_exp images and saves "
         "sorted_mse.png, mse_histogram.png, recon_grid.png, and mse_results.csv so you can pick a threshold. "
-        "With --threshold_mse: sweeps --mask_mode at topfrac 0.1→1.0 (step 0.1) and plots "
+        "With --threshold_mse: sweeps --mask_mode from --sweep_step to 1.0 and plots "
         "images reconstructed vs. fraction of gradient entries shared."
     ))
     parser.add_argument("--threshold_mse", type=float, default=None, help=(
         "MSE threshold below which an image counts as reconstructed. "
         "Used with --mse_visualise to switch from calibration mode to sweep mode."
+    ))
+    parser.add_argument("--sweep_step", type=float, default=0.05, help=(
+        "Top-fraction step size for --mse_visualise sweep mode. "
+        "For example, 0.1 sweeps 0.1, 0.2, ..., 1.0. "
+        "Only used when both --mse_visualise and --threshold_mse are set."
     ))
 
     args = parser.parse_args()
@@ -234,6 +239,8 @@ def main():
 
     if not args.mse_visualise and not (0.0 < args.gradsize_topfrac <= 1.0):
         parser.error(f"--gradsize_topfrac must be in (0, 1], got {args.gradsize_topfrac}")
+    if args.mse_visualise and args.threshold_mse is not None and not (0.0 < args.sweep_step <= 1.0):
+        parser.error(f"--sweep_step must be in (0, 1], got {args.sweep_step}")
 
     # -------- Masking config --------
     MASK_MODE = args.mask_mode

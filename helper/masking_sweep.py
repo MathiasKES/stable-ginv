@@ -5,7 +5,7 @@ Calibration (--mse_visualise, no --threshold_mse):
   Run baseline iDLG on N images → sorted_mse.png, recon_grid.png, mse_results.csv
 
 Sweep (--mse_visualise --threshold_mse X):
-  Run args.mask_mode at topfrac 0.1→1.0 → sweep_plot.png, sweep_results.csv
+  Run args.mask_mode from --sweep_step→1.0 → sweep_plot.png, sweep_results.csv
 
 Both imported and called from iDLG_mask.py.
 """
@@ -32,7 +32,16 @@ from functions.masking import (build_gradient_mask, flatten_observed_gradients,
                                 _get_last_fc_param_indices)
 
 
-SWEEP_FRACS = [round(f * 0.05, 2) for f in range(1, 21)]   # 0.05 … 1.0
+def _sweep_fracs(step):
+    """Return topfrac sweep values from step to 1.0, always including 1.0."""
+    fracs = []
+    frac = step
+    while frac < 1.0:
+        fracs.append(round(frac, 10))
+        frac += step
+    if not fracs or fracs[-1] != 1.0:
+        fracs.append(1.0)
+    return fracs
 
 
 # ---- Per-worker setup -----------------------------------------------------------
@@ -388,26 +397,28 @@ def run_mse_calibration(args, dst, channel, num_classes, shape_img, save_path):
 
 def run_mse_sweep(args, dst, channel, num_classes, shape_img, save_path):
     """
-    Sweep args.mask_mode from topfrac 0.1 to 1.0 in parallel across GPUs.
+    Sweep args.mask_mode from topfrac args.sweep_step to 1.0 in parallel across GPUs.
     Called from iDLG_mask.main() when --mse_visualise and --threshold_mse are both set.
     """
     _init_mp()
     ts = datetime.now().strftime('%Y%m%d_%H%M%S')
     out_dir = os.path.join(save_path, f'sweep_{args.network}_{args.dataset}_{ts}')
     os.makedirs(out_dir, exist_ok=True)
+    sweep_fracs = _sweep_fracs(args.sweep_step)
 
     num_gpus = torch.cuda.device_count() if torch.cuda.is_available() else 0
-    print(f'MSE sweep: {args.mask_mode}  {len(SWEEP_FRACS)} fracs  '
-          f'({len(SWEEP_FRACS) * args.num_exp} total runs)  '
-          f'GPUs={max(num_gpus, 1)}  threshold={args.threshold_mse}')
+    print(f'MSE sweep: {args.mask_mode}  {len(sweep_fracs)} fracs  '
+          f'({len(sweep_fracs) * args.num_exp} total runs)  '
+          f'GPUs={max(num_gpus, 1)}  threshold={args.threshold_mse}  '
+          f'step={args.sweep_step}')
     print(f'Saving to: {out_dir}\n')
 
     csv_rows = []
-    for pt, frac in enumerate(SWEEP_FRACS, 1):
-        print(f'[{pt}/{len(SWEEP_FRACS)}] topfrac={frac:.2f}  ({int((1 - frac) * 100)}% masked)')
+    for pt, frac in enumerate(sweep_fracs, 1):
+        print(f'[{pt}/{len(sweep_fracs)}] topfrac={frac:g}  ({int((1 - frac) * 100)}% masked)')
         mses = _run_parallel(args.num_exp, dst, args, channel, num_classes, shape_img,
                              mask_mode=args.mask_mode, topfrac=frac,
-                             desc=f'topfrac={frac:.2f}')
+                             desc=f'topfrac={frac:g}')
         mses = [m for m in mses if m is not None]
         n_recon = sum(1 for m in mses if m <= args.threshold_mse)
         row = {
