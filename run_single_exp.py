@@ -373,8 +373,16 @@ def _run_inner(idx_net, device_id, dst, dataset_name, config, result_queue):
                     optimizer.step(closure)
                     current_loss = closure().item()
 
-                    with torch.no_grad():
-                        dummy_data.clamp_(lower_bound, upper_bound)
+                    # Sigmoid-activation nets (LeNet, LeNet_bigger) are trained on raw [0,1]
+                    # inputs with no normalisation. Clamping after each LBFGS step corrupts
+                    # the quasi-Newton Hessian approximation (gradient stored at unclamped
+                    # position, but next step starts from clamped position), causing many runs
+                    # to diverge into wrong local minima. Skip clamping to match the original
+                    # iDLG paper behaviour; pixels naturally converge to [0,1] when the loss
+                    # drives them toward the GT.
+                    if NETWORK_NAME not in {"LeNet", "LeNet_bigger"}:
+                        with torch.no_grad():
+                            dummy_data.clamp_(lower_bound, upper_bound)
 
                 elif phase in ["adam", "adamw", "signed_adam", "signed_adamw"]:
                     optimizer.zero_grad()
