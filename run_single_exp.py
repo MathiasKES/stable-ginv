@@ -94,7 +94,15 @@ def _run_inner(idx_net, device_id, dst, dataset_name, config, result_queue):
             gt_data = torch.cat((gt_data, tmp_datum), dim=0)
             gt_label = torch.cat((gt_label, tmp_label), dim=0)
 
-    if NETWORK_TRAINED and channel == 3:
+    # LeNet/LeNet_bigger use Sigmoid activations designed for raw [0,1] inputs.
+    # Applying dataset normalisation shifts inputs into ≈[-2, +2], saturating
+    # the sigmoid and zeroing out conv gradients — making inversion impossible.
+    # Skip normalisation for these architectures to match the original iDLG paper.
+    _sigmoid_nets = {"LeNet", "LeNet_bigger"}
+    if NETWORK_NAME in _sigmoid_nets:
+        dm = torch.zeros(1, channel, 1, 1, device=device)
+        ds = torch.ones(1, channel, 1, 1, device=device)
+    elif NETWORK_TRAINED and channel == 3:
         dm = torch.tensor(consts.imagenet_mean, device=device).view(1, channel, 1, 1)
         ds = torch.tensor(consts.imagenet_std,  device=device).view(1, channel, 1, 1)
     else:
