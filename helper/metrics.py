@@ -6,6 +6,12 @@ import torch.nn.functional as F
 import torch.autograd.forward_ad as fwAD
 from skimage.metrics import structural_similarity as ssim
 
+try:
+    import scipy.linalg as _scipy_linalg
+    _SCIPY_AVAILABLE = True
+except ImportError:
+    _SCIPY_AVAILABLE = False
+
 from functions.masking import flatten_observed_gradients
 
 
@@ -54,6 +60,24 @@ def total_variation(x):
     return tv_h + tv_w
 
 
+def _layer_boundaries(grads, keep_ids, entry_masks):
+    """Return the number of entries each tensor contributes to the flat gradient vector."""
+    sizes = []
+    for i, g in enumerate(grads):
+        if g is None:
+            continue
+        if entry_masks is not None:
+            m = entry_masks[i]
+            if m is None:
+                continue
+            sizes.append(int(m.reshape(-1).sum().item()))
+        else:
+            if keep_ids is not None and i not in keep_ids:
+                continue
+            sizes.append(g.numel())
+    return sizes
+
+
 def _build_jacobian(net, x_norm, y, criterion, keep_ids, entry_masks,
                     max_entries, select_mode, device_for_J):
     """Forward pass + row selection + J construction.
@@ -89,6 +113,34 @@ def _build_jacobian(net, x_norm, y, criterion, keep_ids, entry_masks,
             selected_idx = torch.arange(k, device=g_obs_det.device)
         elif select_mode == "random":
             selected_idx = torch.randperm(total_entries, device=g_obs_det.device)[:k]
+        elif select_mode == "layer_spread":
+            # Distribute k budget evenly across layers; within each layer take top-abs entries.
+            layer_sizes = _layer_boundaries(grads, keep_ids, entry_masks)
+            num_layers = len(layer_sizes)
+            base = k // num_layers
+            remainder = k % num_layers
+            # Extra entries go to the largest layers first to avoid over-sampling small ones.
+            order = sorted(range(num_layers), key=lambda i: layer_sizes[i], reverse=True)
+            per_layer = [base] * num_layers
+            for i in range(remainder):
+                per_layer[order[i]] += 1
+            per_layer = [min(n, sz) for n, sz in zip(per_layer, layer_sizes)]
+            indices = []
+            offset = 0
+            for n, sz in zip(per_layer, layer_sizes):
+                if n > 0:
+                    layer_vals = g_obs_det[offset:offset + sz]
+                    if n >= sz:
+                        local_idx = torch.arange(sz, device=g_obs_det.device)
+                    else:
+                        local_idx = torch.topk(layer_vals.abs(), k=n, largest=True).indices
+                    indices.append(local_idx + offset)
+                offset += sz
+            selected_idx = (torch.cat(indices) if indices
+                            else torch.arange(min(k, total_entries), device=g_obs_det.device))
+        elif select_mode == "qr_pivot":
+            # qr_pivot reorders rows after J_max is built; use topk_abs to seed the initial pool.
+            selected_idx = torch.topk(g_obs_det.abs(), k=k, largest=True).indices
         else:
             raise ValueError(f"Unknown select_mode: {select_mode}")
 
@@ -197,6 +249,13 @@ def compute_jacobian_rank_sweep(
     J_max, total_entries, unknowns = _build_jacobian(
         net, x_norm, y, criterion, keep_ids, entry_masks, max(row_counts), select_mode, device_for_J,
     )
+
+    if select_mode == "qr_pivot":
+        if not _SCIPY_AVAILABLE:
+            raise ImportError("qr_pivot requires scipy. Install with: pip install scipy")
+        # QR with column pivoting on J^T: pivots[i] is the i-th most linearly independent row of J.
+        _, _, pivots = _scipy_linalg.qr(J_max.numpy().T, pivoting=True, mode="economic")
+        J_max = J_max[torch.from_numpy(pivots.astype(np.int64))]
 
     results = {}
     for k in row_counts:

@@ -231,7 +231,7 @@ def main():
     parser.add_argument("--max_row_count", type=int, default=None,
                         help="Upper bound for row counts when --stepsize is used.")
     parser.add_argument("--jacobian_select_mode", type=str, default="topk_abs",
-                        choices=["topk_abs", "first", "random"])
+                        choices=["topk_abs", "first", "random", "layer_spread", "qr_pivot"])
     parser.add_argument("--num_samples", type=int, default=3)
     parser.add_argument("--run_id", type=int, default=0)
     parser.add_argument("--device", type=str, default="cuda:0")
