@@ -53,26 +53,12 @@ def total_variation(x):
     return tv_h + tv_w
 
 
-def compute_jacobian_rank(
-    net,
-    x_norm,
-    y,
-    criterion,
-    keep_ids=None,
-    entry_masks=None,
-    max_entries=None,
-    select_mode="topk_abs",
-    device_for_J="cpu",
-    atol=None,
-    print_svd_info=False,
-):
-    """Rank of J = d vec(g_obs) / d vec(x), built row-by-row to avoid OOM.
+def _build_jacobian(net, x_norm, y, criterion, keep_ids, entry_masks,
+                    max_entries, select_mode, device_for_J):
+    """Forward pass + row selection + row-by-row backward to build J.
 
-    atol: if set, use a fixed absolute threshold on singular values (rtol=0).
-          This makes the rank estimate independent of matrix size, avoiding the
-          default threshold growing with M. If None, uses PyTorch's default.
-    print_svd_info: if True, print the 10 smallest singular values so the gap
-                    between real directions and noise can be inspected.
+    Returns (J, total_entries, unknowns).
+    J has shape (used_entries, unknowns) where used_entries = min(max_entries, total_entries).
     """
     params = tuple(net.parameters())
     x_norm = x_norm.detach().clone().requires_grad_(True)
@@ -80,15 +66,12 @@ def compute_jacobian_rank(
     out = net(x_norm)
     loss = criterion(out, y)
     grads = torch.autograd.grad(
-        loss,
-        params,
-        create_graph=True,
-        retain_graph=True,
-        allow_unused=False,
+        loss, params, create_graph=True, retain_graph=True, allow_unused=False,
     )
     g_obs = flatten_observed_gradients(grads, keep_ids=keep_ids, entry_masks=entry_masks)
 
     total_entries = g_obs.numel()
+    unknowns = x_norm.numel()
 
     if max_entries is None or max_entries >= total_entries:
         selected_idx = torch.arange(total_entries, device=g_obs.device)
@@ -96,7 +79,6 @@ def compute_jacobian_rank(
         k = int(max_entries)
         if k <= 0:
             raise ValueError("max_entries must be positive")
-
         if select_mode == "topk_abs":
             selected_idx = torch.topk(g_obs.detach().abs(), k=k, largest=True).indices
         elif select_mode == "first":
@@ -107,39 +89,91 @@ def compute_jacobian_rank(
             raise ValueError(f"Unknown select_mode: {select_mode}")
 
     g_sel = g_obs[selected_idx]
-
     used_entries = g_sel.numel()
-    unknowns = x_norm.numel()
 
     J = torch.empty((used_entries, unknowns), dtype=x_norm.dtype, device=device_for_J)
     for i in range(used_entries):
         grad_i = torch.autograd.grad(
             g_sel[i],
             x_norm,
-            retain_graph=True,
+            retain_graph=(i < used_entries - 1),
             create_graph=False,
             allow_unused=False,
         )[0]
         J[i] = grad_i.reshape(-1).detach().to(device_for_J)
 
+    return J, total_entries, unknowns
+
+
+def _rank_of_J(J, print_svd_info=False):
+    """Row-normalise J and return its numerical rank via matrix_rank."""
     # Normalize rows so σ_max(J_norm) ≤ √M instead of O(M).
     row_norms = torch.norm(J, dim=1, keepdim=True).clamp_min(1e-30)
     J_norm = J / row_norms
+    if print_svd_info:
+        svd_vals = torch.linalg.svdvals(J_norm)
+        bottom = svd_vals[-10:].tolist()
+        print(f"  [SVD] M={J.shape[0]}, bottom-10 singular values: "
+              f"{[f'{v:.3e}' for v in bottom]}", flush=True)
+    return int(torch.linalg.matrix_rank(J_norm).item())
 
-    if atol is not None or print_svd_info:
-        svd_vals = torch.linalg.svdvals(J_norm)  # descending
-        if print_svd_info:
-            bottom = svd_vals[-10:].tolist()
-            print(f"  [SVD] M={used_entries}, bottom-10 singular values: "
-                  f"{[f'{v:.3e}' for v in bottom]}", flush=True)
-        if atol is not None:
-            jac_rank = int((svd_vals > atol).sum().item())
-        else:
-            jac_rank = int(torch.linalg.matrix_rank(J_norm).item())
-    else:
-        jac_rank = int(torch.linalg.matrix_rank(J_norm).item())
 
-    return jac_rank, tuple(J.shape), used_entries, unknowns
+def compute_jacobian_rank(
+    net,
+    x_norm,
+    y,
+    criterion,
+    keep_ids=None,
+    entry_masks=None,
+    max_entries=None,
+    select_mode="topk_abs",
+    device_for_J="cpu",
+    print_svd_info=False,
+):
+    """Rank of J = d vec(g_obs) / d vec(x), built row-by-row to avoid OOM.
+
+    print_svd_info: if True, print the 10 smallest singular values of the
+                    row-normalised Jacobian to help diagnose rank behaviour.
+    """
+    J, total_entries, unknowns = _build_jacobian(
+        net, x_norm, y, criterion, keep_ids, entry_masks, max_entries, select_mode, device_for_J,
+    )
+    jac_rank = _rank_of_J(J, print_svd_info=print_svd_info)
+    return jac_rank, tuple(J.shape), J.shape[0], unknowns
+
+
+def compute_jacobian_rank_sweep(
+    net,
+    x_norm,
+    y,
+    criterion,
+    keep_ids=None,
+    entry_masks=None,
+    row_counts=None,
+    select_mode="topk_abs",
+    device_for_J="cpu",
+    print_svd_info=False,
+):
+    """Rank of J for multiple row counts, building J once at max(row_counts).
+
+    Returns {k: (rank, shape, used_entries, unknowns)} for each k in row_counts.
+    Equivalent to calling compute_jacobian_rank separately for each k, but
+    reuses the single forward+backward pass and J build.
+    """
+    if not row_counts:
+        raise ValueError("row_counts must be a non-empty list")
+
+    J_max, total_entries, unknowns = _build_jacobian(
+        net, x_norm, y, criterion, keep_ids, entry_masks, max(row_counts), select_mode, device_for_J,
+    )
+
+    results = {}
+    for k in row_counts:
+        J_k = J_max[:k]  # if k > J_max.shape[0], returns all rows
+        rank = _rank_of_J(J_k, print_svd_info=print_svd_info)
+        results[k] = (rank, tuple(J_k.shape), J_k.shape[0], unknowns)
+
+    return results
 
 
 def compute_grad_match_loss(dummy_dy_dx, selected_original, selected_entry_masks=None, grad_loss="cos", eps=1e-12):

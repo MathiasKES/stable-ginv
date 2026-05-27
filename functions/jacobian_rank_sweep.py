@@ -2,6 +2,7 @@ import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import csv
 import argparse
+import tempfile
 from datetime import datetime
 
 import numpy as np
@@ -9,6 +10,15 @@ import torch
 import torch.nn as nn
 import torch.multiprocessing as mp
 from torchvision import transforms
+
+_cache_dir = os.path.join(tempfile.gettempdir(), "stable_ginv_cache")
+_mpl_config_dir = os.path.join(_cache_dir, "matplotlib")
+_xdg_cache_dir = os.path.join(_cache_dir, "xdg")
+os.makedirs(_mpl_config_dir, exist_ok=True)
+os.makedirs(_xdg_cache_dir, exist_ok=True)
+os.environ.setdefault("MPLCONFIGDIR", _mpl_config_dir)
+os.environ.setdefault("XDG_CACHE_HOME", _xdg_cache_dir)
+
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -19,7 +29,7 @@ from functions.Dataset import load_dataset
 from functions.io_utils import parse_prefixes_with_fracs
 from helper.Network import get_model, weights_init
 from functions.masking import build_gradient_mask
-from helper.metrics import compute_jacobian_rank
+from helper.metrics import compute_jacobian_rank_sweep
 
 
 
@@ -122,29 +132,30 @@ def _worker_core(args, sample_indices, device, row_counts, prefixes, prefix_laye
             prefix_layer_fracs=prefix_layer_fracs,
             gradsize_topk=args.gradsize_topk,
             gradsize_topfrac=args.gradsize_topfrac,
-            gradsize_metric=args.gradsize_metric,
+            gradsize_metric="l2",
         )
 
         if debug and local_i == 0:
             _print_mask_debug(args, net, prefixes, prefix_layer_fracs,
                               original_dy_dx, keep_ids, entry_masks)
 
+        sweep = compute_jacobian_rank_sweep(
+            net=net,
+            x_norm=gt_data_norm,
+            y=gt_label,
+            criterion=criterion,
+            keep_ids=keep_ids,
+            entry_masks=entry_masks,
+            row_counts=row_counts,
+            select_mode=args.jacobian_select_mode,
+            device_for_J="cpu",
+            print_svd_info=args.print_svd_info,
+        )
+        max_rows = max(row_counts)
         for rows in row_counts:
-            jac_rank, jac_shape, used_rows, jac_unknowns = compute_jacobian_rank(
-                net=net,
-                x_norm=gt_data_norm,
-                y=gt_label,
-                criterion=criterion,
-                keep_ids=keep_ids,
-                entry_masks=entry_masks,
-                max_entries=rows,
-                select_mode=args.jacobian_select_mode,
-                device_for_J="cpu",
-                atol=args.atol,
-                print_svd_info=args.print_svd_info,
-            )
+            jac_rank, jac_shape, used_rows, jac_unknowns = sweep[rows]
             results[rows].append(jac_rank)
-            if rows == max(row_counts):
+            if rows == max_rows:
                 print(f"    max_rows={rows}: rank={jac_rank}  shape={jac_shape}", flush=True)
             if progress_fn is not None:
                 progress_fn(1)
@@ -194,11 +205,31 @@ def main():
     parser.add_argument("--pretrained", action="store_true",
                         help="Load ImageNet-pretrained weights (affects normalization).")
 
-    parser.add_argument("--mask_mode", type=str, default="gradsize_topfrac")
+    parser.add_argument(
+        "--mask_mode",
+        type=str,
+        default="gradsize_topfrac",
+        choices=[
+            "none",
+            "all",
+            "gradsize_topk",
+            "gradsize_topfrac",
+            "gradsize_topk_entries",
+            "gradsize_topfrac_entries",
+            "gradsize_topk_entries_layer",
+            "gradsize_topfrac_entries_layer",
+            "prefix",
+            "prefix_topk",
+            "prefix_topfrac",
+            "prefix_topk_entries",
+            "prefix_topfrac_entries",
+            "prefix_topk_entries_layer",
+            "prefix_topfrac_entries_layer",
+        ],
+    )
     parser.add_argument("--prefixes", type=str, default="conv1:1.0,layer1:1.0,layer2:1.0,layer3:1.0,fc:1.0")
     parser.add_argument("--gradsize_topk", type=int, default=20)
     parser.add_argument("--gradsize_topfrac", type=float, default=0.5)
-    parser.add_argument("--gradsize_metric", type=str, default="l2")
 
     parser.add_argument("--row_counts", type=str,
                         default="3072,3500,4000,4500,5000,5500,6000,6500,7000,7500,8000,8500,9000,9500,10000")
@@ -209,21 +240,27 @@ def main():
     parser.add_argument("--device", type=str, default="cuda:0")
     parser.add_argument("--num_workers", type=int, default=1,
                         help="Number of parallel workers (1 = serial, 2-4 = one process per GPU).")
-    parser.add_argument("--atol", type=float, default=None,
-                        help="Fixed absolute tolerance for matrix_rank. If set, rtol=0 so the "
-                             "threshold is constant regardless of matrix size. If unset, uses "
-                             "PyTorch's default (threshold grows with M).")
     parser.add_argument("--print_svd_info", action="store_true",
-                        help="Print the 10 smallest singular values at each row count to help "
-                             "choose an appropriate atol.")
+                        help="Print the 10 smallest singular values of the row-normalised "
+                             "Jacobian at each row count.")
 
     args = parser.parse_args()
 
     if not 1 <= args.num_workers <= 4:
         parser.error("--num_workers must be between 1 and 4")
+    if not 0 < args.gradsize_topfrac <= 1:
+        parser.error("--gradsize_topfrac must be in (0, 1]")
+    if args.num_samples < 1:
+        parser.error("--num_samples must be at least 1")
 
     row_counts = [int(x.strip()) for x in args.row_counts.split(",") if x.strip()]
+    if len(row_counts) == 0:
+        parser.error("--row_counts must contain at least one positive integer")
+    if any(rows <= 0 for rows in row_counts):
+        parser.error("--row_counts values must all be positive")
     prefixes, prefix_layer_fracs = parse_prefixes_with_fracs(args.prefixes)
+    if any(not 0 < frac <= 1 for frac in prefix_layer_fracs.values()):
+        parser.error("prefix fractions in --prefixes must be in (0, 1]")
 
     if os.access('/work3/s234843/bachelor', os.R_OK | os.W_OK | os.X_OK):
         save_dir = '/work3/s234843/bachelor/results'
@@ -246,12 +283,15 @@ def main():
     print(f"Unknowns: {unknowns}")
     print(f"Samples: {sample_indices}")
 
-    total_steps = args.num_samples * len(row_counts)
+    total_steps = len(sample_indices) * len(row_counts)
 
     if args.num_workers == 1:
         device = args.device
         if args.device == "cuda":
             device = "cuda:0" if torch.cuda.is_available() else "cpu"
+        elif args.device.startswith("cuda") and not torch.cuda.is_available():
+            print(f"CUDA requested via --device {args.device}, but CUDA is unavailable; using CPU.")
+            device = "cpu"
 
         with tqdm(total=total_steps, desc="Jacobian rank") as pbar:
             rank_results = _worker_core(
