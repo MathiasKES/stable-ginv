@@ -139,6 +139,7 @@ def _worker_core(args, sample_indices, device, row_counts, prefixes, prefix_laye
             entry_masks=entry_masks,
             row_counts=row_counts,
             select_mode=args.jacobian_select_mode,
+            qr_pivot=args.qr_pivot,
             device_for_J="cpu",
             print_svd_info=args.print_svd_info,
         )
@@ -231,7 +232,11 @@ def main():
     parser.add_argument("--max_row_count", type=int, default=None,
                         help="Upper bound for row counts when --stepsize is used.")
     parser.add_argument("--jacobian_select_mode", type=str, default="topk_abs",
-                        choices=["topk_abs", "first", "random", "layer_spread", "qr_pivot"])
+                        choices=["topk_abs", "first", "random", "layer_spread"])
+    parser.add_argument("--qr_pivot", action="store_true",
+                        help="After building J with --jacobian_select_mode, reorder its rows "
+                             "via QR column pivoting so each slice J[:k] contains the k most "
+                             "linearly independent rows from the pool.")
     parser.add_argument("--num_samples", type=int, default=3)
     parser.add_argument("--run_id", type=int, default=0)
     parser.add_argument("--device", type=str, default="cuda:0")

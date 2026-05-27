@@ -138,9 +138,6 @@ def _build_jacobian(net, x_norm, y, criterion, keep_ids, entry_masks,
                 offset += sz
             selected_idx = (torch.cat(indices) if indices
                             else torch.arange(min(k, total_entries), device=g_obs_det.device))
-        elif select_mode == "qr_pivot":
-            # qr_pivot reorders rows after J_max is built; use topk_abs to seed the initial pool.
-            selected_idx = torch.topk(g_obs_det.abs(), k=k, largest=True).indices
         else:
             raise ValueError(f"Unknown select_mode: {select_mode}")
 
@@ -234,6 +231,7 @@ def compute_jacobian_rank_sweep(
     entry_masks=None,
     row_counts=None,
     select_mode="topk_abs",
+    qr_pivot=False,
     device_for_J="cpu",
     print_svd_info=False,
 ):
@@ -242,6 +240,10 @@ def compute_jacobian_rank_sweep(
     Returns {k: (rank, shape, used_entries, unknowns)} for each k in row_counts.
     Equivalent to calling compute_jacobian_rank separately for each k, but
     reuses the single forward+backward pass and J build.
+
+    qr_pivot: if True, reorder the rows of J_max via QR column pivoting before
+              slicing, so J_max[:k] contains the k most linearly independent rows
+              from the pool selected by select_mode.
     """
     if not row_counts:
         raise ValueError("row_counts must be a non-empty list")
@@ -250,7 +252,7 @@ def compute_jacobian_rank_sweep(
         net, x_norm, y, criterion, keep_ids, entry_masks, max(row_counts), select_mode, device_for_J,
     )
 
-    if select_mode == "qr_pivot":
+    if qr_pivot:
         if not _SCIPY_AVAILABLE:
             raise ImportError("qr_pivot requires scipy. Install with: pip install scipy")
         # QR with column pivoting on J^T: pivots[i] is the i-th most linearly independent row of J.
