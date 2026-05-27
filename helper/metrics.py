@@ -60,6 +60,34 @@ def total_variation(x):
     return tv_h + tv_w
 
 
+def _get_layer_groups(net):
+    """Map each parameter name to a group label for layer_spread.
+
+    Top-level children become groups. A nn.Sequential is expanded one level
+    when all of its direct children are leaf modules (no sub-children), e.g.
+    VGG's features.0, features.2, ... Each ResNet BasicBlock/Bottleneck keeps
+    its parent Sequential label (layer1, layer2, ...) because BasicBlocks have
+    their own sub-modules.
+    """
+    groups = {}
+    for child_name, child in net.named_children():
+        if isinstance(child, torch.nn.Sequential):
+            all_leaf = all(not list(gc.named_children()) for _, gc in child.named_children())
+            if all_leaf:
+                for gc_name, gc_module in child.named_children():
+                    for param_name, _ in gc_module.named_parameters():
+                        groups[f"{child_name}.{gc_name}.{param_name}"] = f"{child_name}.{gc_name}"
+            else:
+                for param_name, _ in child.named_parameters():
+                    groups[f"{child_name}.{param_name}"] = child_name
+        else:
+            for param_name, _ in child.named_parameters():
+                groups[f"{child_name}.{param_name}"] = child_name
+    for param_name, _ in net.named_parameters(recurse=False):
+        groups[param_name] = param_name
+    return groups
+
+
 def _layer_info(grads, keep_ids, entry_masks):
     """Return (sizes, ndims) for each tensor contributing to the flat gradient vector.
 
@@ -120,39 +148,73 @@ def _build_jacobian(net, x_norm, y, criterion, keep_ids, entry_masks,
         elif select_mode == "random":
             selected_idx = torch.randperm(total_entries, device=g_obs_det.device)[:k]
         elif select_mode == "layer_spread":
-            # 1D tensors (bias, BN γ/β) are included in full — they are small and diffuse.
-            # The k-entry budget is spread evenly across weight tensors (ndim >= 2) only,
-            # which have localized receptive fields and contribute most to Jacobian rank.
-            layer_sizes, layer_ndims = _layer_info(grads, keep_ids, entry_masks)
-            full_entries = sum(sz for sz, nd in zip(layer_sizes, layer_ndims) if nd < 2)
-            spread_budget = max(0, k - full_entries)
-            spread_sizes = [sz for sz, nd in zip(layer_sizes, layer_ndims) if nd >= 2]
-            num_spread = len(spread_sizes)
-            if num_spread > 0 and spread_budget > 0:
-                base = spread_budget // num_spread
-                remainder = spread_budget % num_spread
-                order = sorted(range(num_spread), key=lambda i: spread_sizes[i], reverse=True)
-                per_spread = [base] * num_spread
-                for i in range(remainder):
-                    per_spread[order[i]] += 1
-                per_spread = [min(n, sz) for n, sz in zip(per_spread, spread_sizes)]
-            else:
-                per_spread = list(spread_sizes)
-            indices = []
-            offset = 0
-            spread_ptr = 0
-            for sz, nd in zip(layer_sizes, layer_ndims):
-                if nd < 2:
-                    indices.append(torch.arange(sz, device=g_obs_det.device) + offset)
+            # Spread budget evenly across layer groups determined by _get_layer_groups.
+            # For architectures like ResNet, each top-level child (conv1, bn1, layer1, ...)
+            # is its own group. For architectures like VGG where top-level children are
+            # nn.Sequential containers of simple layers (Conv2d, ReLU, ...), each direct
+            # child of the Sequential becomes its own group (features.0, features.2, ...),
+            # giving per-conv-layer granularity. Within each group, the top-magnitude
+            # entries are selected globally across all tensors in that group.
+            layer_sizes, _ = _layer_info(grads, keep_ids, entry_masks)
+            named_params = list(net.named_parameters())
+            param_to_group = _get_layer_groups(net)
+
+            # Build group label for each observed tensor (same filtering as _layer_info)
+            group_of = []
+            for i, (name, _p) in enumerate(named_params):
+                if grads[i] is None:
+                    continue
+                if entry_masks is not None:
+                    if entry_masks[i] is None:
+                        continue
                 else:
-                    n = per_spread[spread_ptr]
-                    spread_ptr += 1
-                    if n > 0:
-                        layer_vals = g_obs_det[offset:offset + sz]
-                        local_idx = (torch.arange(sz, device=g_obs_det.device) if n >= sz
-                                     else torch.topk(layer_vals.abs(), k=n, largest=True).indices)
-                        indices.append(local_idx + offset)
+                    if keep_ids is not None and i not in keep_ids:
+                        continue
+                group_of.append(param_to_group.get(name, name.split('.')[0]))
+
+            # Ordered unique groups (first-occurrence order = network depth order)
+            seen_grps = set()
+            groups = []
+            for grp in group_of:
+                if grp not in seen_grps:
+                    groups.append(grp)
+                    seen_grps.add(grp)
+
+            num_groups = len(groups)
+            group_totals = {grp: 0 for grp in groups}
+            group_slices = {grp: [] for grp in groups}
+            offset = 0
+            for sz, grp in zip(layer_sizes, group_of):
+                group_totals[grp] += sz
+                group_slices[grp].append((offset, sz))
                 offset += sz
+
+            base = k // num_groups
+            remainder = k % num_groups
+            order = sorted(groups, key=lambda grp: group_totals[grp], reverse=True)
+            per_group = {grp: base for grp in groups}
+            for i in range(remainder):
+                per_group[order[i]] += 1
+            per_group = {grp: min(per_group[grp], group_totals[grp]) for grp in groups}
+
+            indices = []
+            for grp in groups:
+                n = per_group[grp]
+                slices = group_slices[grp]
+                if n <= 0 or not slices:
+                    continue
+                if n >= group_totals[grp]:
+                    for off, sz in slices:
+                        indices.append(torch.arange(sz, device=g_obs_det.device) + off)
+                else:
+                    grp_vals = torch.cat([g_obs_det[off:off + sz] for off, sz in slices])
+                    top_local = torch.topk(grp_vals.abs(), k=n, largest=True).indices
+                    local_to_global = torch.cat([
+                        torch.arange(sz, device=g_obs_det.device) + off
+                        for off, sz in slices
+                    ])
+                    indices.append(local_to_global[top_local])
+
             selected_idx = (torch.cat(indices) if indices
                             else torch.arange(min(k, total_entries), device=g_obs_det.device))
         else:
