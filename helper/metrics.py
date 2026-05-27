@@ -3,6 +3,7 @@ import math
 import numpy as np
 import torch
 import torch.nn.functional as F
+import torch.autograd.forward_ad as fwAD
 from skimage.metrics import structural_similarity as ssim
 
 from functions.masking import flatten_observed_gradients
@@ -55,52 +56,82 @@ def total_variation(x):
 
 def _build_jacobian(net, x_norm, y, criterion, keep_ids, entry_masks,
                     max_entries, select_mode, device_for_J):
-    """Forward pass + row selection + row-by-row backward to build J.
+    """Forward pass + row selection + J construction.
+
+    Automatically chooses the cheaper direction:
+      - Forward-mode AD (column-wise, unknowns passes) when unknowns < used_entries.
+      - Backward-mode AD (row-wise, used_entries passes) otherwise.
 
     Returns (J, total_entries, unknowns).
-    J has shape (used_entries, unknowns) where used_entries = min(max_entries, total_entries).
+    J has shape (used_entries, unknowns).
     """
     params = tuple(net.parameters())
-    x_norm = x_norm.detach().clone().requires_grad_(True)
-
-    out = net(x_norm)
-    loss = criterion(out, y)
-    grads = torch.autograd.grad(
-        loss, params, create_graph=True, retain_graph=True, allow_unused=False,
-    )
-    g_obs = flatten_observed_gradients(grads, keep_ids=keep_ids, entry_masks=entry_masks)
-
-    total_entries = g_obs.numel()
+    x_norm = x_norm.detach().clone()
     unknowns = x_norm.numel()
 
+    # One backward pass (no create_graph) to get g_obs magnitudes for row selection.
+    x_sel = x_norm.clone().requires_grad_(True)
+    out = net(x_sel)
+    loss = criterion(out, y)
+    grads = torch.autograd.grad(loss, params, create_graph=False)
+    g_obs_det = flatten_observed_gradients(grads, keep_ids=keep_ids, entry_masks=entry_masks).detach()
+    total_entries = g_obs_det.numel()
+
     if max_entries is None or max_entries >= total_entries:
-        selected_idx = torch.arange(total_entries, device=g_obs.device)
+        selected_idx = torch.arange(total_entries, device=g_obs_det.device)
     else:
         k = int(max_entries)
         if k <= 0:
             raise ValueError("max_entries must be positive")
         if select_mode == "topk_abs":
-            selected_idx = torch.topk(g_obs.detach().abs(), k=k, largest=True).indices
+            selected_idx = torch.topk(g_obs_det.abs(), k=k, largest=True).indices
         elif select_mode == "first":
-            selected_idx = torch.arange(k, device=g_obs.device)
+            selected_idx = torch.arange(k, device=g_obs_det.device)
         elif select_mode == "random":
-            selected_idx = torch.randperm(total_entries, device=g_obs.device)[:k]
+            selected_idx = torch.randperm(total_entries, device=g_obs_det.device)[:k]
         else:
             raise ValueError(f"Unknown select_mode: {select_mode}")
 
-    g_sel = g_obs[selected_idx]
-    used_entries = g_sel.numel()
-
+    used_entries = selected_idx.numel()
     J = torch.empty((used_entries, unknowns), dtype=x_norm.dtype, device=device_for_J)
-    for i in range(used_entries):
-        grad_i = torch.autograd.grad(
-            g_sel[i],
-            x_norm,
-            retain_graph=(i < used_entries - 1),
-            create_graph=False,
-            allow_unused=False,
-        )[0]
-        J[i] = grad_i.reshape(-1).detach().to(device_for_J)
+
+    if unknowns < used_entries:
+        # Forward-mode: one pass per pixel column — ~10x faster when unknowns << max_entries.
+        # Requires PyTorch >= 2.0 for autograd.grad to propagate dual tangents.
+        for j in range(unknowns):
+            tangent = torch.zeros_like(x_norm)
+            tangent.reshape(-1)[j] = 1.0
+            with fwAD.dual_level():
+                x_dual = fwAD.make_dual(x_norm, tangent)
+                out_d = net(x_dual)
+                loss_d = criterion(out_d, y)
+                grads_d = torch.autograd.grad(loss_d, params)
+                g_obs_d = flatten_observed_gradients(grads_d, keep_ids=keep_ids, entry_masks=entry_masks)
+                g_col = g_obs_d[selected_idx.to(g_obs_d.device)]
+                col = fwAD.unpack_dual(g_col).tangent
+                if col is None:
+                    raise RuntimeError(
+                        "Forward-mode AD did not propagate through autograd.grad. "
+                        "Requires PyTorch >= 2.0. Upgrade PyTorch or open an issue."
+                    )
+                J[:, j] = col.detach().reshape(-1).to(device_for_J)
+    else:
+        # Backward-mode: one pass per gradient row.
+        x_req = x_norm.requires_grad_(True)
+        out = net(x_req)
+        loss = criterion(out, y)
+        grads = torch.autograd.grad(loss, params, create_graph=True, retain_graph=True)
+        g_obs_full = flatten_observed_gradients(grads, keep_ids=keep_ids, entry_masks=entry_masks)
+        g_sel = g_obs_full[selected_idx]
+
+        for i in range(used_entries):
+            grad_i = torch.autograd.grad(
+                g_sel[i], x_req,
+                retain_graph=(i < used_entries - 1),
+                create_graph=False,
+                allow_unused=False,
+            )[0]
+            J[i] = grad_i.reshape(-1).detach().to(device_for_J)
 
     return J, total_entries, unknowns
 

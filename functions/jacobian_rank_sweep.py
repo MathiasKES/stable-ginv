@@ -51,8 +51,6 @@ def _print_mask_debug(args, net, prefixes, prefix_layer_fracs, original_dy_dx, k
     named_params = list(net.named_parameters())
     print("\n=== MASK DEBUG ===", flush=True)
     print("mask_mode:", args.mask_mode, flush=True)
-    print("prefixes:", prefixes, flush=True)
-    print("prefix_layer_fracs:", prefix_layer_fracs, flush=True)
     print("entry_masks is None:", entry_masks is None, flush=True)
     print("num keep_ids:", 0 if keep_ids is None else len(keep_ids), flush=True)
     if keep_ids is not None:
@@ -64,18 +62,11 @@ def _print_mask_debug(args, net, prefixes, prefix_layer_fracs, original_dy_dx, k
         )
         print(f"observed_entries={observed_entries}, total_entries={total_entries}, "
               f"kept_fraction={observed_entries/total_entries:.6f}", flush=True)
-        for prefix in prefixes:
-            total = kept = 0
-            kept_names = []
-            for i, (name, _) in enumerate(named_params):
-                if name.startswith(prefix):
-                    total += 1
-                    if i in keep_ids_set:
-                        kept += 1
-                        kept_names.append(name)
-            print(f"  {prefix}: kept {kept}/{total}", flush=True)
-            for name in kept_names:
-                print(f"    - {name}", flush=True)
+        kept_names   = [name for i, (name, _) in enumerate(named_params) if i in keep_ids_set]
+        skipped_names = [name for i, (name, _) in enumerate(named_params) if i not in keep_ids_set]
+        print(f"kept tensors ({len(kept_names)}): {kept_names}", flush=True)
+        if skipped_names:
+            print(f"skipped tensors ({len(skipped_names)}): {skipped_names}", flush=True)
     print("=== END MASK DEBUG ===\n", flush=True)
 
 
