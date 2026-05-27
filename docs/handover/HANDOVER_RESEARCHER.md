@@ -2,7 +2,7 @@
 
 **Audience:** A developer or researcher who is continuing active work on this codebase — adding new masking modes, running new experiments, debugging, or extending the pipeline.
 
-**Last updated:** 2026-05-23
+**Last updated:** 2026-05-27
 
 ---
 
@@ -172,10 +172,11 @@ For each experiment, the flow is:
 - **No argparse in `run_single_exp.py`:** Configuration is via editing the `config` dict. `iDLG_mask.py` does have full argparse CLI support.
 - **Last FC layer always unmasked:** `build_gradient_mask` unconditionally preserves the last `nn.Linear` layer regardless of mask mode. This is intentional — it guarantees the iDLG label-recovery trick always has the gradient it needs. Do not bypass this by calling the individual masking functions directly.
 - **LFW normalization constants:** Computed manually in `testing/compute_lfw_stats.py` and hardcoded in `functions/consts.py`. If you change the LFW preprocessing (resize, crop), recompute these.
+- **MSE sweep mode:** The "% masked vs. images reconstructed" plot is only produced by `iDLG_mask.py --mse_visualise --threshold_mse <value>`. `--sweep_step` controls the topfrac spacing in that mode only; a normal `--methods both` run ignores it.
 
 ---
 
-## 8. Recent Changes (as of 2026-05-23)
+## 8. Recent Changes (as of 2026-05-27)
 
 **First session (2026-05-22 / early 2026-05-23):**
 - `functions/masking.py` — last FC layer always preserved in `build_gradient_mask` (tensor-wise: union into keep_ids; entry-wise: all-True override); `_grad_magnitude` helper extracted; `gradsize_threshold` mode and parameter removed; `gradsize_topfrac_entries_layer` and `gradsize_topk_entries_layer` modes added (per-tensor independent selection via `get_entry_masks_by_prefix_group` with all param names as groups)
@@ -194,7 +195,36 @@ For each experiment, the flow is:
 - `functions/io_utils.py` — Shapiro-Wilk normality test integrated into `paired_t_ci` (returns `shapiro_stat`, `shapiro_p`) and `paired_summary` (returns `normality_str`); masked registry functions added: `masked_key_from_args`, `load_masked_registry`, `save_masked_registry`, `update_masked_registry`
 - `iDLG_mask.py` — saves masked registry to `results/baselines/masked_registry.json` after each masked run; CSV now includes `psnr_normality` and `mse_normality` columns (Shapiro-Wilk result strings for paired PSNR/MSE differences)
 
+**Later sessions (2026-05-24 to 2026-05-27):**
+- `helper/masking_sweep.py` + `iDLG_mask.py` — MSE calibration/sweep workflow integrated into `iDLG_mask.py`. Calibration uses `--mse_visualise`; sweep uses `--mse_visualise --threshold_mse <value>` and writes `sweep_results.csv` plus `sweep_plot.png`.
+- `iDLG_mask.py` — `--sweep_step` added for MSE sweep spacing. Default is `0.05`; `--sweep_step 0.1` runs `0.1, 0.2, ..., 1.0`.
+- `iDLG_mask.py` — restart curve CSV/PNG and restart image figure are saved when `NUM_RESTARTS > 1`; parallel restarts are automatic when `num_exp < num_gpus` and `NUM_RESTARTS > 1`.
+- `helper/metrics.py` / `functions/jacobian_rank_sweep.py` — Jacobian rank now uses PyTorch's default matrix-rank tolerance after row normalization; prior results with `rank_tol=1e-6` may undercount rank.
+
+**Session 2026-05-27 (Jacobian rank sweep improvements — first batch):**
+- `functions/jacobian_rank_sweep.py` — Added `per_sample_ranks` column to CSV (semicolon-separated integers, one per sample per row count); per-sample rank list now also printed to stdout after the sweep finishes.
+- `functions/jacobian_rank_sweep.py` — `--atol` argument removed entirely; `matrix_rank` now uses PyTorch's own default `rtol` (no user override). Also removed `--gradsize_metric` argument; gradient magnitude is always computed with L2 norm (hardcoded).
+- `helper/metrics.py` — `_build_jacobian()` and `_rank_of_J()` extracted as private helpers. `_build_jacobian` auto-selects forward-mode AD (column-wise, `unknowns` passes) when `unknowns < used_entries`, falling back to backward-mode (row-wise) otherwise. Forward-mode is ~10× faster for CIFAR-scale inputs with large `max_entries` (e.g. 3072 unknowns vs 30 000 gradient entries). Requires PyTorch ≥ 2.0 (confirmed 2.8.0 in environment).
+- `helper/metrics.py` — `compute_jacobian_rank_sweep()` now builds J once at `max(row_counts)` then slices `J_max[:k]` for each k, eliminating all redundant forward+backward passes.
+- `functions/jacobian_rank_sweep.py` — `_print_mask_debug` rewritten: now shows the actual kept and skipped parameter tensor names (and the exact kept/total entry fraction) rather than prefix-based counts, so output is correct for any architecture (not just ResNet).
+
+**Session 2026-05-27 (Jacobian rank sweep improvements — second batch):**
+- `functions/jacobian_rank_sweep.py` — `--stepsize` and `--max_row_count` added. Generates row counts as `[stepsize, 2×stepsize, ..., max_row_count]`; overrides `--row_counts` when set. Start is always `stepsize` (not `unknowns`).
+- `helper/metrics.py` — `layer_spread` select mode added to `_build_jacobian`: distributes the row budget evenly across parameter tensors then takes top-magnitude entries within each layer's quota. Ensures early-layer Jacobian rows are always represented regardless of gradient magnitude distribution.
+- `helper/metrics.py` / `functions/jacobian_rank_sweep.py` — `--qr_pivot` added as a standalone boolean flag (not a select mode). After building `J_max` with the chosen `--jacobian_select_mode`, reorders rows via QR decomposition with column pivoting on `J_max^T` — `pivots[i]` is the i-th most linearly independent row. No extra forward/backward passes required (reordering only). Requires `scipy`.
+- `helper/metrics.py` / `functions/jacobian_rank_sweep.py` — when `--qr_pivot` is set, `compute_jacobian_rank_sweep` computes ranks for both the select-mode ordering and the QR-pivot ordering in one run. CSV gains three extra columns (`mean_rank_qr`, `std_rank_qr`, `per_sample_ranks_qr`); plot shows both curves; stdout prints two rank tables.
+
 From git log:
+- `740209a` — Start row_counts from stepsize instead of unknowns
+- `feb5626` — Save both select_mode and qr_pivot ranks separately in sweep output
+- `da46fc7` — Make qr_pivot a standalone flag independent of jacobian_select_mode
+- `69a9a21` — Add layer_spread and qr_pivot Jacobian select modes
+- `a6d88c8` — Add --stepsize and --max_row_count args to Jacobian rank sweep
+- `57745ba` — Add forward-mode AD for J columns; fix mask debug display
+- `eaa7ffb` — Refactor Jacobian rank sweep: build J once, compute rank for all row counts
+- `86a6522` — Print and save per-sample ranks in jacobian rank sweep
+- `62f6f47` — Add fixed atol and SVD info to Jacobian rank sweep
+- `71f6cd7` — Add masking sweep step arg
 - `c5257f3` — Add MSE threshold visualisation script (`helper/visualise_mse_threshold.py`)
 - `b071e61` — Delete stale jacobian_parallel files from archive
 - `849651c` — Fix review findings: normality key bug, prefix_topfrac routing, fragile FC index, png path, dead code
