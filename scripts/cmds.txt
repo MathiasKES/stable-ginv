@@ -1,4 +1,16 @@
 
+# Jacobian rank sweep — topk_abs, 30 samples, stepsize 1000, max 15000
+# CIFAR-100 (default dataset)
+python3 -m functions.jacobian_rank_sweep --network vgg11 --num_samples 30 --stepsize 1000 --max_row_count 15000 --num_workers 4 --device cuda
+python3 -m functions.jacobian_rank_sweep --network vgg13 --num_samples 30 --stepsize 1000 --max_row_count 15000 --num_workers 4 --device cuda
+python3 -m functions.jacobian_rank_sweep --network vgg16 --num_samples 30 --stepsize 1000 --max_row_count 15000 --num_workers 4 --device cuda
+python3 -m functions.jacobian_rank_sweep --network resnet101 --num_samples 30 --stepsize 1000 --max_row_count 15000 --num_workers 4 --device cuda
+# LFW
+python3 -m functions.jacobian_rank_sweep --network vgg11 --dataset lfw --num_samples 30 --stepsize 1000 --max_row_count 15000 --num_workers 4 --device cuda
+python3 -m functions.jacobian_rank_sweep --network vgg13 --dataset lfw --num_samples 30 --stepsize 1000 --max_row_count 15000 --num_workers 4 --device cuda
+python3 -m functions.jacobian_rank_sweep --network vgg16 --dataset lfw --num_samples 30 --stepsize 1000 --max_row_count 15000 --num_workers 4 --device cuda
+python3 -m functions.jacobian_rank_sweep --network resnet101 --dataset lfw --num_samples 30 --stepsize 1000 --max_row_count 15000 --num_workers 4 --device cuda
+
 # vgg13 gradsize_topfrac_entries_layer sweep (topfrac 0.00 → 1.00, step 0.05)
 python iDLG_mask.py --network vgg13 --methods masked --mask_mode gradsize_topfrac_entries_layer --gradsize_topfrac 0.10 --num_exp 30 --iteration 5000 --optimizer signed_adamw --lr 0.1 --grad_loss cos --num_restarts 1
 python iDLG_mask.py --network vgg13 --methods masked --mask_mode gradsize_topfrac_entries_layer --gradsize_topfrac 0.20 --num_exp 30 --iteration 5000 --optimizer signed_adamw --lr 0.1 --grad_loss cos --num_restarts 1
