@@ -74,7 +74,7 @@ def _worker_core(args, sample_indices, device, row_counts, prefixes, prefix_laye
                  progress_fn=None, debug=False):
     """
     Compute Jacobian rank for each sample in sample_indices on device.
-    Returns {rows: [rank_list]}.
+    Returns (results, results_qr) where results_qr is None when args.qr_pivot is False.
     progress_fn(1) is called after each (sample, row_count) step if provided.
     debug: if True, prints mask debug info for the first sample.
     """
@@ -98,6 +98,7 @@ def _worker_core(args, sample_indices, device, row_counts, prefixes, prefix_laye
         ds = torch.tensor(getattr(consts, f'{args.dataset.lower()}_std'), device=device, dtype=torch.float64).view(1, channel, 1, 1)
 
     results = {rows: [] for rows in row_counts}
+    results_qr = {rows: [] for rows in row_counts} if args.qr_pivot else None
 
     for local_i, idx in enumerate(sample_indices):
         gt_data = tt(dst[idx][0]).double().to(device).unsqueeze(0)
@@ -130,7 +131,7 @@ def _worker_core(args, sample_indices, device, row_counts, prefixes, prefix_laye
             _print_mask_debug(args, net, prefixes, prefix_layer_fracs,
                               original_dy_dx, keep_ids, entry_masks)
 
-        sweep = compute_jacobian_rank_sweep(
+        sweep, sweep_qr = compute_jacobian_rank_sweep(
             net=net,
             x_norm=gt_data_norm,
             y=gt_label,
@@ -147,8 +148,11 @@ def _worker_core(args, sample_indices, device, row_counts, prefixes, prefix_laye
         for rows in row_counts:
             jac_rank, jac_shape, used_rows, jac_unknowns = sweep[rows]
             results[rows].append(jac_rank)
+            if results_qr is not None:
+                results_qr[rows].append(sweep_qr[rows][0])
             if rows == max_rows:
-                print(f"    max_rows={rows}: rank={jac_rank}  shape={jac_shape}", flush=True)
+                qr_str = f"  rank_qr={sweep_qr[rows][0]}" if sweep_qr is not None else ""
+                print(f"    max_rows={rows}: rank={jac_rank}  shape={jac_shape}{qr_str}", flush=True)
             if progress_fn is not None:
                 progress_fn(1)
 
@@ -156,7 +160,7 @@ def _worker_core(args, sample_indices, device, row_counts, prefixes, prefix_laye
         if torch.cuda.is_available() and device.startswith("cuda"):
             torch.cuda.empty_cache()
 
-    return results
+    return results, results_qr
 
 
 def _mp_worker(rank, world_size, args, sample_chunks, row_counts, prefixes, prefix_layer_fracs,
@@ -180,12 +184,12 @@ def _mp_worker(rank, world_size, args, sample_chunks, row_counts, prefixes, pref
         with progress_lock:
             progress_counter.value += n
 
-    results = _worker_core(
+    results, results_qr = _worker_core(
         args, sample_chunks[rank], device, row_counts, prefixes, prefix_layer_fracs,
         progress_fn=progress_fn,
         debug=(rank == 0),
     )
-    shared_results[rank] = results
+    shared_results[rank] = (results, results_qr)
 
 
 def main():
@@ -311,7 +315,7 @@ def main():
             device = "cpu"
 
         with tqdm(total=total_steps, desc="Jacobian rank") as pbar:
-            rank_results = _worker_core(
+            rank_results, rank_results_qr = _worker_core(
                 args, sample_indices, device, row_counts, prefixes, prefix_layer_fracs,
                 progress_fn=lambda n: pbar.update(n),
                 debug=True,
@@ -346,9 +350,13 @@ def main():
                 pbar.update(current - last)
 
         rank_results = {rows: [] for rows in row_counts}
+        rank_results_qr = {rows: [] for rows in row_counts} if args.qr_pivot else None
         for worker_id in range(world_size):
+            worker_results, worker_results_qr = shared_results[worker_id]
             for rows in row_counts:
-                rank_results[rows].extend(shared_results[worker_id][rows])
+                rank_results[rows].extend(worker_results[rows])
+                if rank_results_qr is not None:
+                    rank_results_qr[rows].extend(worker_results_qr[rows])
 
     xs, mean_ranks, std_ranks = [], [], []
     for rows in row_counts:
@@ -356,10 +364,21 @@ def main():
         mean_ranks.append(float(np.mean(rank_results[rows])))
         std_ranks.append(float(np.std(rank_results[rows])))
 
-    print("\nPer-sample ranks:")
+    mean_ranks_qr, std_ranks_qr = None, None
+    if rank_results_qr is not None:
+        mean_ranks_qr = [float(np.mean(rank_results_qr[rows])) for rows in row_counts]
+        std_ranks_qr  = [float(np.std(rank_results_qr[rows]))  for rows in row_counts]
+
+    print(f"\nPer-sample ranks ({args.jacobian_select_mode}):")
     for rows, mr, sr in zip(xs, mean_ranks, std_ranks):
         ranks = rank_results[rows]
         print(f"  rows={rows:6d}: {ranks}  mean={mr:.2f}  std={sr:.2f}")
+
+    if rank_results_qr is not None:
+        print("\nPer-sample ranks (qr_pivot):")
+        for rows, mr, sr in zip(xs, mean_ranks_qr, std_ranks_qr):
+            ranks = rank_results_qr[rows]
+            print(f"  rows={rows:6d}: {ranks}  mean={mr:.2f}  std={sr:.2f}")
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     base = (
@@ -370,11 +389,20 @@ def main():
     csv_path = os.path.join(save_dir, base + ".csv")
     with open(csv_path, "w", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(["rows_used", "mean_rank", "std_rank",
-                         "unknowns", "num_samples", "jacobian_select_mode", "per_sample_ranks"])
+        header = ["rows_used", "mean_rank", "std_rank",
+                  "unknowns", "num_samples", "jacobian_select_mode", "per_sample_ranks"]
+        if rank_results_qr is not None:
+            header += ["mean_rank_qr", "std_rank_qr", "per_sample_ranks_qr"]
+        writer.writerow(header)
         for x, m, s in zip(xs, mean_ranks, std_ranks):
             ranks_str = ";".join(str(r) for r in rank_results[x])
-            writer.writerow([x, m, s, unknowns, args.num_samples, args.jacobian_select_mode, ranks_str])
+            row = [x, m, s, unknowns, args.num_samples, args.jacobian_select_mode, ranks_str]
+            if rank_results_qr is not None:
+                mq = float(np.mean(rank_results_qr[x]))
+                sq = float(np.std(rank_results_qr[x]))
+                ranks_qr_str = ";".join(str(r) for r in rank_results_qr[x])
+                row += [mq, sq, ranks_qr_str]
+            writer.writerow(row)
 
     legend_label = f"mean rank (select={args.jacobian_select_mode}, samples={args.num_samples}"
     if args.method == "masked":
@@ -383,7 +411,11 @@ def main():
 
     plt.figure(figsize=(7, 5))
     plt.errorbar(xs, mean_ranks, yerr=std_ranks, marker="o", capsize=4, label=legend_label)
-    plt.axhline(unknowns, linestyle="--", label=f"unknowns = {unknowns}")
+    if rank_results_qr is not None:
+        qr_label = f"mean rank (qr_pivot on {args.jacobian_select_mode} pool)"
+        plt.errorbar(xs, mean_ranks_qr, yerr=std_ranks_qr, marker="s", capsize=4,
+                     linestyle="--", label=qr_label)
+    plt.axhline(unknowns, linestyle=":", label=f"unknowns = {unknowns}")
     plt.xlabel("Number of Jacobian rows / gradients used")
     plt.ylabel("Average Jacobian rank")
     plt.title(f"Jacobian rank sweep: {args.network}, {args.dataset}, {args.method}")

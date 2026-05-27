@@ -252,20 +252,28 @@ def compute_jacobian_rank_sweep(
         net, x_norm, y, criterion, keep_ids, entry_masks, max(row_counts), select_mode, device_for_J,
     )
 
-    if qr_pivot:
-        if not _SCIPY_AVAILABLE:
-            raise ImportError("qr_pivot requires scipy. Install with: pip install scipy")
-        # QR with column pivoting on J^T: pivots[i] is the i-th most linearly independent row of J.
-        _, _, pivots = _scipy_linalg.qr(J_max.numpy().T, pivoting=True, mode="economic")
-        J_max = J_max[torch.from_numpy(pivots.astype(np.int64))]
-
     results = {}
     for k in row_counts:
         J_k = J_max[:k]  # if k > J_max.shape[0], returns all rows
         rank = _rank_of_J(J_k, print_svd_info=print_svd_info)
         results[k] = (rank, tuple(J_k.shape), J_k.shape[0], unknowns)
 
-    return results
+    if not qr_pivot:
+        return results, None
+
+    if not _SCIPY_AVAILABLE:
+        raise ImportError("qr_pivot requires scipy. Install with: pip install scipy")
+    # QR with column pivoting on J^T: pivots[i] is the i-th most linearly independent row of J.
+    _, _, pivots = _scipy_linalg.qr(J_max.numpy().T, pivoting=True, mode="economic")
+    J_max_qr = J_max[torch.from_numpy(pivots.astype(np.int64))]
+
+    results_qr = {}
+    for k in row_counts:
+        J_k = J_max_qr[:k]
+        rank = _rank_of_J(J_k, print_svd_info=False)
+        results_qr[k] = (rank, tuple(J_k.shape), J_k.shape[0], unknowns)
+
+    return results, results_qr
 
 
 def compute_grad_match_loss(dummy_dy_dx, selected_original, selected_entry_masks=None, grad_loss="cos", eps=1e-12):
