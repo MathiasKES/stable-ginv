@@ -297,7 +297,7 @@ def main():
     unknowns = channel * shape_img[0] * shape_img[1]
 
     if args.stepsize is not None:
-        row_counts = list(range(unknowns, args.max_row_count + 1, args.stepsize))
+        row_counts = list(range(args.stepsize, args.max_row_count + 1, args.stepsize))
         if not row_counts or row_counts[-1] < args.max_row_count:
             row_counts.append(args.max_row_count)
 
