@@ -60,9 +60,14 @@ def total_variation(x):
     return tv_h + tv_w
 
 
-def _layer_boundaries(grads, keep_ids, entry_masks):
-    """Return the number of entries each tensor contributes to the flat gradient vector."""
-    sizes = []
+def _layer_info(grads, keep_ids, entry_masks):
+    """Return (sizes, ndims) for each tensor contributing to the flat gradient vector.
+
+    ndim is the number of dimensions of the original parameter tensor:
+      - ndim >= 2: weight tensors (conv, linear) — localized, informative for rank
+      - ndim == 1: bias / BN scale / BN shift — small, diffuse, less informative
+    """
+    sizes, ndims = [], []
     for i, g in enumerate(grads):
         if g is None:
             continue
@@ -75,7 +80,8 @@ def _layer_boundaries(grads, keep_ids, entry_masks):
             if keep_ids is not None and i not in keep_ids:
                 continue
             sizes.append(g.numel())
-    return sizes
+        ndims.append(g.ndim)
+    return sizes, ndims
 
 
 def _build_jacobian(net, x_norm, y, criterion, keep_ids, entry_masks,
@@ -114,27 +120,38 @@ def _build_jacobian(net, x_norm, y, criterion, keep_ids, entry_masks,
         elif select_mode == "random":
             selected_idx = torch.randperm(total_entries, device=g_obs_det.device)[:k]
         elif select_mode == "layer_spread":
-            # Distribute k budget evenly across layers; within each layer take top-abs entries.
-            layer_sizes = _layer_boundaries(grads, keep_ids, entry_masks)
-            num_layers = len(layer_sizes)
-            base = k // num_layers
-            remainder = k % num_layers
-            # Extra entries go to the largest layers first to avoid over-sampling small ones.
-            order = sorted(range(num_layers), key=lambda i: layer_sizes[i], reverse=True)
-            per_layer = [base] * num_layers
-            for i in range(remainder):
-                per_layer[order[i]] += 1
-            per_layer = [min(n, sz) for n, sz in zip(per_layer, layer_sizes)]
+            # 1D tensors (bias, BN γ/β) are included in full — they are small and diffuse.
+            # The k-entry budget is spread evenly across weight tensors (ndim >= 2) only,
+            # which have localized receptive fields and contribute most to Jacobian rank.
+            layer_sizes, layer_ndims = _layer_info(grads, keep_ids, entry_masks)
+            full_entries = sum(sz for sz, nd in zip(layer_sizes, layer_ndims) if nd < 2)
+            spread_budget = max(0, k - full_entries)
+            spread_sizes = [sz for sz, nd in zip(layer_sizes, layer_ndims) if nd >= 2]
+            num_spread = len(spread_sizes)
+            if num_spread > 0 and spread_budget > 0:
+                base = spread_budget // num_spread
+                remainder = spread_budget % num_spread
+                order = sorted(range(num_spread), key=lambda i: spread_sizes[i], reverse=True)
+                per_spread = [base] * num_spread
+                for i in range(remainder):
+                    per_spread[order[i]] += 1
+                per_spread = [min(n, sz) for n, sz in zip(per_spread, spread_sizes)]
+            else:
+                per_spread = list(spread_sizes)
             indices = []
             offset = 0
-            for n, sz in zip(per_layer, layer_sizes):
-                if n > 0:
-                    layer_vals = g_obs_det[offset:offset + sz]
-                    if n >= sz:
-                        local_idx = torch.arange(sz, device=g_obs_det.device)
-                    else:
-                        local_idx = torch.topk(layer_vals.abs(), k=n, largest=True).indices
-                    indices.append(local_idx + offset)
+            spread_ptr = 0
+            for sz, nd in zip(layer_sizes, layer_ndims):
+                if nd < 2:
+                    indices.append(torch.arange(sz, device=g_obs_det.device) + offset)
+                else:
+                    n = per_spread[spread_ptr]
+                    spread_ptr += 1
+                    if n > 0:
+                        layer_vals = g_obs_det[offset:offset + sz]
+                        local_idx = (torch.arange(sz, device=g_obs_det.device) if n >= sz
+                                     else torch.topk(layer_vals.abs(), k=n, largest=True).indices)
+                        indices.append(local_idx + offset)
                 offset += sz
             selected_idx = (torch.cat(indices) if indices
                             else torch.arange(min(k, total_entries), device=g_obs_det.device))
