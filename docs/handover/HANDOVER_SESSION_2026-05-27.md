@@ -2,6 +2,30 @@
 
 ---
 
+## Changes (fourth batch, same day)
+
+### `layer_spread` rewritten: spread evenly across layer groups, not individual tensors
+
+**Files:** `helper/metrics.py`
+
+The previous `layer_spread` implementation spread the budget across individual parameter tensors (~62 for ResNet-18). With a budget of 20000 this gave only ~490 entries per tensor. For deep conv layers with millions of parameters, 490 entries is too sparse to contribute meaningful rank — `layer_spread` was actually worse than `topk_abs` (rank ceiling of ~2631 vs full rank 3072).
+
+**New behaviour:** budget is spread evenly across **layer groups** identified by the first component of the parameter name — e.g., `conv1`, `bn1`, `layer1`, `layer2`, `layer3`, `layer4`, `fc` for ResNet-18. Within each group, the top-magnitude entries are selected globally across all tensors in that group.
+
+For ResNet-18 with `--max_row_count 20000`, each of the 7 groups gets ~2857 entries. `conv1` and `bn1` are smaller than 2857 so they are capped and the surplus goes to the largest groups.
+
+This allows the most informative entries from each architectural stage to be selected, rather than wasting the budget on tiny BN tensors.
+
+---
+
+### `layer_spread` fix: 1D tensors included in full, budget on weight tensors — `dfd12c9`
+
+**Files:** `helper/metrics.py`
+
+Before the layer-group rewrite, an intermediate fix was applied: 1D parameter tensors (BN scale/shift, biases) were included in their entirety without consuming the spread budget. The budget was then spread evenly across weight tensors only (ndim ≥ 2). This prevented BN clamping from reducing the actual selected count below the requested `max_entries`. The layer-group rewrite supersedes this fix.
+
+---
+
 ## Changes (third batch, same day)
 
 ### `--stepsize` and `--max_row_count` for automatic row count generation — `a6d88c8`

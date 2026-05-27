@@ -210,9 +210,12 @@ For each experiment, the flow is:
 
 **Session 2026-05-27 (Jacobian rank sweep improvements — second batch):**
 - `functions/jacobian_rank_sweep.py` — `--stepsize` and `--max_row_count` added. Generates row counts as `[stepsize, 2×stepsize, ..., max_row_count]`; overrides `--row_counts` when set. Start is always `stepsize` (not `unknowns`).
-- `helper/metrics.py` — `layer_spread` select mode added to `_build_jacobian`: distributes the row budget evenly across parameter tensors then takes top-magnitude entries within each layer's quota. Ensures early-layer Jacobian rows are always represented regardless of gradient magnitude distribution.
+- `helper/metrics.py` — `layer_spread` select mode added and subsequently refined (see below).
 - `helper/metrics.py` / `functions/jacobian_rank_sweep.py` — `--qr_pivot` added as a standalone boolean flag (not a select mode). After building `J_max` with the chosen `--jacobian_select_mode`, reorders rows via QR decomposition with column pivoting on `J_max^T` — `pivots[i]` is the i-th most linearly independent row. No extra forward/backward passes required (reordering only). Requires `scipy`.
 - `helper/metrics.py` / `functions/jacobian_rank_sweep.py` — when `--qr_pivot` is set, `compute_jacobian_rank_sweep` computes ranks for both the select-mode ordering and the QR-pivot ordering in one run. CSV gains three extra columns (`mean_rank_qr`, `std_rank_qr`, `per_sample_ranks_qr`); plot shows both curves; stdout prints two rank tables.
+
+**Session 2026-05-27 (layer_spread rewrite):**
+- `helper/metrics.py` — `layer_spread` rewritten to spread the budget across **layer groups** (first component of parameter name: `conv1`, `bn1`, `layer1`, ..., `fc`) rather than individual parameter tensors. Each group gets an equal share of the `max_entries` budget; within each group the top-magnitude entries are selected globally. For ResNet-18 with 7 groups and `max_entries=20000`, each group receives ~2857 entries — enough to capture informative gradient directions from each architectural stage. The original per-tensor approach gave only ~490 entries per tensor which was insufficient for deep conv layers and caused the rank to plateau at ~2631 instead of reaching full rank 3072. Note: `topk_abs` still reaches full rank more efficiently (~7000 entries) because the rank-contributing entries cluster in high-magnitude regions; `layer_spread` is useful when you want guaranteed coverage of every architectural stage regardless of magnitude.
 
 From git log:
 - `740209a` — Start row_counts from stepsize instead of unknowns
