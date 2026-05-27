@@ -299,6 +299,11 @@ def main():
         mean_ranks.append(float(np.mean(rank_results[rows])))
         std_ranks.append(float(np.std(rank_results[rows])))
 
+    print("\nPer-sample ranks:")
+    for rows, mr, sr in zip(xs, mean_ranks, std_ranks):
+        ranks = rank_results[rows]
+        print(f"  rows={rows:6d}: {ranks}  mean={mr:.2f}  std={sr:.2f}")
+
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     base = (
         f"jac_rank_{args.network}_{args.dataset}_{args.method}_"
@@ -309,9 +314,10 @@ def main():
     with open(csv_path, "w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow(["rows_used", "mean_rank", "std_rank",
-                         "unknowns", "num_samples", "jacobian_select_mode"])
+                         "unknowns", "num_samples", "jacobian_select_mode", "per_sample_ranks"])
         for x, m, s in zip(xs, mean_ranks, std_ranks):
-            writer.writerow([x, m, s, unknowns, args.num_samples, args.jacobian_select_mode])
+            ranks_str = ";".join(str(r) for r in rank_results[x])
+            writer.writerow([x, m, s, unknowns, args.num_samples, args.jacobian_select_mode, ranks_str])
 
     legend_label = f"mean rank (select={args.jacobian_select_mode}, samples={args.num_samples}"
     if args.method == "masked":
