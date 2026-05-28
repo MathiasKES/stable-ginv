@@ -389,6 +389,20 @@ def main():
     active_processes = {}
     all_results_by_idx = {}
 
+    def _abort_run(result):
+        idx = result.get('idx_net')
+        dev = result.get('device_id')
+        r_i = result.get('restart_idx')
+        where = f"exp {idx}" + (f" restart {r_i}" if r_i is not None else "") + f" on GPU {dev}"
+        print(f"\n[ABORT] {where} failed — cancelling entire run, no results will be saved.")
+        print(result.get('traceback', result.get('error', '')))
+        for proc in active_processes.values():
+            if proc.is_alive():
+                proc.terminate()
+        for proc in active_processes.values():
+            proc.join()
+        sys.exit(1)
+
     parallel_restarts = num_exp < num_gpus and NUM_RESTARTS > 1
 
     # ---- _handle_result closure: accumulates lists, builds panel, prints ----
@@ -636,12 +650,10 @@ def main():
                 active_processes[finished_device].join()
 
                 if result.get('error') is not None:
-                    print(f"\n[ERROR] exp {result['idx_net']} restart {result.get('restart_idx')} failed:")
-                    print(result['traceback'])
-                else:
-                    exp_i = result['idx_net']
-                    r_i = result.get('restart_idx', 0)
-                    restart_buf[exp_i][r_i] = result
+                    _abort_run(result)
+                exp_i = result['idx_net']
+                r_i = result.get('restart_idx', 0)
+                restart_buf[exp_i][r_i] = result
 
                 if next_task < total_tasks:
                     exp_i, r_i = tasks[next_task]
@@ -696,19 +708,7 @@ def main():
                 finished_device = result['device_id']
 
                 if result.get('error') is not None:
-                    print(f"\n[ERROR] Experiment {idx_net} on GPU {finished_device} failed:")
-                    print(result['traceback'])
-                    active_processes[finished_device].join()
-                    if next_exp < num_exp:
-                        p = mp.Process(
-                            target=run_single_experiment,
-                            args=(next_exp, finished_device, dst, dataset, config, result_queue)
-                        )
-                        p.start()
-                        active_processes[finished_device] = p
-                        tqdm.write(f"Launching experiment {next_exp} on GPU {finished_device}")
-                        next_exp += 1
-                    continue
+                    _abort_run(result)
 
                 _handle_result(result)
 
