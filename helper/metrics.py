@@ -113,7 +113,7 @@ def _layer_info(grads, keep_ids, entry_masks):
 
 
 def _build_jacobian(net, x_norm, y, criterion, keep_ids, entry_masks,
-                    max_entries, select_mode, device_for_J):
+                    max_entries, select_mode, device_for_J, progress_fn=None):
     """Forward pass + row selection + J construction.
 
     Automatically chooses the cheaper direction:
@@ -255,6 +255,8 @@ def _build_jacobian(net, x_norm, y, criterion, keep_ids, entry_masks,
                         "Requires PyTorch >= 2.0. Upgrade PyTorch or open an issue."
                     )
                 J[:, j] = col.detach().reshape(-1).to(device_for_J)
+            if progress_fn is not None:
+                progress_fn(1)
     else:
         # Backward-mode: one pass per gradient row.
         x_req = x_norm.requires_grad_(True)
@@ -272,15 +274,22 @@ def _build_jacobian(net, x_norm, y, criterion, keep_ids, entry_masks,
                 allow_unused=False,
             )[0]
             J[i] = grad_i.reshape(-1).detach().to(device_for_J)
+            if progress_fn is not None:
+                progress_fn(1)
 
     return J, total_entries, unknowns
 
 
 def _rank_of_J(J, print_svd_info=False):
-    """Row-normalise J and return its numerical rank via matrix_rank."""
-    # Normalize rows so σ_max(J_norm) ≤ √M instead of O(M).
-    row_norms = torch.norm(J, dim=1, keepdim=True).clamp_min(1e-30)
-    J_norm = J / row_norms
+    """Row-normalise J and return its numerical rank via matrix_rank.
+
+    Normalisation and rank computation run on CPU (LAPACK) regardless of
+    where J lives, avoiding cuSOLVER convergence failures on GPU for
+    challenging float64 matrices.
+    """
+    J_cpu = J.cpu()
+    row_norms = torch.norm(J_cpu, dim=1, keepdim=True).clamp_min(1e-30)
+    J_norm = J_cpu / row_norms
     if print_svd_info:
         svd_vals = torch.linalg.svdvals(J_norm)
         bottom = svd_vals[-10:].tolist()
@@ -313,6 +322,18 @@ def compute_jacobian_rank(
     return jac_rank, tuple(J.shape), J.shape[0], unknowns
 
 
+def _qr_rank(J, rank_progress_fn=None):
+    """QR-pivot J, compute rank of the reordered matrix, return (rank, results_qr entry)."""
+    if not _SCIPY_AVAILABLE:
+        raise ImportError("qr_pivot requires scipy. Install with: pip install scipy")
+    _, _, pivots = _scipy_linalg.qr(J.cpu().numpy().T, pivoting=True, mode="economic")
+    J_qr = J[torch.from_numpy(pivots.astype(np.int64))]
+    rank = _rank_of_J(J_qr)
+    if rank_progress_fn is not None:
+        rank_progress_fn(1)
+    return rank, J_qr
+
+
 def compute_jacobian_rank_sweep(
     net,
     x_norm,
@@ -325,44 +346,78 @@ def compute_jacobian_rank_sweep(
     qr_pivot=False,
     device_for_J="cpu",
     print_svd_info=False,
+    j_progress_fn=None,
+    rank_progress_fn=None,
+    independent=False,
 ):
-    """Rank of J for multiple row counts, building J once at max(row_counts).
+    """Rank of J for multiple row counts.
 
-    Returns {k: (rank, shape, used_entries, unknowns)} for each k in row_counts.
-    Equivalent to calling compute_jacobian_rank separately for each k, but
-    reuses the single forward+backward pass and J build.
+    independent=False (default):
+        Builds J once at max(row_counts) then slices J_max[:k] for each k.
+        Fast (one J build per sample) but rank at k depends on max_row_count
+        because the pool composition changes with the budget. Correct for
+        topk_abs; misleading for layer_spread.
 
-    qr_pivot: if True, reorder the rows of J_max via QR column pivoting before
-              slicing, so J_max[:k] contains the k most linearly independent rows
-              from the pool selected by select_mode.
+    independent=True:
+        Builds J independently for each k using max_entries=k. Rank at k
+        reflects exactly the information available when the attacker receives
+        k gradient entries selected by select_mode. Theoretically correct for
+        all select modes. Costs len(row_counts) × more forward passes.
+
+    qr_pivot in independent mode: J_k is already the full k-entry selection,
+        so QR-pivoting it and taking all k rows gives the same rank as J_k.
+        qr_pivot is most useful in the default (pool-slice) mode where it
+        finds the best k rows from a larger pool.
+
+    Returns ({k: (rank, shape, used_entries, unknowns)}, results_qr_or_None).
     """
     if not row_counts:
         raise ValueError("row_counts must be a non-empty list")
 
+    if independent:
+        results = {}
+        results_qr = {} if qr_pivot else None
+        for k in row_counts:
+            J_k, _, unknowns = _build_jacobian(
+                net, x_norm, y, criterion, keep_ids, entry_masks,
+                k, select_mode, device_for_J, progress_fn=j_progress_fn,
+            )
+            rank = _rank_of_J(J_k, print_svd_info=print_svd_info)
+            results[k] = (rank, tuple(J_k.shape), J_k.shape[0], unknowns)
+            if rank_progress_fn is not None:
+                rank_progress_fn(1)
+            if qr_pivot:
+                rank_qr, _ = _qr_rank(J_k, rank_progress_fn=rank_progress_fn)
+                results_qr[k] = (rank_qr, tuple(J_k.shape), J_k.shape[0], unknowns)
+            del J_k
+        return results, results_qr
+
+    # --- build-once (pool-slice) mode ---
     J_max, total_entries, unknowns = _build_jacobian(
         net, x_norm, y, criterion, keep_ids, entry_masks, max(row_counts), select_mode, device_for_J,
+        progress_fn=j_progress_fn,
     )
 
     results = {}
     for k in row_counts:
-        J_k = J_max[:k]  # if k > J_max.shape[0], returns all rows
+        J_k = J_max[:k]
         rank = _rank_of_J(J_k, print_svd_info=print_svd_info)
         results[k] = (rank, tuple(J_k.shape), J_k.shape[0], unknowns)
+        if rank_progress_fn is not None:
+            rank_progress_fn(1)
 
     if not qr_pivot:
         return results, None
 
-    if not _SCIPY_AVAILABLE:
-        raise ImportError("qr_pivot requires scipy. Install with: pip install scipy")
     # QR with column pivoting on J^T: pivots[i] is the i-th most linearly independent row of J.
-    _, _, pivots = _scipy_linalg.qr(J_max.numpy().T, pivoting=True, mode="economic")
-    J_max_qr = J_max[torch.from_numpy(pivots.astype(np.int64))]
-
+    _, J_max_qr = _qr_rank(J_max)
     results_qr = {}
     for k in row_counts:
         J_k = J_max_qr[:k]
         rank = _rank_of_J(J_k, print_svd_info=False)
         results_qr[k] = (rank, tuple(J_k.shape), J_k.shape[0], unknowns)
+        if rank_progress_fn is not None:
+            rank_progress_fn(1)
 
     return results, results_qr
 

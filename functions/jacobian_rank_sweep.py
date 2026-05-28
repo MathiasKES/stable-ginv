@@ -75,7 +75,7 @@ def _worker_core(args, sample_indices, device, row_counts, prefixes, prefix_laye
     """
     Compute Jacobian rank for each sample in sample_indices on device.
     Returns (results, results_qr) where results_qr is None when args.qr_pivot is False.
-    progress_fn(1) is called after each (sample, row_count) step if provided.
+    progress_fn(1) is called after each AD pass (J build) and after each rank computation.
     debug: if True, prints mask debug info for the first sample.
     """
     dst, channel, num_classes, shape_img = load_dataset(args.dataset, _data_path())
@@ -113,7 +113,12 @@ def _worker_core(args, sample_indices, device, row_counts, prefixes, prefix_laye
         grad_norm = sum(g.norm().item() for g in original_dy_dx if g is not None)
         has_nan = any(torch.isnan(g).any().item() for g in original_dy_dx if g is not None)
         has_inf = any(torch.isinf(g).any().item() for g in original_dy_dx if g is not None)
-        print(f"  sample idx={idx}: grad_norm={grad_norm:.4f}  nan={has_nan}  inf={has_inf}", flush=True)
+        n_samples = len(sample_indices)
+        tqdm.write(
+            f"[{local_i + 1}/{n_samples}] idx={idx}  grad_norm={grad_norm:.4f}"
+            f"  nan={has_nan}  inf={has_inf}  — building J...",
+            file=sys.stderr,
+        )
 
         keep_ids, entry_masks = build_gradient_mask(
             method=args.method,
@@ -141,8 +146,11 @@ def _worker_core(args, sample_indices, device, row_counts, prefixes, prefix_laye
             row_counts=row_counts,
             select_mode=args.jacobian_select_mode,
             qr_pivot=args.qr_pivot,
-            device_for_J="cpu",
+            device_for_J=device,
             print_svd_info=args.print_svd_info,
+            j_progress_fn=progress_fn,
+            rank_progress_fn=progress_fn,
+            independent=args.independent,
         )
         max_rows = max(row_counts)
         for rows in row_counts:
@@ -152,9 +160,11 @@ def _worker_core(args, sample_indices, device, row_counts, prefixes, prefix_laye
                 results_qr[rows].append(sweep_qr[rows][0])
             if rows == max_rows:
                 qr_str = f"  rank_qr={sweep_qr[rows][0]}" if sweep_qr is not None else ""
-                print(f"    max_rows={rows}: rank={jac_rank}  shape={jac_shape}{qr_str}", flush=True)
-            if progress_fn is not None:
-                progress_fn(1)
+                tqdm.write(
+                    f"[{local_i + 1}/{n_samples}] max_rows={rows}: rank={jac_rank}"
+                    f"  shape={jac_shape}{qr_str}",
+                    file=sys.stderr,
+                )
 
         del gt_data, gt_label, gt_data_norm, out, loss, dy_dx, original_dy_dx
         if torch.cuda.is_available() and device.startswith("cuda"):
@@ -230,11 +240,14 @@ def main():
     parser.add_argument("--row_counts", type=str,
                         default="3072,3500,4000,4500,5000,5500,6000,6500,7000,7500,8000,8500,9000,9500,10000")
     parser.add_argument("--stepsize", type=int, default=None,
-                        help="Step between row counts. Generates range from unknowns to "
-                             "--max_row_count in increments of stepsize. "
+                        help="Step between row counts. Generates range from --min_row_count "
+                             "(default: unknowns) to --max_row_count in increments of stepsize. "
                              "Overrides --row_counts when set.")
     parser.add_argument("--max_row_count", type=int, default=None,
                         help="Upper bound for row counts when --stepsize is used.")
+    parser.add_argument("--min_row_count", type=int, default=None,
+                        help="Smallest row count to sweep when --stepsize is used. "
+                             "Defaults to unknowns (= C×H×W).")
     parser.add_argument("--jacobian_select_mode", type=str, default="topk_abs",
                         choices=["topk_abs", "first", "random", "layer_spread"])
     parser.add_argument("--qr_pivot", action="store_true",
@@ -249,6 +262,11 @@ def main():
     parser.add_argument("--print_svd_info", action="store_true",
                         help="Print the 10 smallest singular values of the row-normalised "
                              "Jacobian at each row count.")
+    parser.add_argument("--independent", action="store_true",
+                        help="Build J independently for each row count (max_entries=k per k). "
+                             "Theoretically correct: rank at k reflects exactly k gradient entries "
+                             "selected by --jacobian_select_mode. Costs len(row_counts)x more "
+                             "forward passes than the default pool-slice approach.")
 
     args = parser.parse_args()
 
@@ -266,6 +284,8 @@ def main():
             parser.error("--stepsize must be a positive integer")
         if args.max_row_count <= 0:
             parser.error("--max_row_count must be a positive integer")
+        if args.min_row_count is not None and args.min_row_count <= 0:
+            parser.error("--min_row_count must be a positive integer")
         row_counts = None  # built after dataset load
     else:
         row_counts = [int(x.strip()) for x in args.row_counts.split(",") if x.strip()]
@@ -297,14 +317,26 @@ def main():
     unknowns = channel * shape_img[0] * shape_img[1]
 
     if args.stepsize is not None:
-        row_counts = list(range(args.stepsize, args.max_row_count + 1, args.stepsize))
+        min_row_count = args.min_row_count if args.min_row_count is not None else (unknowns // 1000) * 1000
+        if min_row_count > args.max_row_count:
+            parser.error(f"--min_row_count ({min_row_count}) exceeds --max_row_count ({args.max_row_count})")
+        row_counts = list(range(min_row_count, args.max_row_count + 1, args.stepsize))
         if not row_counts or row_counts[-1] < args.max_row_count:
             row_counts.append(args.max_row_count)
+
+    if unknowns not in row_counts:
+        row_counts = sorted(row_counts + [unknowns])
 
     print(f"Unknowns: {unknowns}")
     print(f"Samples: {sample_indices}")
 
-    total_steps = len(sample_indices) * len(row_counts)
+    # AD passes per sample: fwAD when unknowns < k (unknowns passes), else backward (k passes).
+    rank_steps = len(row_counts) * (2 if args.qr_pivot else 1)
+    if args.independent:
+        j_steps = sum(min(k, unknowns) for k in row_counts)
+    else:
+        j_steps = unknowns  # one build at max(row_counts), always fwAD when max > unknowns
+    total_steps = len(sample_indices) * (j_steps + rank_steps)
 
     if args.num_workers == 1:
         device = args.device
@@ -314,7 +346,7 @@ def main():
             print(f"CUDA requested via --device {args.device}, but CUDA is unavailable; using CPU.")
             device = "cpu"
 
-        with tqdm(total=total_steps, desc="Jacobian rank") as pbar:
+        with tqdm(total=total_steps, desc="Jacobian rank", unit="step", dynamic_ncols=True) as pbar:
             rank_results, rank_results_qr = _worker_core(
                 args, sample_indices, device, row_counts, prefixes, prefix_layer_fracs,
                 progress_fn=lambda n: pbar.update(n),
@@ -390,13 +422,13 @@ def main():
     with open(csv_path, "w", newline="") as f:
         writer = csv.writer(f)
         header = ["rows_used", "mean_rank", "std_rank",
-                  "unknowns", "num_samples", "jacobian_select_mode", "per_sample_ranks"]
+                  "unknowns", "num_samples", "jacobian_select_mode", "independent", "per_sample_ranks"]
         if rank_results_qr is not None:
             header += ["mean_rank_qr", "std_rank_qr", "per_sample_ranks_qr"]
         writer.writerow(header)
         for x, m, s in zip(xs, mean_ranks, std_ranks):
             ranks_str = ";".join(str(r) for r in rank_results[x])
-            row = [x, m, s, unknowns, args.num_samples, args.jacobian_select_mode, ranks_str]
+            row = [x, m, s, unknowns, args.num_samples, args.jacobian_select_mode, args.independent, ranks_str]
             if rank_results_qr is not None:
                 mq = float(np.mean(rank_results_qr[x]))
                 sq = float(np.std(rank_results_qr[x]))
