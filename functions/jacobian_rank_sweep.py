@@ -230,11 +230,14 @@ def main():
     parser.add_argument("--row_counts", type=str,
                         default="3072,3500,4000,4500,5000,5500,6000,6500,7000,7500,8000,8500,9000,9500,10000")
     parser.add_argument("--stepsize", type=int, default=None,
-                        help="Step between row counts. Generates range from unknowns to "
-                             "--max_row_count in increments of stepsize. "
+                        help="Step between row counts. Generates range from --min_row_count "
+                             "(default: unknowns) to --max_row_count in increments of stepsize. "
                              "Overrides --row_counts when set.")
     parser.add_argument("--max_row_count", type=int, default=None,
                         help="Upper bound for row counts when --stepsize is used.")
+    parser.add_argument("--min_row_count", type=int, default=None,
+                        help="Smallest row count to sweep when --stepsize is used. "
+                             "Defaults to unknowns (= C×H×W).")
     parser.add_argument("--jacobian_select_mode", type=str, default="topk_abs",
                         choices=["topk_abs", "first", "random", "layer_spread"])
     parser.add_argument("--qr_pivot", action="store_true",
@@ -266,6 +269,8 @@ def main():
             parser.error("--stepsize must be a positive integer")
         if args.max_row_count <= 0:
             parser.error("--max_row_count must be a positive integer")
+        if args.min_row_count is not None and args.min_row_count <= 0:
+            parser.error("--min_row_count must be a positive integer")
         row_counts = None  # built after dataset load
     else:
         row_counts = [int(x.strip()) for x in args.row_counts.split(",") if x.strip()]
@@ -297,7 +302,10 @@ def main():
     unknowns = channel * shape_img[0] * shape_img[1]
 
     if args.stepsize is not None:
-        row_counts = list(range(args.stepsize, args.max_row_count + 1, args.stepsize))
+        min_row_count = args.min_row_count if args.min_row_count is not None else (unknowns // 1000) * 1000
+        if min_row_count > args.max_row_count:
+            parser.error(f"--min_row_count ({min_row_count}) exceeds --max_row_count ({args.max_row_count})")
+        row_counts = list(range(min_row_count, args.max_row_count + 1, args.stepsize))
         if not row_counts or row_counts[-1] < args.max_row_count:
             row_counts.append(args.max_row_count)
 
