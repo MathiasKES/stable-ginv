@@ -141,7 +141,7 @@ def _worker_core(args, sample_indices, device, row_counts, prefixes, prefix_laye
             row_counts=row_counts,
             select_mode=args.jacobian_select_mode,
             qr_pivot=args.qr_pivot,
-            device_for_J="cpu",
+            device_for_J=device,
             print_svd_info=args.print_svd_info,
         )
         max_rows = max(row_counts)

@@ -355,7 +355,7 @@ def compute_jacobian_rank_sweep(
     if not _SCIPY_AVAILABLE:
         raise ImportError("qr_pivot requires scipy. Install with: pip install scipy")
     # QR with column pivoting on J^T: pivots[i] is the i-th most linearly independent row of J.
-    _, _, pivots = _scipy_linalg.qr(J_max.numpy().T, pivoting=True, mode="economic")
+    _, _, pivots = _scipy_linalg.qr(J_max.cpu().numpy().T, pivoting=True, mode="economic")
     J_max_qr = J_max[torch.from_numpy(pivots.astype(np.int64))]
 
     results_qr = {}
