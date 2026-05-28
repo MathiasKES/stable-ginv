@@ -281,10 +281,15 @@ def _build_jacobian(net, x_norm, y, criterion, keep_ids, entry_masks,
 
 
 def _rank_of_J(J, print_svd_info=False):
-    """Row-normalise J and return its numerical rank via matrix_rank."""
-    # Normalize rows so σ_max(J_norm) ≤ √M instead of O(M).
-    row_norms = torch.norm(J, dim=1, keepdim=True).clamp_min(1e-30)
-    J_norm = J / row_norms
+    """Row-normalise J and return its numerical rank via matrix_rank.
+
+    Normalisation and rank computation run on CPU (LAPACK) regardless of
+    where J lives, avoiding cuSOLVER convergence failures on GPU for
+    challenging float64 matrices.
+    """
+    J_cpu = J.cpu()
+    row_norms = torch.norm(J_cpu, dim=1, keepdim=True).clamp_min(1e-30)
+    J_norm = J_cpu / row_norms
     if print_svd_info:
         svd_vals = torch.linalg.svdvals(J_norm)
         bottom = svd_vals[-10:].tolist()
