@@ -22,7 +22,7 @@ OUT_DIR="$REPO_ROOT/hpc/gpuout/interactive"
 mkdir -p "$OUT_DIR"
 
 # shellcheck disable=SC1091
-source "$SCRIPT_DIR/init.sh"
+# source "$SCRIPT_DIR/init.sh"
 
 cd "$REPO_ROOT"
 
