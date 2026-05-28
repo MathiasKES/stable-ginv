@@ -150,6 +150,7 @@ def _worker_core(args, sample_indices, device, row_counts, prefixes, prefix_laye
             print_svd_info=args.print_svd_info,
             j_progress_fn=progress_fn,
             rank_progress_fn=progress_fn,
+            independent=args.independent,
         )
         max_rows = max(row_counts)
         for rows in row_counts:
@@ -261,6 +262,11 @@ def main():
     parser.add_argument("--print_svd_info", action="store_true",
                         help="Print the 10 smallest singular values of the row-normalised "
                              "Jacobian at each row count.")
+    parser.add_argument("--independent", action="store_true",
+                        help="Build J independently for each row count (max_entries=k per k). "
+                             "Theoretically correct: rank at k reflects exactly k gradient entries "
+                             "selected by --jacobian_select_mode. Costs len(row_counts)x more "
+                             "forward passes than the default pool-slice approach.")
 
     args = parser.parse_args()
 
@@ -324,10 +330,13 @@ def main():
     print(f"Unknowns: {unknowns}")
     print(f"Samples: {sample_indices}")
 
-    # J build: unknowns AD passes per sample (fwAD when max(row_counts) > unknowns, else used_entries).
-    # Conservative estimate uses unknowns; rank steps = one SVD per row_count (×2 with qr_pivot).
+    # AD passes per sample: fwAD when unknowns < k (unknowns passes), else backward (k passes).
     rank_steps = len(row_counts) * (2 if args.qr_pivot else 1)
-    total_steps = len(sample_indices) * (unknowns + rank_steps)
+    if args.independent:
+        j_steps = sum(min(k, unknowns) for k in row_counts)
+    else:
+        j_steps = unknowns  # one build at max(row_counts), always fwAD when max > unknowns
+    total_steps = len(sample_indices) * (j_steps + rank_steps)
 
     if args.num_workers == 1:
         device = args.device
@@ -413,13 +422,13 @@ def main():
     with open(csv_path, "w", newline="") as f:
         writer = csv.writer(f)
         header = ["rows_used", "mean_rank", "std_rank",
-                  "unknowns", "num_samples", "jacobian_select_mode", "per_sample_ranks"]
+                  "unknowns", "num_samples", "jacobian_select_mode", "independent", "per_sample_ranks"]
         if rank_results_qr is not None:
             header += ["mean_rank_qr", "std_rank_qr", "per_sample_ranks_qr"]
         writer.writerow(header)
         for x, m, s in zip(xs, mean_ranks, std_ranks):
             ranks_str = ";".join(str(r) for r in rank_results[x])
-            row = [x, m, s, unknowns, args.num_samples, args.jacobian_select_mode, ranks_str]
+            row = [x, m, s, unknowns, args.num_samples, args.jacobian_select_mode, args.independent, ranks_str]
             if rank_results_qr is not None:
                 mq = float(np.mean(rank_results_qr[x]))
                 sq = float(np.std(rank_results_qr[x]))
