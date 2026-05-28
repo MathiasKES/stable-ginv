@@ -75,7 +75,7 @@ def _worker_core(args, sample_indices, device, row_counts, prefixes, prefix_laye
     """
     Compute Jacobian rank for each sample in sample_indices on device.
     Returns (results, results_qr) where results_qr is None when args.qr_pivot is False.
-    progress_fn(1) is called after each (sample, row_count) step if provided.
+    progress_fn(1) is called after each AD pass (J build) and after each rank computation.
     debug: if True, prints mask debug info for the first sample.
     """
     dst, channel, num_classes, shape_img = load_dataset(args.dataset, _data_path())
@@ -113,7 +113,12 @@ def _worker_core(args, sample_indices, device, row_counts, prefixes, prefix_laye
         grad_norm = sum(g.norm().item() for g in original_dy_dx if g is not None)
         has_nan = any(torch.isnan(g).any().item() for g in original_dy_dx if g is not None)
         has_inf = any(torch.isinf(g).any().item() for g in original_dy_dx if g is not None)
-        print(f"  sample idx={idx}: grad_norm={grad_norm:.4f}  nan={has_nan}  inf={has_inf}", flush=True)
+        n_samples = len(sample_indices)
+        tqdm.write(
+            f"[{local_i + 1}/{n_samples}] idx={idx}  grad_norm={grad_norm:.4f}"
+            f"  nan={has_nan}  inf={has_inf}  — building J...",
+            file=sys.stderr,
+        )
 
         keep_ids, entry_masks = build_gradient_mask(
             method=args.method,
@@ -143,6 +148,8 @@ def _worker_core(args, sample_indices, device, row_counts, prefixes, prefix_laye
             qr_pivot=args.qr_pivot,
             device_for_J=device,
             print_svd_info=args.print_svd_info,
+            j_progress_fn=progress_fn,
+            rank_progress_fn=progress_fn,
         )
         max_rows = max(row_counts)
         for rows in row_counts:
@@ -152,9 +159,11 @@ def _worker_core(args, sample_indices, device, row_counts, prefixes, prefix_laye
                 results_qr[rows].append(sweep_qr[rows][0])
             if rows == max_rows:
                 qr_str = f"  rank_qr={sweep_qr[rows][0]}" if sweep_qr is not None else ""
-                print(f"    max_rows={rows}: rank={jac_rank}  shape={jac_shape}{qr_str}", flush=True)
-            if progress_fn is not None:
-                progress_fn(1)
+                tqdm.write(
+                    f"[{local_i + 1}/{n_samples}] max_rows={rows}: rank={jac_rank}"
+                    f"  shape={jac_shape}{qr_str}",
+                    file=sys.stderr,
+                )
 
         del gt_data, gt_label, gt_data_norm, out, loss, dy_dx, original_dy_dx
         if torch.cuda.is_available() and device.startswith("cuda"):
@@ -315,7 +324,10 @@ def main():
     print(f"Unknowns: {unknowns}")
     print(f"Samples: {sample_indices}")
 
-    total_steps = len(sample_indices) * len(row_counts)
+    # J build: unknowns AD passes per sample (fwAD when max(row_counts) > unknowns, else used_entries).
+    # Conservative estimate uses unknowns; rank steps = one SVD per row_count (×2 with qr_pivot).
+    rank_steps = len(row_counts) * (2 if args.qr_pivot else 1)
+    total_steps = len(sample_indices) * (unknowns + rank_steps)
 
     if args.num_workers == 1:
         device = args.device
@@ -325,7 +337,7 @@ def main():
             print(f"CUDA requested via --device {args.device}, but CUDA is unavailable; using CPU.")
             device = "cpu"
 
-        with tqdm(total=total_steps, desc="Jacobian rank") as pbar:
+        with tqdm(total=total_steps, desc="Jacobian rank", unit="step", dynamic_ncols=True) as pbar:
             rank_results, rank_results_qr = _worker_core(
                 args, sample_indices, device, row_counts, prefixes, prefix_layer_fracs,
                 progress_fn=lambda n: pbar.update(n),

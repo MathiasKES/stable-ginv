@@ -113,7 +113,7 @@ def _layer_info(grads, keep_ids, entry_masks):
 
 
 def _build_jacobian(net, x_norm, y, criterion, keep_ids, entry_masks,
-                    max_entries, select_mode, device_for_J):
+                    max_entries, select_mode, device_for_J, progress_fn=None):
     """Forward pass + row selection + J construction.
 
     Automatically chooses the cheaper direction:
@@ -255,6 +255,8 @@ def _build_jacobian(net, x_norm, y, criterion, keep_ids, entry_masks,
                         "Requires PyTorch >= 2.0. Upgrade PyTorch or open an issue."
                     )
                 J[:, j] = col.detach().reshape(-1).to(device_for_J)
+            if progress_fn is not None:
+                progress_fn(1)
     else:
         # Backward-mode: one pass per gradient row.
         x_req = x_norm.requires_grad_(True)
@@ -272,6 +274,8 @@ def _build_jacobian(net, x_norm, y, criterion, keep_ids, entry_masks,
                 allow_unused=False,
             )[0]
             J[i] = grad_i.reshape(-1).detach().to(device_for_J)
+            if progress_fn is not None:
+                progress_fn(1)
 
     return J, total_entries, unknowns
 
@@ -325,6 +329,8 @@ def compute_jacobian_rank_sweep(
     qr_pivot=False,
     device_for_J="cpu",
     print_svd_info=False,
+    j_progress_fn=None,
+    rank_progress_fn=None,
 ):
     """Rank of J for multiple row counts, building J once at max(row_counts).
 
@@ -341,6 +347,7 @@ def compute_jacobian_rank_sweep(
 
     J_max, total_entries, unknowns = _build_jacobian(
         net, x_norm, y, criterion, keep_ids, entry_masks, max(row_counts), select_mode, device_for_J,
+        progress_fn=j_progress_fn,
     )
 
     results = {}
@@ -348,6 +355,8 @@ def compute_jacobian_rank_sweep(
         J_k = J_max[:k]  # if k > J_max.shape[0], returns all rows
         rank = _rank_of_J(J_k, print_svd_info=print_svd_info)
         results[k] = (rank, tuple(J_k.shape), J_k.shape[0], unknowns)
+        if rank_progress_fn is not None:
+            rank_progress_fn(1)
 
     if not qr_pivot:
         return results, None
@@ -363,6 +372,8 @@ def compute_jacobian_rank_sweep(
         J_k = J_max_qr[:k]
         rank = _rank_of_J(J_k, print_svd_info=False)
         results_qr[k] = (rank, tuple(J_k.shape), J_k.shape[0], unknowns)
+        if rank_progress_fn is not None:
+            rank_progress_fn(1)
 
     return results, results_qr
 
