@@ -197,6 +197,18 @@ def _build_jacobian(net, x_norm, y, criterion, keep_ids, entry_masks,
                 per_group[order[i]] += 1
             per_group = {grp: min(per_group[grp], group_totals[grp]) for grp in groups}
 
+            # Redistribute surplus from groups smaller than their allocation (e.g. bn1
+            # in ResNet-18 has 128 entries but would otherwise waste ~1300 budget slots).
+            leftover = k - sum(per_group.values())
+            if leftover > 0:
+                for grp in order:
+                    if per_group[grp] < group_totals[grp]:
+                        give = min(leftover, group_totals[grp] - per_group[grp])
+                        per_group[grp] += give
+                        leftover -= give
+                        if leftover == 0:
+                            break
+
             indices = []
             for grp in groups:
                 n = per_group[grp]
