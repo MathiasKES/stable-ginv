@@ -188,7 +188,7 @@ python functions/jacobian_rank_sweep.py \
     --stepsize 500 --max_row_count 10000 \
     --jacobian_select_mode layer_spread \
     --independent \
-    --sample_indices 39508
+    --sample_indices 23784
 ```
 
 Use case: a run produced an anomalous rank (e.g. rank=2975 instead of 3072) for a specific image. `--sample_indices` lets you reproduce and investigate that single image without rerunning the full batch.
