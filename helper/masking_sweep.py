@@ -125,6 +125,8 @@ def _run_one(idx_net, dst, net, criterion, dm, ds, lb, ub, args, device,
 
     for _ in range(args.num_restarts):
         dummy = torch.randn_like(gt_norm).requires_grad_(True)
+        restart_best_loss = float('inf')
+        restart_best_x = None
 
         if args.optimizer == 'lbfgs':
             opt = torch.optim.LBFGS([dummy], lr=args.lr,
@@ -143,8 +145,13 @@ def _run_one(idx_net, dst, net, criterion, dm, ds, lb, ub, args, device,
                     return diff
                 opt.step(closure)
                 current_loss = closure().item()
-                with torch.no_grad():
-                    dummy.clamp_(lb, ub)
+                if args.network not in ('LeNet', 'LeNet_bigger'):
+                    with torch.no_grad():
+                        dummy.clamp_(lb, ub)
+                current_x = (dummy.detach() * ds + dm).clamp(0.0, 1.0)
+                if np.isfinite(current_loss) and current_loss < restart_best_loss:
+                    restart_best_loss = current_loss
+                    restart_best_x = current_x.detach().clone()
                 if current_loss < 1e-6:
                     break
         else:
@@ -169,15 +176,20 @@ def _run_one(idx_net, dst, net, criterion, dm, ds, lb, ub, args, device,
                 sched.step()
                 with torch.no_grad():
                     dummy.clamp_(lb, ub)
-                if diff.item() < 1e-6:
+                current_loss = diff.item()
+                current_x = (dummy.detach() * ds + dm).clamp(0.0, 1.0)
+                if np.isfinite(current_loss) and current_loss < restart_best_loss:
+                    restart_best_loss = current_loss
+                    restart_best_x = current_x.detach().clone()
+                if current_loss < 1e-6:
                     break
 
-        current_x = (dummy.detach() * ds + dm).clamp(0.0, 1.0)
-        mse = torch.mean((current_x - gt_data) ** 2).item()
-        if mse < best_mse:
-            best_mse = mse
-            if return_images:
-                best_recon_np = current_x.cpu().numpy()[0]
+        if restart_best_x is not None:
+            mse = torch.mean((restart_best_x - gt_data) ** 2).item()
+            if mse < best_mse:
+                best_mse = mse
+                if return_images:
+                    best_recon_np = restart_best_x.cpu().numpy()[0]
 
     if return_images:
         return {'idx': int(img_idx), 'best_mse': best_mse,

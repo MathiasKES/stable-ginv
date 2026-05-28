@@ -192,3 +192,21 @@ python functions/jacobian_rank_sweep.py \
 ```
 
 Use case: a run produced an anomalous rank (e.g. rank=2975 instead of 3072) for a specific image. `--sample_indices` lets you reproduce and investigate that single image without rerunning the full batch.
+
+---
+
+## Changes (second Claude session, same day)
+
+### Fix: MSE sweep (`--mse_visualise --threshold_mse`) now matches main experiment behaviour
+
+**Files:** `helper/masking_sweep.py`
+
+**Problem:** `_run_one` in the sweep captured MSE only at the **final iteration** of each restart, then took the minimum across restarts. The main experiments (`run_single_exp.py`) capture MSE at the **best-gradient-loss iteration** within each restart. Because a run can peak early and then drift, the two approaches give different MSE values for the same experiment — so the calibration threshold and sweep counts were not comparable to main experiment results.
+
+Additionally, the lbfgs path in `_run_one` always clamped `dummy`, whereas the main code skips clamping for LeNet/LeNet_bigger (to avoid corrupting the quasi-Newton approximation).
+
+**Fix:** Within each restart's iteration loop, `restart_best_loss` and `restart_best_x` now track the snapshot at the lowest gradient loss, identical to the main code. MSE is then computed from that snapshot, not from the final-iteration state. The LeNet clamping exception was also added to the lbfgs path.
+
+**Scope of match:** After this fix the sweep matches the main experiments exactly for ResNet/CIFAR. The only remaining minor difference is that the sweep computes `autograd.grad` over all network parameters then masks post-hoc, while the main code restricts autograd to the selected parameter subset — numerically equivalent but slightly less efficient for heavily masked runs.
+
+**What this means for results:** Calibration thresholds and sweep reconstruction counts are now directly comparable to main experiment PSNR/MSE values. Re-run calibration if you intend to compare sweep output against previously collected main experiment data.
