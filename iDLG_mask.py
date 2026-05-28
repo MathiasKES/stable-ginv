@@ -23,6 +23,11 @@ from helper.masking_sweep import run_mse_sweep, run_mse_calibration
 
 from functions.io_utils import setstdout
 
+
+class ExperimentRunAborted(RuntimeError):
+    """Raised after a worker failure has caused the run to be cancelled and cleaned up."""
+
+
 def main():
     timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
     out_path = setstdout(ts=timestamp_str)
@@ -401,7 +406,9 @@ def main():
                 proc.terminate()
         for proc in active_processes.values():
             proc.join()
-        sys.exit(1)
+        raise ExperimentRunAborted(
+            f"Run cancelled: {where} failed with: {result.get('error', 'unknown error')}"
+        )
 
     parallel_restarts = num_exp < num_gpus and NUM_RESTARTS > 1
 
