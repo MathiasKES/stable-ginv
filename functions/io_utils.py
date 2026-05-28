@@ -192,7 +192,7 @@ def paired_summary(x_masked, x_idlg, metric, confidence=0.95, ci_decimals=5):
         better = ""
     elif metric == "mse":
         better = "masked" if result["mean_diff"] < 0 else "idlg"
-    elif metric == "psnr":
+    elif metric in ("psnr", "ssim"):
         better = "masked" if result["mean_diff"] > 0 else "idlg"
     else:
         raise ValueError(f"Unknown metric: {metric}")
@@ -255,7 +255,7 @@ def save_masked_registry(path, registry):
     return safe_write(path, lambda f: json.dump(registry, f, indent=2))
 
 
-def update_masked_registry(registry, key, comparable_args, best_psnr_list, best_mse_list):
+def update_masked_registry(registry, key, comparable_args, best_psnr_list, best_mse_list, best_ssim_list):
     """Store a single masked run entry. Overwrites any existing entry for the same key."""
     if key in registry:
         print(
@@ -266,6 +266,7 @@ def update_masked_registry(registry, key, comparable_args, best_psnr_list, best_
         "args": comparable_args,
         "best_psnr_list": [float(v) for v in best_psnr_list],
         "best_mse_list": [float(v) for v in best_mse_list],
+        "best_ssim_list": [float(v) for v in best_ssim_list],
     }
     return registry[key]
 
@@ -308,7 +309,7 @@ def save_baseline_registry(path, registry):
     return safe_write(path, lambda f: json.dump(registry, f, indent=2))
 
 
-def update_idlg_baseline(registry, key, comparable_args, best_psnr_list, best_mse_list):
+def update_idlg_baseline(registry, key, comparable_args, best_psnr_list, best_mse_list, best_ssim_list):
     """Store a single iDLG baseline run. Overwrites any existing entry for the same key."""
     if key in registry:
         print(
@@ -320,6 +321,7 @@ def update_idlg_baseline(registry, key, comparable_args, best_psnr_list, best_ms
         "args": comparable_args,
         "best_psnr_list": best_psnr_list,
         "best_mse_list": best_mse_list,
+        "best_ssim_list": best_ssim_list,
     }
     registry[key] = entry
     return entry
@@ -347,8 +349,11 @@ def write_baseline_summary_csv(path, registry):
         "avg_best_psnr",
         "std_best_psnr",
         "avg_best_mse",
+        "avg_best_ssim",
+        "std_best_ssim",
         "best_psnr_list",
         "best_mse_list",
+        "best_ssim_list",
     ]
 
     rows = []
@@ -356,6 +361,8 @@ def write_baseline_summary_csv(path, registry):
         a = entry["args"]
         psnr = np.array(entry["best_psnr_list"], dtype=float)
         mse = np.array(entry["best_mse_list"], dtype=float)
+        ssim_list = entry.get("best_ssim_list", [])
+        ssim = np.array(ssim_list, dtype=float)
 
         rows.append({
             "baseline_key": key,
@@ -363,8 +370,11 @@ def write_baseline_summary_csv(path, registry):
             "avg_best_psnr": float(np.mean(psnr)) if len(psnr) else float("nan"),
             "std_best_psnr": float(np.std(psnr, ddof=1)) if len(psnr) > 1 else float("nan"),
             "avg_best_mse": float(np.mean(mse)) if len(mse) else float("nan"),
+            "avg_best_ssim": float(np.mean(ssim)) if len(ssim) else float("nan"),
+            "std_best_ssim": float(np.std(ssim, ddof=1)) if len(ssim) > 1 else float("nan"),
             "best_psnr_list": json.dumps(entry["best_psnr_list"]),
             "best_mse_list": json.dumps(entry["best_mse_list"]),
+            "best_ssim_list": json.dumps(ssim_list),
         })
 
     def _write(f):

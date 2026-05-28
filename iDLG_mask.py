@@ -1017,12 +1017,16 @@ def main():
 
     mse_paired_stats = empty_stats.copy()
     psnr_paired_stats = empty_stats.copy()
+    ssim_paired_stats = empty_stats.copy()
     mse_ci_str = ""
     psnr_ci_str = ""
+    ssim_ci_str = ""
     mse_significant_str = ""
     psnr_significant_str = ""
+    ssim_significant_str = ""
     psnr_normality_str = ""
     mse_normality_str = ""
+    ssim_normality_str = ""
 
     baseline_key, comparable_args = baseline_key_from_args(args)
 
@@ -1031,6 +1035,8 @@ def main():
         paired_best_mse_masked = []
         paired_best_psnr_idlg = []
         paired_best_psnr_masked = []
+        paired_best_ssim_idlg = []
+        paired_best_ssim_masked = []
 
         n_total_both = len(all_results_by_idx)
         for idx in sorted(all_results_by_idx):
@@ -1040,6 +1046,8 @@ def main():
             mse_masked = result.get("best_mse_iDLG_masked")
             psnr_idlg = result.get("best_psnr_idlg")
             psnr_masked = result.get("best_psnr_masked")
+            ssim_idlg = result.get("best_ssim_idlg")
+            ssim_masked = result.get("best_ssim_masked")
 
             all_valid = (
                 mse_idlg is not None and mse_masked is not None and
@@ -1054,6 +1062,8 @@ def main():
             paired_best_mse_masked.append(mse_masked)
             paired_best_psnr_idlg.append(psnr_idlg)
             paired_best_psnr_masked.append(psnr_masked)
+            paired_best_ssim_idlg.append(ssim_idlg)
+            paired_best_ssim_masked.append(ssim_masked)
 
         if len(paired_best_psnr_masked) < n_total_both:
             print(f"WARNING: {n_total_both - len(paired_best_psnr_masked)}/{n_total_both} "
@@ -1084,6 +1094,19 @@ def main():
         psnr_normality_str = psnr_summary["normality_str"]
         mse_normality_str = mse_summary["normality_str"]
 
+        ssim_summary = paired_summary(
+            np.array(paired_best_ssim_masked),
+            np.array(paired_best_ssim_idlg),
+            metric="ssim",
+            confidence=0.95,
+            ci_decimals=5,
+        )
+
+        ssim_paired_stats = ssim_summary["stats"]
+        ssim_ci_str = ssim_summary["ci_str"]
+        ssim_significant_str = ssim_summary["significant_str"]
+        ssim_normality_str = ssim_summary["normality_str"]
+
     elif METHODS == "masked":
         registry = load_baseline_registry(baseline_registry_path)
 
@@ -1095,12 +1118,15 @@ def main():
             baseline_entry = registry[baseline_key]
             baseline_psnr_list = baseline_entry["best_psnr_list"]
             baseline_mse_list = baseline_entry["best_mse_list"]
+            baseline_ssim_list = baseline_entry["best_ssim_list"]
             n_total = len(baseline_psnr_list)
 
             paired_best_psnr_idlg = []
             paired_best_psnr_masked = []
             paired_best_mse_idlg = []
             paired_best_mse_masked = []
+            paired_best_ssim_idlg = []
+            paired_best_ssim_masked = []
 
             for idx in sorted(all_results_by_idx):
                 result = all_results_by_idx[idx]
@@ -1109,6 +1135,8 @@ def main():
                 psnr_masked = result.get("best_psnr_masked")
                 mse_baseline = baseline_mse_list[idx]
                 mse_masked = result.get("best_mse_iDLG_masked")
+                ssim_baseline = baseline_ssim_list[idx]
+                ssim_masked = result.get("best_ssim_masked")
 
                 all_valid = (
                     psnr_masked is not None and mse_masked is not None and
@@ -1122,6 +1150,8 @@ def main():
                 paired_best_psnr_masked.append(psnr_masked)
                 paired_best_mse_idlg.append(mse_baseline)
                 paired_best_mse_masked.append(mse_masked)
+                paired_best_ssim_idlg.append(ssim_baseline)
+                paired_best_ssim_masked.append(ssim_masked)
 
             n_included = len(paired_best_psnr_masked)
             if n_included < n_total:
@@ -1151,6 +1181,19 @@ def main():
             psnr_significant_str = psnr_summary["significant_str"]
             psnr_normality_str = psnr_summary["normality_str"]
             mse_normality_str = mse_summary["normality_str"]
+
+            ssim_summary = paired_summary(
+                np.array(paired_best_ssim_masked),
+                np.array(paired_best_ssim_idlg),
+                metric="ssim",
+                confidence=0.95,
+                ci_decimals=5,
+            )
+
+            ssim_paired_stats = ssim_summary["stats"]
+            ssim_ci_str = ssim_summary["ci_str"]
+            ssim_significant_str = ssim_summary["significant_str"]
+            ssim_normality_str = ssim_summary["normality_str"]
 
             print(f"\nLoaded iDLG baseline (run_id={run_id}). Paired test uses {n_included}/{n_total} experiment(s).")
 
@@ -1194,18 +1237,21 @@ def main():
     if METHODS in ("idlg", "both"):
         ordered_best_psnr_idlg = []
         ordered_best_mse_idlg = []
+        ordered_best_ssim_idlg = []
 
         for idx in sorted(all_results_by_idx):
             result = all_results_by_idx[idx]
 
             psnr = result.get("best_psnr_idlg")
             mse = result.get("best_mse_iDLG")
+            ssim = result.get("best_ssim_idlg")
 
             if psnr is None or mse is None or not np.isfinite(psnr) or not np.isfinite(mse):
                 raise ValueError(f"Missing or invalid iDLG baseline result for experiment idx={idx}")
 
             ordered_best_psnr_idlg.append(float(psnr))
             ordered_best_mse_idlg.append(float(mse))
+            ordered_best_ssim_idlg.append(float(ssim) if ssim is not None and np.isfinite(ssim) else float("nan"))
 
         registry = load_baseline_registry(baseline_registry_path)
 
@@ -1215,6 +1261,7 @@ def main():
             comparable_args,
             ordered_best_psnr_idlg,
             ordered_best_mse_idlg,
+            ordered_best_ssim_idlg,
         )
 
         save_baseline_registry(baseline_registry_path, registry)
@@ -1234,6 +1281,7 @@ def main():
             masked_comparable_args,
             best_psnr_masked_all,
             best_mse_masked_all,
+            best_ssim_masked_all,
         )
         save_masked_registry(masked_registry_path, masked_registry)
         print(f"\nSaved masked registry entry:")
@@ -1316,6 +1364,9 @@ def main():
             "psnr_significant": psnr_significant_str if METHODS in ["both", "masked"] else "",
             "psnr_normality": psnr_normality_str if METHODS in ["both", "masked"] else "",
             "mse_normality": mse_normality_str if METHODS in ["both", "masked"] else "",
+            "ssim_ci": ssim_ci_str if METHODS in ["both", "masked"] else "",
+            "ssim_significant": ssim_significant_str if METHODS in ["both", "masked"] else "",
+            "ssim_normality": ssim_normality_str if METHODS in ["both", "masked"] else "",
             "med_best_loss": round(med_best_loss_masked,5),
             "avg_best_loss": round(avg_best_loss_masked,5),
             "med_best_mse": round(med_best_mse_masked,10),
@@ -1333,6 +1384,7 @@ def main():
         "avg_best_psnr", "std_best_psnr",
         "avg_best_ssim", "std_best_ssim",
         "mse_ci", "mse_significant", "psnr_ci", "psnr_significant", "psnr_normality", "mse_normality",
+        "ssim_ci", "ssim_significant", "ssim_normality",
         "png_path",
     ]
 
@@ -1373,6 +1425,11 @@ def main():
             f"| 95% CI: {psnr_ci_str} "
             f"| significant: {psnr_significant_str} "
             f"| normality: {psnr_normality_str}")
+        print(
+            f"Paired best SSIM diff (masked - iDLG): {ssim_paired_stats['mean_diff']:.5f} "
+            f"| 95% CI: {ssim_ci_str} "
+            f"| significant: {ssim_significant_str} "
+            f"| normality: {ssim_normality_str}")
 
     print("Job resource usage:")
     print("Max memory allocated:", torch.cuda.memory.max_memory_allocated() / (1024 ** 3), "GB")
