@@ -255,6 +255,9 @@ def main():
                              "via QR column pivoting so each slice J[:k] contains the k most "
                              "linearly independent rows from the pool.")
     parser.add_argument("--num_samples", type=int, default=3)
+    parser.add_argument("--sample_indices", type=str, default=None,
+                        help="Comma-separated dataset indices to use instead of random sampling, "
+                             "e.g. --sample_indices 39508,23784. Overrides --num_samples and --run_id.")
     parser.add_argument("--run_id", type=int, default=0)
     parser.add_argument("--device", type=str, default="cuda:0")
     parser.add_argument("--num_workers", type=int, default=1,
@@ -305,14 +308,18 @@ def main():
 
     dst, channel, num_classes, shape_img = load_dataset(args.dataset, _data_path())
 
-    seed = args.run_id + 1
-    torch.manual_seed(seed)
-    np.random.seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(seed)
-
-    idx_shuffle = np.random.permutation(len(dst))
-    sample_indices = idx_shuffle[:args.num_samples].tolist()
+    if args.sample_indices is not None:
+        sample_indices = [int(x.strip()) for x in args.sample_indices.split(",") if x.strip()]
+        if any(i < 0 or i >= len(dst) for i in sample_indices):
+            parser.error(f"--sample_indices contains an index out of range for dataset of size {len(dst)}")
+    else:
+        seed = args.run_id + 1
+        torch.manual_seed(seed)
+        np.random.seed(seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(seed)
+        idx_shuffle = np.random.permutation(len(dst))
+        sample_indices = idx_shuffle[:args.num_samples].tolist()
 
     unknowns = channel * shape_img[0] * shape_img[1]
 
