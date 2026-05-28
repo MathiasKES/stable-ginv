@@ -5,6 +5,8 @@ import os
 
 import numpy as np
 
+from functions.io_utils import safe_savefig, safe_chmod, safe_makedirs
+
 
 def save_recon_panel(params: dict, panel_gt_pil, panel_idlg_pil, panel_masked_pil,
                      save_dir, block_idx, dataset, mask_desc: str, timestamp_str: str,
@@ -57,14 +59,11 @@ def save_recon_panel(params: dict, panel_gt_pil, panel_idlg_pil, panel_masked_pi
         job_id = os.environ.get("LSB_JOBID", "")
     prefix = f"{timestamp_str}_{job_id}" if job_id else timestamp_str
     out_path = os.path.join(save_dir, f"{prefix}_{block_idx}.png")
-    plt.savefig(out_path, dpi=75, bbox_inches='tight')
+    ok = safe_savefig(fig, out_path, dpi=75, bbox_inches='tight')
     plt.close(fig)
 
-    try:
-        os.chmod(out_path, 0o770)
-    except Exception as e:
-        print(f"Warning: failed to set permissions for {out_path}: {e}")
-
+    if not ok:
+        return None
     print("Saved reconstruction panel to:", out_path)
     return out_path
 
@@ -212,19 +211,22 @@ def save_recon_gif(
     out_path = os.path.join(save_dir, f"{prefix}_{block_idx}_anim.gif")
 
     duration_ms = max(1, int(1000 / fps))
-    gif_frames[0].save(
-        out_path,
-        save_all=True,
-        append_images=gif_frames[1:],
-        duration=duration_ms,
-        loop=0,
-        optimize=False,
-    )
-
+    parent = os.path.dirname(out_path)
+    if parent and not safe_makedirs(parent):
+        return None
     try:
-        os.chmod(out_path, 0o770)
-    except Exception as e:
-        print(f"Warning: failed to set permissions for {out_path}: {e}")
+        gif_frames[0].save(
+            out_path,
+            save_all=True,
+            append_images=gif_frames[1:],
+            duration=duration_ms,
+            loop=0,
+            optimize=False,
+        )
+    except OSError as e:
+        print(f"[WARNING] Failed to save GIF {out_path}: {e}")
+        return None
 
+    safe_chmod(out_path)
     print("Saved animated GIF to:", out_path)
     return out_path

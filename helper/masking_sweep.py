@@ -30,6 +30,7 @@ from helper.metrics import total_variation, compute_psnr_from_mse
 from helper.training_utils import make_scheduler
 from functions.masking import (build_gradient_mask, flatten_observed_gradients,
                                 _get_last_fc_param_indices)
+from functions.io_utils import safe_write, safe_savefig, safe_makedirs
 
 
 def _sweep_fracs(step):
@@ -281,9 +282,9 @@ def _save_sorted_mse(results, save_dir, threshold):
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
     path = os.path.join(save_dir, 'sorted_mse.png')
-    fig.savefig(path, dpi=150)
+    if safe_savefig(fig, path, dpi=150):
+        print(f'Saved: {path}')
     plt.close(fig)
-    print(f'Saved: {path}')
 
 
 def _save_histogram(results, save_dir, threshold):
@@ -300,9 +301,9 @@ def _save_histogram(results, save_dir, threshold):
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
     path = os.path.join(save_dir, 'mse_histogram.png')
-    fig.savefig(path, dpi=150)
+    if safe_savefig(fig, path, dpi=150):
+        print(f'Saved: {path}')
     plt.close(fig)
-    print(f'Saved: {path}')
 
 
 def _save_recon_grid(results, channel, save_dir, threshold):
@@ -333,9 +334,9 @@ def _save_recon_grid(results, channel, save_dir, threshold):
     fig.suptitle(title, fontsize=8, y=1.01)
     fig.tight_layout()
     path = os.path.join(save_dir, 'recon_grid.png')
-    fig.savefig(path, dpi=150, bbox_inches='tight')
+    if safe_savefig(fig, path, dpi=150, bbox_inches='tight'):
+        print(f'Saved: {path}')
     plt.close(fig)
-    print(f'Saved: {path}')
 
 
 def _save_calibration_csv(results, save_dir, threshold):
@@ -344,7 +345,8 @@ def _save_calibration_csv(results, save_dir, threshold):
     if threshold is not None:
         fieldnames.append('reconstructed')
     sorted_results = sorted(results, key=lambda r: r['best_mse'])
-    with open(path, 'w', newline='') as f:
+
+    def _write(f):
         w = csv.DictWriter(f, fieldnames=fieldnames)
         w.writeheader()
         for rank, r in enumerate(sorted_results, 1):
@@ -353,7 +355,9 @@ def _save_calibration_csv(results, save_dir, threshold):
             if threshold is not None:
                 row['reconstructed'] = r['best_mse'] <= threshold
             w.writerow(row)
-    print(f'Saved: {path}')
+
+    if safe_write(path, _write, newline=''):
+        print(f'Saved: {path}')
 
 
 # ---- Public API -----------------------------------------------------------------
@@ -366,7 +370,8 @@ def run_mse_calibration(args, dst, channel, num_classes, shape_img, save_path):
     _init_mp()
     ts = datetime.now().strftime('%Y%m%d_%H%M%S')
     out_dir = os.path.join(save_path, f'threshold_{args.network}_{args.dataset}_{ts}')
-    os.makedirs(out_dir, exist_ok=True)
+    if not safe_makedirs(out_dir):
+        return
 
     threshold = args.threshold_mse
     num_gpus = torch.cuda.device_count() if torch.cuda.is_available() else 0
@@ -403,7 +408,8 @@ def run_mse_sweep(args, dst, channel, num_classes, shape_img, save_path):
     _init_mp()
     ts = datetime.now().strftime('%Y%m%d_%H%M%S')
     out_dir = os.path.join(save_path, f'sweep_{args.network}_{args.dataset}_{ts}')
-    os.makedirs(out_dir, exist_ok=True)
+    if not safe_makedirs(out_dir):
+        return
     sweep_fracs = _sweep_fracs(args.sweep_step)
 
     num_gpus = torch.cuda.device_count() if torch.cuda.is_available() else 0
@@ -442,11 +448,14 @@ def _save_sweep_csv(rows, out_dir):
     path = os.path.join(out_dir, 'sweep_results.csv')
     fields = ['mask_mode', 'topfrac', 'pct_masked', 'n_reconstructed',
               'n_total', 'avg_mse', 'median_mse']
-    with open(path, 'w', newline='') as f:
+
+    def _write(f):
         w = csv.DictWriter(f, fieldnames=fields)
         w.writeheader()
         w.writerows(rows)
-    print(f'Saved: {path}')
+
+    if safe_write(path, _write, newline=''):
+        print(f'Saved: {path}')
 
 
 def _save_plot(rows, out_dir, threshold, num_exp, network, dataset, mask_mode):
@@ -466,6 +475,6 @@ def _save_plot(rows, out_dir, threshold, num_exp, network, dataset, mask_mode):
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
     path = os.path.join(out_dir, 'sweep_plot.png')
-    fig.savefig(path, dpi=150)
+    if safe_savefig(fig, path, dpi=150):
+        print(f'Saved: {path}')
     plt.close(fig)
-    print(f'Saved: {path}')

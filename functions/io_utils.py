@@ -10,6 +10,59 @@ from datetime import datetime
 import numpy as np
 from scipy import stats
 
+
+def safe_chmod(path, mode=0o770):
+    """Set chmod on path, swallowing and logging errors."""
+    try:
+        os.chmod(path, mode)
+    except OSError as e:
+        print(f"[WARNING] Failed to chmod {path}: {e}")
+
+
+def safe_makedirs(path, mode=0o770):
+    """os.makedirs(exist_ok=True) with error swallowing. Returns True on success."""
+    if not path:
+        return True
+    try:
+        os.makedirs(path, mode=mode, exist_ok=True)
+        return True
+    except OSError as e:
+        print(f"[WARNING] Failed to create directory {path}: {e}")
+        return False
+
+
+def safe_write(path, writer_fn, mode="w", newline=None, chmod_mode=0o770):
+    """Open path for writing, call writer_fn(file). Best-effort chmod 770 on parent dir and file.
+    Logs and returns False on any OSError instead of raising. Returns True on success.
+    """
+    parent = os.path.dirname(path)
+    if parent and not safe_makedirs(parent, mode=chmod_mode):
+        return False
+    open_kwargs = {} if newline is None else {"newline": newline}
+    try:
+        with open(path, mode, **open_kwargs) as f:
+            writer_fn(f)
+    except OSError as e:
+        print(f"[WARNING] Failed to write {path}: {e}")
+        return False
+    safe_chmod(path, mode=chmod_mode)
+    return True
+
+
+def safe_savefig(fig, path, chmod_mode=0o770, **savefig_kwargs):
+    """Save matplotlib figure to path with best-effort chmod 770. Returns True on success."""
+    parent = os.path.dirname(path)
+    if parent and not safe_makedirs(parent, mode=chmod_mode):
+        return False
+    try:
+        fig.savefig(path, **savefig_kwargs)
+    except OSError as e:
+        print(f"[WARNING] Failed to save figure {path}: {e}")
+        return False
+    safe_chmod(path, mode=chmod_mode)
+    return True
+
+
 def setstdout(ts=None, path=None):
     """Set up stdout tee to a log file. Returns the path used, or None if not interactive.
 
@@ -41,10 +94,15 @@ def setstdout(ts=None, path=None):
         if os.path.exists("/work3/s234843/bachelor/gpuout/idlg"):
             path = f"/work3/s234843/bachelor/gpuout/idlg/i{ts}.out"
         else:
-            os.makedirs("./gpuout", exist_ok=True)
+            safe_makedirs("./gpuout")
             path = f"./gpuout/i{ts}.out"
 
-    logfile = open(path, "a")
+    try:
+        logfile = open(path, "a")
+    except OSError as e:
+        print(f"[WARNING] Failed to open stdout log {path}: {e}")
+        return None
+    safe_chmod(path)
     sys.stdout = Tee(terminal, logfile)
     return path
 
@@ -193,10 +251,8 @@ def load_masked_registry(path):
 
 
 def save_masked_registry(path, registry):
-    """Write masked registry dict to JSON at path."""
-    os.makedirs(os.path.dirname(path), mode=0o770, exist_ok=True)
-    with open(path, "w") as f:
-        json.dump(registry, f, indent=2)
+    """Write masked registry dict to JSON at path. Failures are logged, not raised."""
+    return safe_write(path, lambda f: json.dump(registry, f, indent=2))
 
 
 def update_masked_registry(registry, key, comparable_args, best_psnr_list, best_mse_list):
@@ -248,10 +304,8 @@ def load_baseline_registry(path):
 
 
 def save_baseline_registry(path, registry):
-    """Write baseline registry dict to JSON at path."""
-    os.makedirs(os.path.dirname(path), mode=0o770, exist_ok=True)
-    with open(path, "w") as f:
-        json.dump(registry, f, indent=2)
+    """Write baseline registry dict to JSON at path. Failures are logged, not raised."""
+    return safe_write(path, lambda f: json.dump(registry, f, indent=2))
 
 
 def update_idlg_baseline(registry, key, comparable_args, best_psnr_list, best_mse_list):
@@ -272,9 +326,7 @@ def update_idlg_baseline(registry, key, comparable_args, best_psnr_list, best_ms
 
 
 def write_baseline_summary_csv(path, registry):
-    """Write a summary CSV of all baseline registry entries."""
-    os.makedirs(os.path.dirname(path), mode=0o770, exist_ok=True)
-
+    """Write a summary CSV of all baseline registry entries. Failures are logged, not raised."""
     fieldnames = [
         "baseline_key",
         "dataset",
@@ -315,7 +367,9 @@ def write_baseline_summary_csv(path, registry):
             "best_mse_list": json.dumps(entry["best_mse_list"]),
         })
 
-    with open(path, "w", newline="") as f:
+    def _write(f):
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(rows)
+
+    return safe_write(path, _write, newline="")

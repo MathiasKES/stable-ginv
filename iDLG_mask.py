@@ -14,7 +14,8 @@ from helper.visualization import save_recon_panel, save_recon_gif
 from functions.io_utils import (paired_summary, paired_t_ci, baseline_key_from_args,
     load_baseline_registry, save_baseline_registry, update_idlg_baseline,
     write_baseline_summary_csv, parse_prefixes_with_fracs, masked_key_from_args,
-    load_masked_registry, save_masked_registry, update_masked_registry)
+    load_masked_registry, save_masked_registry, update_masked_registry,
+    safe_write, safe_savefig, safe_makedirs, safe_chmod)
 from functions.Dataset import load_dataset
 from run_single_exp import run_single_experiment
 from tqdm import tqdm
@@ -282,11 +283,8 @@ def main():
     tt = transforms.Compose([transforms.ToTensor()])
     tp = transforms.Compose([transforms.ToPILImage()])
 
-    try:
-        os.makedirs(data_path, mode=0o770, exist_ok=True)
-        os.makedirs(save_path, mode=0o770, exist_ok=True)
-    except Exception as e:
-        print(f"Warning: failed to set permissions for directories: {e}")
+    safe_makedirs(data_path)
+    safe_makedirs(save_path)
     
     baseline_dir = os.path.join(save_path, "baselines")
     baseline_registry_path = os.path.join(baseline_dir, "idlg_baselines_registry.json")
@@ -793,10 +791,12 @@ def main():
         if psnr_per_restart_masked_all:
             restart_fieldnames += ["mean_psnr_masked", "std_psnr_masked"]
 
-        with open(restart_csv_path, "w", newline="") as f:
+        def _write_restart_csv(f):
             writer = csv.DictWriter(f, fieldnames=restart_fieldnames)
             writer.writeheader()
             writer.writerows(rows_restart)
+
+        safe_write(restart_csv_path, _write_restart_csv, newline="")
 
         fig, ax = plt.subplots(figsize=(6, 4))
         if psnr_per_restart_idlg_all:
@@ -816,7 +816,7 @@ def main():
         ax.grid(True, linestyle="--", alpha=0.5)
         plt.tight_layout()
         restart_plot_path = os.path.join(save_path, f"restart_curve_{timestamp_str}.png")
-        fig.savefig(restart_plot_path, dpi=200)
+        safe_savefig(fig, restart_plot_path, dpi=200)
         plt.close(fig)
         print(f"\nRestart curve saved: {restart_csv_path}, {restart_plot_path}")
 
@@ -891,10 +891,12 @@ def main():
             for row in rows_restart:
                 if row["num_restarts"] in gain_rows_extra:
                     row.update(gain_rows_extra[row["num_restarts"]])
-            with open(restart_csv_path, "w", newline="") as f:
+            def _rewrite_restart_csv(f):
                 writer = csv.DictWriter(f, fieldnames=new_fieldnames, extrasaction='ignore')
                 writer.writeheader()
                 writer.writerows(rows_restart)
+
+            safe_write(restart_csv_path, _rewrite_restart_csv, newline="")
 
         # Per-restart image figure: fixed columns k=1, k=5, k=10
         if all_results_by_idx:
@@ -998,7 +1000,7 @@ def main():
                     fontsize=10)
                 plt.tight_layout()
                 img_fig_path = os.path.join(save_path, f"restart_images_{timestamp_str}.png")
-                fig_img.savefig(img_fig_path, dpi=200)
+                safe_savefig(fig_img, img_fig_path, dpi=200)
                 plt.close(fig_img)
                 print(f"Restart image figure saved: {img_fig_path}")
 
@@ -1334,16 +1336,13 @@ def main():
         "png_path",
     ]
 
-    with open(csv_path, "a", newline="") as f:
+    def _append_exp_results(f):
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         if not file_exists:
             writer.writeheader()
         writer.writerows(rows)
-    
-    try:
-        os.chmod(csv_path, 0o770) # Ensure correct permissions
-    except Exception as e:
-        print(f"Warning: failed to set permissions for {csv_path}: {e}")
+
+    safe_write(csv_path, _append_exp_results, mode="a", newline="")
 
     print("\n=== Average PSNR over all experiments ===")
     print(f"\nSaved CSV rows to: {csv_path}")
