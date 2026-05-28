@@ -1,9 +1,6 @@
 #!/bin/bash
 # interactive_jobscript.sh
 #
-# Run python commands from scripts/cmds.txt sequentially on an interactive
-# DTU HPC GPU node (e.g. sxm2sh). One command at a time; each command sees
-# all 4 GPUs as configured by scripts/init.sh.
 #
 # Behavior:
 #   - Blank lines and lines starting with `#` are skipped.
