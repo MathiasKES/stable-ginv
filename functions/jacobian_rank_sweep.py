@@ -301,6 +301,9 @@ def main():
         if not row_counts or row_counts[-1] < args.max_row_count:
             row_counts.append(args.max_row_count)
 
+    if unknowns not in row_counts:
+        row_counts = sorted(row_counts + [unknowns])
+
     print(f"Unknowns: {unknowns}")
     print(f"Samples: {sample_indices}")
 
