@@ -13,8 +13,13 @@
 #   - When a run finishes the script re-reads cmds.txt and finds the FIRST line
 #     equal to the just-executed cmd:
 #       * rc == 0 → that line is removed from cmds.txt.
-#       * rc != 0 → that line is replaced with "# FAILED: <cmd>" so it is
-#                   kept for inspection but skipped in future iterations.
+#       * rc != 0 → that line is replaced with a single-line diagnostic
+#                   comment so it is kept for inspection but skipped in
+#                   future iterations. Format:
+#                     # FAILED: [rc=N] [uid=…] [dur=Ns] [tail=…] <cmd>
+#                   The uid lets you locate the matching
+#                   hpc/gpuout/interactive/<uid>_run.{out,err} files;
+#                   tail is the last non-empty stderr line, truncated.
 #       * line not found (user deleted/edited it) → script prints
 #                   "[interactive_jobscript] Line not found, finished: [<uid>]"
 #                   and continues.
@@ -75,11 +80,11 @@ find_next_cmd() {
 }
 
 # Re-read cmds.txt and operate on the FIRST line equal to $1 (target):
-#   action=delete   → drop the line
-#   action=fail     → replace the line with "# FAILED: <target>"
+#   mode=delete   → drop the line
+#   mode=replace  → emit $3 instead of the line (used for "# FAILED: …")
 # Returns 0 if the line was found, 1 otherwise.
 modify_cmds() {
-    local target=$1 action=$2
+    local target=$1 mode=$2 replacement=${3-}
     local tmp
     tmp="$(mktemp "${CMDS_FILE}.XXXXXX")"
     local found=1
@@ -87,9 +92,9 @@ modify_cmds() {
     while IFS= read -r line || [[ -n "$line" ]]; do
         if (( found == 1 )) && [[ "$line" == "$target" ]]; then
             found=0
-            case "$action" in
-                delete) ;;  # skip writing the line
-                fail)   printf '# FAILED: %s\n' "$target" ;;
+            case "$mode" in
+                delete)  ;;  # skip writing the line
+                replace) printf '%s\n' "$replacement" ;;
             esac
         else
             printf '%s\n' "$line"
@@ -97,6 +102,20 @@ modify_cmds() {
     done < "$CMDS_FILE" > "$tmp"
     mv "$tmp" "$CMDS_FILE"
     return $found
+}
+
+# Last non-empty line of $1 (the .err file), single-line, truncated to 200
+# chars (UTF-8 ellipsis appended on truncation). Empty string if none.
+err_tail() {
+    local f=$1 line=""
+    [[ -s "$f" ]] || { printf ''; return; }
+    line=$(grep -v '^[[:space:]]*$' "$f" 2>/dev/null | tail -n 1)
+    line=${line//$'\r'/}
+    line=${line//$'\n'/ }
+    if (( ${#line} > 200 )); then
+        line="${line:0:200}…"
+    fi
+    printf '%s' "$line"
 }
 
 while true; do
@@ -117,11 +136,13 @@ while true; do
     printf '%s\n' "$cmd" > "$out_file"
     : > "$err_file"
 
+    start_ts=$(date +%s)
     bash -c "$cmd" >> "$out_file" 2>> "$err_file" &
     CURRENT_PID=$!
     wait "$CURRENT_PID"
     rc=$?
     CURRENT_PID=""
+    dur=$(( $(date +%s) - start_ts ))
 
     if (( INTERRUPTED )); then
         exit 130
@@ -129,15 +150,21 @@ while true; do
 
     if (( rc == 0 )); then
         if modify_cmds "$cmd" delete; then
-            echo "[interactive_jobscript] [$uid] OK"
+            echo "[interactive_jobscript] [$uid] OK (dur=${dur}s)"
         else
-            echo "[interactive_jobscript] Line not found, finished: [$uid]"
+            echo "[interactive_jobscript] Line not found, finished: [$uid] (dur=${dur}s)"
         fi
     else
-        if modify_cmds "$cmd" fail; then
-            echo "[interactive_jobscript] [$uid] FAILED (rc=$rc) — marked as # FAILED in cmds.txt"
+        tail_line=$(err_tail "$err_file")
+        if [[ -n "$tail_line" ]]; then
+            fail_comment="# FAILED: [rc=$rc] [uid=$uid] [dur=${dur}s] [tail=${tail_line}] $cmd"
         else
-            echo "[interactive_jobscript] Line not found, finished: [$uid] (rc=$rc)"
+            fail_comment="# FAILED: [rc=$rc] [uid=$uid] [dur=${dur}s] $cmd"
+        fi
+        if modify_cmds "$cmd" replace "$fail_comment"; then
+            echo "[interactive_jobscript] [$uid] FAILED (rc=$rc, dur=${dur}s) — marked as # FAILED in cmds.txt"
+        else
+            echo "[interactive_jobscript] Line not found, finished: [$uid] (rc=$rc, dur=${dur}s)"
         fi
     fi
 done
