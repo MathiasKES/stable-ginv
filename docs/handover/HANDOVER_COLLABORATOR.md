@@ -2,7 +2,7 @@
 
 **Audience:** A new collaborator joining the bachelor's project who needs to understand the research context, set up the environment, and run their first experiment.
 
-**Last updated:** 2026-05-23
+**Last updated:** 2026-05-29
 
 ---
 
@@ -158,8 +158,11 @@ After running `run_single_exp.py`, you will find:
 After running `iDLG_mask.py`, you will also find:
 - A CSV file with columns: `network`, `dataset`, `mask_mode`, `PSNR`, `SSIM`, `loss`, etc.
 - Use these for statistical comparisons between masking modes.
+- The CSV's final `registry_key` column points to the corresponding entry in `results/baselines/idlg_baselines_registry.json` or `results/baselines/masked_registry.json`.
 
 **Baseline registry:** `iDLG_mask.py --methods both` (or `--methods idlg` followed by `--methods masked`) saves unmasked results as a baseline in `results/baselines/`. The masked run loads this automatically for paired comparison. Always use the same `--run_id` for both.
+
+**Masking sweep plots:** For `gradsize_topfrac_entries_layer`, run normal `iDLG_mask.py` commands for each `--gradsize_topfrac`. The runner appends compact rows to `results/masking_sweeps/`; then run `python scripts/plot_masking_sweep_csv.py <sweep_csv> --threshold_mse <value>` to create the line and bar charts.
 
 ---
 

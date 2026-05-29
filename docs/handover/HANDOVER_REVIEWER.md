@@ -2,7 +2,7 @@
 
 **Audience:** An agent or developer performing a targeted code review or cleanup task. Read this before touching any file.
 
-**Last updated:** 2026-05-23
+**Last updated:** 2026-05-29
 
 ---
 
@@ -48,6 +48,12 @@ This is a Python 3.13 research codebase for running gradient inversion attack ex
 | `helper/visualization.py` | LOW | Panel PNG and animated GIF output |
 
 **`archive/`** — retired scripts (`iDLG_original.py`, `jacobian_parallel.py`, `run_single_exp_batch.py`, old visualize/testing scripts). Nothing imports from these.
+
+**`scripts/`**
+
+| File | Review Priority | Notes |
+|------|-----------------|-------|
+| `scripts/plot_masking_sweep_csv.py` | LOW | Reads sweep CSV rows containing `masked_key`, resolves MSE lists from `masked_registry.json`, and writes threshold plots |
 
 ---
 
@@ -98,6 +104,7 @@ Moved to `archive/`. Nothing imports from it.
 - **`compute_jacobian_rank`** in `helper/metrics.py` — the rank computation algorithm is mathematically precise. Do not refactor for "cleanliness" without understanding the math.
 - **`compute_grad_match_loss`** in `helper/metrics.py` — the cosine similarity implementation must match the original paper exactly.
 - **CSV column names** — downstream analysis and plotting scripts read these by name. Renaming breaks analysis.
+- **Registry key links** — `exp_results_<network>.csv` now has `registry_key` as the last column. iDLG rows point to the baseline registry; masked rows point to the masked registry.
 - **`iDLG_original.py`** — kept as a baseline comparison. Leave it alone.
 - **`invertinggradients/`** — it is a git submodule. Do not commit changes to it from this repo.
 - **Dataset normalization constants** in `consts.py` — these are manually validated (LFW was computed in `testing/compute_lfw_stats.py`). Do not "correct" them without rerunning the validation script.
@@ -122,7 +129,7 @@ Moved to `archive/`. Nothing imports from it.
 ```bash
 python -m pytest tests/ -v
 ```
-24 tests covering all masking routing paths, last-FC invariant, per-layer entry modes, and gradient flattening. Should pass in ~1 second on CPU.
+44 tests covering masking routing paths, last-FC invariant, per-layer entry modes, gradient flattening, and safe I/O helpers. Should pass quickly on CPU.
 
 **Manual checks:**
 
