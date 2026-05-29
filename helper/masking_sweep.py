@@ -471,13 +471,16 @@ def run_mse_sweep(args, dst, channel, num_classes, shape_img, save_path):
 def _save_plot(rows, out_dir, threshold, num_exp, network, dataset, mask_mode):
     rows = sorted(rows, key=lambda r: r['pct_masked'])
     pct = [r['pct_masked'] for r in rows]
+    n_recon = [r['n_reconstructed'] for r in rows]
+    title = (f'Masking sweep — {network} / {dataset}  ({num_exp} images per point)\n'
+             f'{mask_mode}')
+    ylabel = f'Images reconstructed  (MSE <= {threshold})'
+
     fig, ax = plt.subplots(figsize=(12, 5))
-    ax.plot(pct, [r['n_reconstructed'] for r in rows],
-            marker='o', linewidth=1.8, label=mask_mode)
+    ax.plot(pct, n_recon, marker='o', linewidth=1.8, label=mask_mode)
     ax.set_xlabel('Gradient entries masked (%)')
-    ax.set_ylabel(f'Images reconstructed  (MSE <= {threshold})')
-    ax.set_title(f'Masking sweep — {network} / {dataset}  ({num_exp} images per point)\n'
-                 f'{mask_mode}')
+    ax.set_ylabel(ylabel)
+    ax.set_title(title)
     ax.set_xlim(-2.5, max(pct) + 2.5)
     ax.set_ylim(-0.5, num_exp + 0.5)
     ax.set_xticks(pct)
@@ -485,6 +488,21 @@ def _save_plot(rows, out_dir, threshold, num_exp, network, dataset, mask_mode):
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
     path = os.path.join(out_dir, 'sweep_plot.png')
+    if safe_savefig(fig, path, dpi=150):
+        print(f'Saved: {path}')
+    plt.close(fig)
+
+    fig, ax = plt.subplots(figsize=(12, 5))
+    ax.bar(range(len(pct)), n_recon, color='steelblue', edgecolor='black', linewidth=0.6)
+    ax.set_xlabel('Gradient entries masked (%)')
+    ax.set_ylabel(ylabel)
+    ax.set_title(title)
+    ax.set_xticks(range(len(pct)))
+    ax.set_xticklabels([f'{p:.0f}%' for p in pct], rotation=45, ha='right', fontsize=8)
+    ax.set_ylim(0, num_exp + 0.5)
+    ax.grid(True, axis='y', alpha=0.3)
+    fig.tight_layout()
+    path = os.path.join(out_dir, 'sweep_bar.png')
     if safe_savefig(fig, path, dpi=150):
         print(f'Saved: {path}')
     plt.close(fig)
