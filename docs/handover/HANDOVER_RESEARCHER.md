@@ -2,7 +2,7 @@
 
 **Audience:** A developer or researcher who is continuing active work on this codebase — adding new masking modes, running new experiments, debugging, or extending the pipeline.
 
-**Last updated:** 2026-05-27
+**Last updated:** 2026-05-29
 
 ---
 
@@ -48,6 +48,7 @@ stable-ginv/
 │
 ├── testing/                 Dataset validation scripts (not pytest — manual runs)
 ├── scripts/                 HPC job scripts (DTU cluster)
+│   └── plot_masking_sweep_csv.py  Plot threshold sweep curves from registry-backed CSV rows
 │
 └── invertinggradients/      Git submodule — Geiping et al. reference implementation
     └── inversefed/          GradientReconstructor, metrics, models, data loaders
@@ -66,6 +67,8 @@ python iDLG_mask.py
 
 Output: PNG reconstructions + CSV table in the path set by `SAVE_PATH`.
 
+For `--mask_mode gradsize_topfrac_entries_layer`, normal masked runs also append a compact sweep row to `results/masking_sweeps/`. That row stores the command, `topfrac`, and the `masked_key`; per-sample MSE values stay in `results/baselines/masked_registry.json`.
+
 ### `run_single_exp.py` — use for deep single-experiment inspection
 Same masking logic, but also supports:
 - `COMPUTE_JACOBIAN_RANK = True` — compute Jacobian rank before/after masking
@@ -78,7 +81,7 @@ python run_single_exp.py
 ```
 
 ### `functions/jacobian_rank_sweep.py` — use for parameter sweeps of rank
-Iterates over a grid of masking parameters and logs rank results.
+Iterates over a grid of masking parameters and logs rank results. Default numerical dtype is `float64`; pass `--dtype float32` to run in single precision, or `--both_dtypes` to run float32 and float64 back-to-back and plot both rank curves in one graph.
 
 **Archived (do not use):** `run_single_exp_batch.py`, `jacobian_parallel.py`, `iDLG_original.py` — moved to `archive/`. Use `iDLG_mask.py` and `run_single_exp.py` instead.
 
@@ -128,7 +131,7 @@ All masking is implemented in `functions/masking.py::build_gradient_mask()`. The
 | `gradsize_topk_entries` | Keep the K individual gradient scalar entries (across all tensors) with largest magnitude |
 | `gradsize_topfrac_entries` | Keep the top fraction of scalar entries across all tensors |
 | `gradsize_topk_entries_layer` | Per-tensor independent top-K entries — each parameter tensor keeps its own top K |
-| `gradsize_topfrac_entries_layer` | Per-tensor independent top-fraction entries — each tensor keeps its own top fraction |
+| `gradsize_topfrac_entries_layer` | Per-tensor independent top-fraction entries — each tensor keeps its own top fraction. For torchvision VGG models, intermediate classifier layers are excluded by default and only the final classifier layer is fully kept for label inference. |
 | `prefix` | Keep only tensors whose parameter name starts with one of the given prefixes |
 | `prefix_topk` | Within prefix-matched tensors, keep top-K by magnitude |
 | `prefix_topk_entries` | Within prefix-matched tensors, keep top-K scalar entries globally |
@@ -172,11 +175,15 @@ For each experiment, the flow is:
 - **No argparse in `run_single_exp.py`:** Configuration is via editing the `config` dict. `iDLG_mask.py` does have full argparse CLI support.
 - **Last FC layer always unmasked:** `build_gradient_mask` unconditionally preserves the last `nn.Linear` layer regardless of mask mode. This is intentional — it guarantees the iDLG label-recovery trick always has the gradient it needs. Do not bypass this by calling the individual masking functions directly.
 - **LFW normalization constants:** Computed manually in `testing/compute_lfw_stats.py` and hardcoded in `functions/consts.py`. If you change the LFW preprocessing (resize, crop), recompute these.
-- **MSE sweep mode:** The "% masked vs. images reconstructed" plot is only produced by `iDLG_mask.py --mse_visualise --threshold_mse <value>`. `--sweep_step` controls the topfrac spacing in that mode only; a normal `--methods both` run ignores it.
+- **Masking sweep workflow:** The old `--mse_visualise`, `--threshold_mse`, and `--sweep_step` experiment path was removed. Run normal `iDLG_mask.py` commands for each `--gradsize_topfrac`; then call `scripts/plot_masking_sweep_csv.py <sweep_csv> --threshold_mse <value>`. The plot script includes the matching iDLG baseline as the 0% masked point when `results/baselines/idlg_baselines_registry.json` contains the corresponding baseline key.
+- **Jacobian dtype comparisons:** `functions/jacobian_rank_sweep.py --both_dtypes` executes the same sweep for `float32` and `float64`, writes one CSV with a `dtype` column, and saves one overlaid plot. If `--qr_pivot` is also enabled, the QR-pivot lines are dashed and use the same color as the corresponding dtype.
+- **VGG fraction sweeps:** For `gradsize_topfrac_entries_layer` on VGG, `classifier.0.*` and `classifier.3.*` are excluded automatically. `classifier.6.*` remains fully unmasked because the last-FC layer is required for iDLG label recovery. This substantially reduces VGG sweep runtime and memory use.
+- **Row normalisation in rank sweep:** By default, rows of J are L2-normalised before `matrix_rank` to prevent a monotonicity bug (rank decreasing with more rows). Pass `--no_normalisation` to skip this — the default relative threshold then reflects actual gradient magnitudes rather than directions. If using `--no_normalisation`, verify rank is non-decreasing across your row counts for a sanity check.
+- **SVD diagnostics:** `--print_svd_info` now prints `sigma_max`, the computed `atol`, whether normalisation was applied, and the bottom-10 singular values. Use this to check whether borderline singular values have comfortable margin above the threshold.
 
 ---
 
-## 8. Recent Changes (as of 2026-05-27)
+## 8. Recent Changes (as of 2026-05-29)
 
 **First session (2026-05-22 / early 2026-05-23):**
 - `functions/masking.py` — last FC layer always preserved in `build_gradient_mask` (tensor-wise: union into keep_ids; entry-wise: all-True override); `_grad_magnitude` helper extracted; `gradsize_threshold` mode and parameter removed; `gradsize_topfrac_entries_layer` and `gradsize_topk_entries_layer` modes added (per-tensor independent selection via `get_entry_masks_by_prefix_group` with all param names as groups)
@@ -196,10 +203,30 @@ For each experiment, the flow is:
 - `iDLG_mask.py` — saves masked registry to `results/baselines/masked_registry.json` after each masked run; CSV now includes `psnr_normality` and `mse_normality` columns (Shapiro-Wilk result strings for paired PSNR/MSE differences)
 
 **Later sessions (2026-05-24 to 2026-05-27):**
-- `helper/masking_sweep.py` + `iDLG_mask.py` — MSE calibration/sweep workflow integrated into `iDLG_mask.py`. Calibration uses `--mse_visualise`; sweep uses `--mse_visualise --threshold_mse <value>` and writes `sweep_results.csv` plus `sweep_plot.png`.
-- `iDLG_mask.py` — `--sweep_step` added for MSE sweep spacing. Default is `0.05`; `--sweep_step 0.1` runs `0.1, 0.2, ..., 1.0`.
 - `iDLG_mask.py` — restart curve CSV/PNG and restart image figure are saved when `NUM_RESTARTS > 1`; parallel restarts are automatic when `num_exp < num_gpus` and `NUM_RESTARTS > 1`.
 - `helper/metrics.py` / `functions/jacobian_rank_sweep.py` — Jacobian rank now uses PyTorch's default matrix-rank tolerance after row normalization; prior results with `rank_tol=1e-6` may undercount rank.
+
+**Session 2026-05-29 (masking sweep simplification):**
+- `helper/masking_sweep.py` deleted. There is no separate experiment-side sweep runner.
+- `iDLG_mask.py` normal runs now handle sweep data for `gradsize_topfrac_entries_layer`: each run still saves a masked registry entry, and appends `command`, `topfrac`, and `masked_key` to a config-specific CSV in `results/masking_sweeps/`. The sweep CSV filename hashes the masked registry comparable args with `gradsize_topfrac` removed, so all fractions for the same setup land in one file.
+- `scripts/plot_masking_sweep_csv.py` added. It reads the sweep CSV, resolves each `masked_key` in `results/baselines/masked_registry.json`, computes reconstructed counts from `best_mse_list` using the supplied threshold, and writes `masking_sweep_summary.csv`, `sweep_plot.png`, and `sweep_bar.png`. It also derives the matching baseline key from the masked registry args and includes the baseline as 0% masked when available.
+- Main `exp_results_<network>.csv` rows now include `registry_key` as the last column. iDLG rows use the baseline key; masked rows use the masked registry key.
+
+**Session 2026-05-29 (Jacobian rank dtype comparison):**
+- `functions/jacobian_rank_sweep.py` — `--dtype {float32,float64}` added. Default is `float64`, matching previous behaviour.
+- `functions/jacobian_rank_sweep.py` — `--both_dtypes` added. Runs the same rank sweep for float32 and float64, reseeding before each dtype so randomly initialized models are comparable.
+- `functions/jacobian_rank_sweep.py` — output CSV now includes `dtype`; output PNG overlays dtype-specific rank curves in one graph. With `--qr_pivot`, QR curves are dashed in the same color as their dtype's main curve.
+
+**Session 2026-05-29 (VGG masking speedup):**
+- `functions/masking.py` — For torchvision VGG models with `gradsize_topfrac_entries_layer`, intermediate classifier parameters are excluded from the per-layer mask groups. The existing last-FC override then restores only `classifier.6.weight` and `classifier.6.bias` fully.
+- `tests/test_masking.py` — Added a VGG-shaped unit test confirming `classifier.0.*` and `classifier.3.*` are skipped while `classifier.6.*` remains all-True.
+
+**Session 2026-05-29 (Jacobian rank sweep — rank print, normalisation flag, refactor):**
+- `functions/jacobian_rank_sweep.py` — Rank is now printed for every row count per sample, not just the maximum. Format: `[i/n] rows=K: rank=R  shape=(K, 3072)`.
+- `functions/jacobian_rank_sweep.py` + `helper/metrics.py` — `--no_normalisation` flag added. By default rows of J are L2-normalised before `matrix_rank` (existing behaviour). `--no_normalisation` skips this, making the threshold reflect actual gradient magnitudes. Normalisation can be toggled per run without code changes.
+- `helper/metrics.py` — `--print_svd_info` now also prints `sigma_max`, the computed `atol` (`max(M,N)*eps*sigma_max`), and `normalised=True/False` alongside the bottom-10 singular values.
+- `functions/jacobian_rank_sweep.py` — Internal refactor: helper functions `_storage_root`, `_save_dir`, `_seed_all`, `_resolve_device`, `_new_rank_results`, `_summarize_rank_results`, `_print_rank_summary`, `_run_serial`, `_run_parallel`, `_run_dtype` extracted from `main()`. No behavioural changes.
+- `helper/metrics.py` — `selected_idx.to(device)` moved outside the fwAD column loop (was called 3072× per sample for CIFAR). `_qr_rank` renamed to `_qr_pivot_rows`. In `--independent --qr_pivot` mode, the redundant QR + second SVD is now skipped (rank of a freshly-built J_k cannot change under row reordering).
 
 **Session 2026-05-27 (Jacobian rank sweep improvements — first batch):**
 - `functions/jacobian_rank_sweep.py` — Added `per_sample_ranks` column to CSV (semicolon-separated integers, one per sample per row count); per-sample rank list now also printed to stdout after the sweep finishes.
@@ -275,6 +302,6 @@ For local CPU-only testing, change `device = f'cuda:{device_id}'` to `device = '
 
 **Jacobian rank:** The rank of `d(gradient_vector) / d(image_pixels)`. Full rank = gradient contains maximum information about the image. Rank drops as masking removes more gradient tensors. Used to quantify *why* masking degrades reconstruction.
 
-**CSV output columns** (masked/both rows): `method`, `timestamp`, `job_id`, `dataset`, `network`, `restarts`, `lr`, `iteration`, `num_exp`, `tv_weight`, `optimizer`, `max_iter`, `history`, `mask_mode`, `prefixes`, `grad_param`, `med_best_loss`, `avg_best_loss`, `med_best_mse`, `avg_best_mse`, `avg_best_psnr`, `std_best_psnr`, `avg_best_ssim`, `std_best_ssim`, `mse_ci`, `mse_significant`, `psnr_ci`, `psnr_significant`, `psnr_normality`, `mse_normality`, `png_path`
+**CSV output columns** (masked/both rows): `method`, `timestamp`, `job_id`, `dataset`, `network`, `restarts`, `lr`, `iteration`, `num_exp`, `tv_weight`, `optimizer`, `max_iter`, `history`, `mask_mode`, `prefixes`, `grad_param`, `med_best_loss`, `avg_best_loss`, `med_best_mse`, `avg_best_mse`, `avg_best_psnr`, `std_best_psnr`, `avg_best_ssim`, `std_best_ssim`, `mse_ci`, `mse_significant`, `psnr_ci`, `psnr_significant`, `psnr_normality`, `mse_normality`, `png_path`, `registry_key`
 
 `psnr_normality` / `mse_normality` — Shapiro-Wilk result string on paired differences, e.g. `"normal (W=0.9821, p=0.3412)"` or `"NON-NORMAL (W=0.8123, p=0.0031)"`. Empty for iDLG-only rows.

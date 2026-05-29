@@ -2,7 +2,7 @@
 
 **Audience:** A new collaborator joining the bachelor's project who needs to understand the research context, set up the environment, and run their first experiment.
 
-**Last updated:** 2026-05-23
+**Last updated:** 2026-05-29
 
 ---
 
@@ -158,8 +158,15 @@ After running `run_single_exp.py`, you will find:
 After running `iDLG_mask.py`, you will also find:
 - A CSV file with columns: `network`, `dataset`, `mask_mode`, `PSNR`, `SSIM`, `loss`, etc.
 - Use these for statistical comparisons between masking modes.
+- The CSV's final `registry_key` column points to the corresponding entry in `results/baselines/idlg_baselines_registry.json` or `results/baselines/masked_registry.json`.
 
 **Baseline registry:** `iDLG_mask.py --methods both` (or `--methods idlg` followed by `--methods masked`) saves unmasked results as a baseline in `results/baselines/`. The masked run loads this automatically for paired comparison. Always use the same `--run_id` for both.
+
+**Masking sweep plots:** For `gradsize_topfrac_entries_layer`, run normal `iDLG_mask.py` commands for each `--gradsize_topfrac`. The runner appends compact rows to `results/masking_sweeps/`; then run `python scripts/plot_masking_sweep_csv.py <sweep_csv> --threshold_mse <value>` to create the line and bar charts. If the matching iDLG baseline was run and saved in the baseline registry, the plot includes it as the 0% masked point.
+
+**Jacobian dtype comparison:** Use `python functions/jacobian_rank_sweep.py --both_dtypes` to compare float32 and float64 rank curves in one run. The generated CSV includes a `dtype` column, and the generated plot shows the two dtypes in different colors.
+
+**VGG frac sweeps:** With `gradsize_topfrac_entries_layer`, VGG models automatically exclude the large intermediate classifier layers. The final classifier layer (`classifier.6`) is still kept so iDLG can recover the label.
 
 ---
 
@@ -174,7 +181,7 @@ Imagine the gradient as a list of tensors — one per layer of the network. Each
 | `gradsize_topfrac` | Sends only the top X% of layers by gradient size |
 | `gradsize_topk_entries` | Sends only the K individual numbers with the biggest values |
 | `gradsize_topfrac_entries` | Sends only the top X% of individual numbers (global, across all layers) |
-| `gradsize_topfrac_entries_layer` | Within each layer independently, sends only the top X% of numbers |
+| `gradsize_topfrac_entries_layer` | Within each layer independently, sends only the top X% of numbers. For VGG, skips the intermediate classifier layers and keeps only the final classifier layer for label recovery. |
 | `prefix` | Sends only gradients from layers whose names start with given prefixes (e.g., `conv1`, `layer1`) |
 | `prefix_topk` | Like `prefix` but keeps only the top K tensors within those layers |
 | `prefix_topfrac_entries_layer` | Within named layers, sends only the top X% of numbers per layer |

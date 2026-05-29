@@ -27,6 +27,21 @@ def small_grads(net):
     return [torch.ones_like(p) for p in net.parameters()]
 
 
+class VGG(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.features = nn.Sequential(nn.Conv2d(1, 2, kernel_size=1))
+        self.classifier = nn.Sequential(
+            nn.Linear(8, 4),
+            nn.ReLU(),
+            nn.Dropout(),
+            nn.Linear(4, 3),
+            nn.ReLU(),
+            nn.Dropout(),
+            nn.Linear(3, 2),
+        )
+
+
 # ── flatten_observed_gradients ────────────────────────────────────────────────
 
 def test_flatten_all_gradients():
@@ -267,3 +282,23 @@ def test_per_layer_mode_via_build_gradient_mask():
     assert entry_masks[1].sum().item() == 2   # 50% of 3 (rounded up from 1.5)
     assert entry_masks[2].all()               # last FC — always fully unmasked
     assert entry_masks[3].all()               # last FC — always fully unmasked
+
+
+def test_vgg_per_layer_topfrac_excludes_classifier_except_last_fc():
+    net = VGG()
+    grads = [torch.ones_like(p) for p in net.parameters()]
+    names = [name for name, _ in net.named_parameters()]
+
+    _, masks = build_gradient_mask(
+        "masked", "gradsize_topfrac_entries_layer", net, grads, gradsize_topfrac=0.5
+    )
+
+    by_name = dict(zip(names, masks))
+    assert by_name["features.0.weight"] is not None
+    assert by_name["features.0.bias"] is not None
+    assert by_name["classifier.0.weight"] is None
+    assert by_name["classifier.0.bias"] is None
+    assert by_name["classifier.3.weight"] is None
+    assert by_name["classifier.3.bias"] is None
+    assert by_name["classifier.6.weight"].all()
+    assert by_name["classifier.6.bias"].all()
