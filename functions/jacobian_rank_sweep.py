@@ -47,6 +47,14 @@ def _split_list(lst, n_chunks):
     return chunks
 
 
+def _torch_dtype(dtype_name):
+    if dtype_name == "float32":
+        return torch.float32
+    if dtype_name == "float64":
+        return torch.float64
+    raise ValueError(f"Unsupported dtype: {dtype_name}")
+
+
 def _print_mask_debug(args, net, prefixes, prefix_layer_fracs, original_dy_dx, keep_ids, entry_masks):
     named_params = list(net.named_parameters())
     print("\n=== MASK DEBUG ===", flush=True)
@@ -79,29 +87,30 @@ def _worker_core(args, sample_indices, device, row_counts, prefixes, prefix_laye
     debug: if True, prints mask debug info for the first sample.
     """
     dst, channel, num_classes, shape_img = load_dataset(args.dataset, _data_path())
+    dtype = _torch_dtype(args.dtype)
 
     net = get_model(args.network, channel=channel, num_classes=num_classes,
                     input_size=shape_img, pretrained=args.pretrained)
     if not args.pretrained and args.network in ("LeNet", "LeNet_bigger", "MediumCNN", "BiggerCNN"):
         net.apply(weights_init)
-    net = net.to(device).double()
+    net = net.to(device=device, dtype=dtype)
     net.eval()
 
     tt = transforms.Compose([transforms.ToTensor()])
     criterion = nn.CrossEntropyLoss().to(device)
 
     if args.pretrained and channel == 3:
-        dm = torch.tensor(consts.imagenet_mean, device=device, dtype=torch.float64).view(1, channel, 1, 1)
-        ds = torch.tensor(consts.imagenet_std, device=device, dtype=torch.float64).view(1, channel, 1, 1)
+        dm = torch.tensor(consts.imagenet_mean, device=device, dtype=dtype).view(1, channel, 1, 1)
+        ds = torch.tensor(consts.imagenet_std, device=device, dtype=dtype).view(1, channel, 1, 1)
     else:
-        dm = torch.tensor(getattr(consts, f'{args.dataset.lower()}_mean'), device=device, dtype=torch.float64).view(1, channel, 1, 1)
-        ds = torch.tensor(getattr(consts, f'{args.dataset.lower()}_std'), device=device, dtype=torch.float64).view(1, channel, 1, 1)
+        dm = torch.tensor(getattr(consts, f'{args.dataset.lower()}_mean'), device=device, dtype=dtype).view(1, channel, 1, 1)
+        ds = torch.tensor(getattr(consts, f'{args.dataset.lower()}_std'), device=device, dtype=dtype).view(1, channel, 1, 1)
 
     results = {rows: [] for rows in row_counts}
     results_qr = {rows: [] for rows in row_counts} if args.qr_pivot else None
 
     for local_i, idx in enumerate(sample_indices):
-        gt_data = tt(dst[idx][0]).double().to(device).unsqueeze(0)
+        gt_data = tt(dst[idx][0]).to(device=device, dtype=dtype).unsqueeze(0)
         gt_label = torch.tensor([dst[idx][1]], dtype=torch.long, device=device)
 
         gt_data_norm = (gt_data - dm) / ds
@@ -210,6 +219,12 @@ def main():
     parser.add_argument("--method", type=str, default="idlg", choices=["idlg", "masked"])
     parser.add_argument("--pretrained", action="store_true",
                         help="Load ImageNet-pretrained weights (affects normalization).")
+    parser.add_argument("--dtype", type=str, default="float64", choices=["float32", "float64"],
+                        help="Floating-point dtype used for the network, input, gradients, "
+                             "and Jacobian construction. Default preserves previous behavior.")
+    parser.add_argument("--both_dtypes", action="store_true",
+                        help="Run the same sweep twice, once with float32 and once with float64, "
+                             "and plot both rank curves in one graph.")
 
     parser.add_argument(
         "--mask_mode",
@@ -336,6 +351,8 @@ def main():
 
     print(f"Unknowns: {unknowns}")
     print(f"Samples: {sample_indices}")
+    dtype_values = ["float32", "float64"] if args.both_dtypes else [args.dtype]
+    print(f"Dtype(s): {dtype_values}")
 
     # AD passes per sample: fwAD when unknowns < k (unknowns passes), else backward (k passes).
     rank_steps = len(row_counts) * (2 if args.qr_pivot else 1)
@@ -345,115 +362,142 @@ def main():
         j_steps = unknowns  # one build at max(row_counts), always fwAD when max > unknowns
     total_steps = len(sample_indices) * (j_steps + rank_steps)
 
-    if args.num_workers == 1:
-        device = args.device
-        if args.device == "cuda":
-            device = "cuda:0" if torch.cuda.is_available() else "cpu"
-        elif args.device.startswith("cuda") and not torch.cuda.is_available():
-            print(f"CUDA requested via --device {args.device}, but CUDA is unavailable; using CPU.")
-            device = "cpu"
+    runs = {}
+    for dtype_name in dtype_values:
+        args.dtype = dtype_name
+        print(f"\n=== Running dtype: {dtype_name} ===")
+        seed = args.run_id + 1
+        torch.manual_seed(seed)
+        np.random.seed(seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(seed)
 
-        with tqdm(total=total_steps, desc="Jacobian rank", unit="step", dynamic_ncols=True) as pbar:
-            rank_results, rank_results_qr = _worker_core(
-                args, sample_indices, device, row_counts, prefixes, prefix_layer_fracs,
-                progress_fn=lambda n: pbar.update(n),
-                debug=True,
+        if args.num_workers == 1:
+            device = args.device
+            if args.device == "cuda":
+                device = "cuda:0" if torch.cuda.is_available() else "cpu"
+            elif args.device.startswith("cuda") and not torch.cuda.is_available():
+                print(f"CUDA requested via --device {args.device}, but CUDA is unavailable; using CPU.")
+                device = "cpu"
+
+            with tqdm(total=total_steps, desc=f"Jacobian rank ({dtype_name})",
+                      unit="step", dynamic_ncols=True) as pbar:
+                rank_results, rank_results_qr = _worker_core(
+                    args, sample_indices, device, row_counts, prefixes, prefix_layer_fracs,
+                    progress_fn=lambda n: pbar.update(n),
+                    debug=True,
+                )
+
+        else:
+            world_size = min(args.num_workers, len(sample_indices))
+            sample_chunks = _split_list(sample_indices, world_size)
+
+            manager = mp.Manager()
+            shared_results = manager.dict()
+            progress_counter = manager.Value("i", 0)
+            progress_lock = manager.Lock()
+
+            spawn_ctx = mp.spawn(
+                _mp_worker,
+                args=(world_size, args, sample_chunks, row_counts, prefixes, prefix_layer_fracs,
+                      shared_results, progress_counter, progress_lock),
+                nprocs=world_size,
+                join=False,
             )
 
-    else:
-        world_size = min(args.num_workers, len(sample_indices))
-        sample_chunks = _split_list(sample_indices, world_size)
-
-        manager = mp.Manager()
-        shared_results = manager.dict()
-        progress_counter = manager.Value("i", 0)
-        progress_lock = manager.Lock()
-
-        spawn_ctx = mp.spawn(
-            _mp_worker,
-            args=(world_size, args, sample_chunks, row_counts, prefixes, prefix_layer_fracs,
-                  shared_results, progress_counter, progress_lock),
-            nprocs=world_size,
-            join=False,
-        )
-
-        last = 0
-        with tqdm(total=total_steps, desc="Jacobian rank") as pbar:
-            while not spawn_ctx.join(timeout=0.2):
+            last = 0
+            with tqdm(total=total_steps, desc=f"Jacobian rank ({dtype_name})") as pbar:
+                while not spawn_ctx.join(timeout=0.2):
+                    current = progress_counter.value
+                    if current > last:
+                        pbar.update(current - last)
+                        last = current
                 current = progress_counter.value
                 if current > last:
                     pbar.update(current - last)
-                    last = current
-            current = progress_counter.value
-            if current > last:
-                pbar.update(current - last)
 
-        rank_results = {rows: [] for rows in row_counts}
-        rank_results_qr = {rows: [] for rows in row_counts} if args.qr_pivot else None
-        for worker_id in range(world_size):
-            worker_results, worker_results_qr = shared_results[worker_id]
-            for rows in row_counts:
-                rank_results[rows].extend(worker_results[rows])
-                if rank_results_qr is not None:
-                    rank_results_qr[rows].extend(worker_results_qr[rows])
+            rank_results = {rows: [] for rows in row_counts}
+            rank_results_qr = {rows: [] for rows in row_counts} if args.qr_pivot else None
+            for worker_id in range(world_size):
+                worker_results, worker_results_qr = shared_results[worker_id]
+                for rows in row_counts:
+                    rank_results[rows].extend(worker_results[rows])
+                    if rank_results_qr is not None:
+                        rank_results_qr[rows].extend(worker_results_qr[rows])
 
-    xs, mean_ranks, std_ranks = [], [], []
-    for rows in row_counts:
-        xs.append(rows)
-        mean_ranks.append(float(np.mean(rank_results[rows])))
-        std_ranks.append(float(np.std(rank_results[rows])))
+        xs, mean_ranks, std_ranks = [], [], []
+        for rows in row_counts:
+            xs.append(rows)
+            mean_ranks.append(float(np.mean(rank_results[rows])))
+            std_ranks.append(float(np.std(rank_results[rows])))
 
-    mean_ranks_qr, std_ranks_qr = None, None
-    if rank_results_qr is not None:
-        mean_ranks_qr = [float(np.mean(rank_results_qr[rows])) for rows in row_counts]
-        std_ranks_qr  = [float(np.std(rank_results_qr[rows]))  for rows in row_counts]
+        mean_ranks_qr, std_ranks_qr = None, None
+        if rank_results_qr is not None:
+            mean_ranks_qr = [float(np.mean(rank_results_qr[rows])) for rows in row_counts]
+            std_ranks_qr  = [float(np.std(rank_results_qr[rows]))  for rows in row_counts]
 
-    print(f"\nPer-sample ranks ({args.jacobian_select_mode}):")
-    for rows, mr, sr in zip(xs, mean_ranks, std_ranks):
-        ranks = rank_results[rows]
-        print(f"  rows={rows:6d}: {ranks}  mean={mr:.2f}  std={sr:.2f}")
-
-    if rank_results_qr is not None:
-        print("\nPer-sample ranks (qr_pivot):")
-        for rows, mr, sr in zip(xs, mean_ranks_qr, std_ranks_qr):
-            ranks = rank_results_qr[rows]
+        print(f"\nPer-sample ranks ({args.jacobian_select_mode}, dtype={dtype_name}):")
+        for rows, mr, sr in zip(xs, mean_ranks, std_ranks):
+            ranks = rank_results[rows]
             print(f"  rows={rows:6d}: {ranks}  mean={mr:.2f}  std={sr:.2f}")
 
+        if rank_results_qr is not None:
+            print(f"\nPer-sample ranks (qr_pivot, dtype={dtype_name}):")
+            for rows, mr, sr in zip(xs, mean_ranks_qr, std_ranks_qr):
+                ranks = rank_results_qr[rows]
+                print(f"  rows={rows:6d}: {ranks}  mean={mr:.2f}  std={sr:.2f}")
+
+        runs[dtype_name] = {
+            "rank_results": rank_results,
+            "rank_results_qr": rank_results_qr,
+            "xs": xs,
+            "mean_ranks": mean_ranks,
+            "std_ranks": std_ranks,
+            "mean_ranks_qr": mean_ranks_qr,
+            "std_ranks_qr": std_ranks_qr,
+        }
+
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    dtype_label = "both_dtypes" if args.both_dtypes else dtype_values[0]
     base = (
         f"jac_rank_{args.network}_{args.dataset}_{args.method}_"
-        f"{args.jacobian_select_mode}_ns{args.num_samples}_{timestamp}"
+        f"{args.jacobian_select_mode}_{dtype_label}_ns{args.num_samples}_{timestamp}"
     )
 
     csv_path = os.path.join(save_dir, base + ".csv")
     with open(csv_path, "w", newline="") as f:
         writer = csv.writer(f)
         header = ["rows_used", "mean_rank", "std_rank",
-                  "unknowns", "num_samples", "jacobian_select_mode", "independent", "per_sample_ranks"]
-        if rank_results_qr is not None:
+                  "unknowns", "num_samples", "jacobian_select_mode", "dtype", "independent", "per_sample_ranks"]
+        if args.qr_pivot:
             header += ["mean_rank_qr", "std_rank_qr", "per_sample_ranks_qr"]
         writer.writerow(header)
-        for x, m, s in zip(xs, mean_ranks, std_ranks):
-            ranks_str = ";".join(str(r) for r in rank_results[x])
-            row = [x, m, s, unknowns, args.num_samples, args.jacobian_select_mode, args.independent, ranks_str]
-            if rank_results_qr is not None:
-                mq = float(np.mean(rank_results_qr[x]))
-                sq = float(np.std(rank_results_qr[x]))
-                ranks_qr_str = ";".join(str(r) for r in rank_results_qr[x])
-                row += [mq, sq, ranks_qr_str]
-            writer.writerow(row)
-
-    legend_label = f"mean rank (select={args.jacobian_select_mode}, samples={args.num_samples}"
-    if args.method == "masked":
-        legend_label += f", mask={args.mask_mode}"
-    legend_label += ")"
+        for dtype_name, run in runs.items():
+            rank_results = run["rank_results"]
+            rank_results_qr = run["rank_results_qr"]
+            for x, m, s in zip(run["xs"], run["mean_ranks"], run["std_ranks"]):
+                ranks_str = ";".join(str(r) for r in rank_results[x])
+                row = [x, m, s, unknowns, args.num_samples, args.jacobian_select_mode, dtype_name, args.independent, ranks_str]
+                if rank_results_qr is not None:
+                    mq = float(np.mean(rank_results_qr[x]))
+                    sq = float(np.std(rank_results_qr[x]))
+                    ranks_qr_str = ";".join(str(r) for r in rank_results_qr[x])
+                    row += [mq, sq, ranks_qr_str]
+                writer.writerow(row)
 
     plt.figure(figsize=(7, 5))
-    plt.errorbar(xs, mean_ranks, yerr=std_ranks, marker="o", capsize=4, label=legend_label)
-    if rank_results_qr is not None:
-        qr_label = f"mean rank (qr_pivot on {args.jacobian_select_mode} pool)"
-        plt.errorbar(xs, mean_ranks_qr, yerr=std_ranks_qr, marker="s", capsize=4,
-                     linestyle="--", label=qr_label)
+    for dtype_name, run in runs.items():
+        legend_label = f"{dtype_name} (select={args.jacobian_select_mode}, samples={args.num_samples}"
+        if args.method == "masked":
+            legend_label += f", mask={args.mask_mode}"
+        legend_label += ")"
+        container = plt.errorbar(run["xs"], run["mean_ranks"], yerr=run["std_ranks"],
+                                 marker="o", capsize=4, label=legend_label)
+        if run["rank_results_qr"] is not None:
+            color = container.lines[0].get_color()
+            qr_label = f"{dtype_name} qr_pivot ({args.jacobian_select_mode} pool)"
+            plt.errorbar(run["xs"], run["mean_ranks_qr"], yerr=run["std_ranks_qr"],
+                         marker="s", capsize=4, linestyle="--", color=color, label=qr_label)
     plt.axhline(unknowns, linestyle=":", label=f"unknowns = {unknowns}")
     plt.xlabel("Number of Jacobian rows / gradients used")
     plt.ylabel("Average Jacobian rank")
