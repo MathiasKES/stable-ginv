@@ -304,9 +304,8 @@ def main():
     dst, channel, num_classes, shape_img = load_dataset(dataset, data_path)
 
     if args.mse_visualise:
-        if args.threshold_mse is None:
-            run_mse_calibration(args, dst, channel, num_classes, shape_img, save_path)
-        else:
+        run_mse_calibration(args, dst, channel, num_classes, shape_img, save_path)
+        if args.threshold_mse is not None:
             run_mse_sweep(args, dst, channel, num_classes, shape_img, save_path)
         return
 

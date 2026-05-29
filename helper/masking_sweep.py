@@ -431,43 +431,40 @@ def run_mse_sweep(args, dst, channel, num_classes, shape_img, save_path):
           f'step={args.sweep_step}')
     print(f'Saving to: {out_dir}\n')
 
+    csv_fields = ['mask_mode', 'topfrac', 'pct_masked', 'n_reconstructed',
+                  'n_total', 'avg_mse', 'median_mse']
+    csv_path = os.path.join(out_dir, 'sweep_results.csv')
     csv_rows = []
-    for pt, frac in enumerate(sweep_fracs, 1):
-        print(f'[{pt}/{len(sweep_fracs)}] topfrac={frac:g}  ({int((1 - frac) * 100)}% masked)')
-        mses = _run_parallel(args.num_exp, dst, args, channel, num_classes, shape_img,
-                             mask_mode=args.mask_mode, topfrac=frac,
-                             desc=f'topfrac={frac:g}')
-        mses = [m for m in mses if m is not None]
-        n_recon = sum(1 for m in mses if m <= args.threshold_mse)
-        row = {
-            'mask_mode':       args.mask_mode,
-            'topfrac':         frac,
-            'pct_masked':      round((1.0 - frac) * 100.0, 1),
-            'n_reconstructed': n_recon,
-            'n_total':         len(mses),
-            'avg_mse':         float(np.mean(mses)),
-            'median_mse':      float(np.median(mses)),
-        }
-        csv_rows.append(row)
-        print(f'  -> {n_recon}/{len(mses)} reconstructed  avg_mse={row["avg_mse"]:.6f}')
 
-    _save_sweep_csv(csv_rows, out_dir)
+    with open(csv_path, 'w', newline='') as csv_f:
+        writer = csv.DictWriter(csv_f, fieldnames=csv_fields)
+        writer.writeheader()
+
+        for pt, frac in enumerate(sweep_fracs, 1):
+            print(f'[{pt}/{len(sweep_fracs)}] topfrac={frac:g}  ({int((1 - frac) * 100)}% masked)')
+            mses = _run_parallel(args.num_exp, dst, args, channel, num_classes, shape_img,
+                                 mask_mode=args.mask_mode, topfrac=frac,
+                                 desc=f'topfrac={frac:g}')
+            mses = [m for m in mses if m is not None]
+            n_recon = sum(1 for m in mses if m <= args.threshold_mse)
+            row = {
+                'mask_mode':       args.mask_mode,
+                'topfrac':         frac,
+                'pct_masked':      round((1.0 - frac) * 100.0, 1),
+                'n_reconstructed': n_recon,
+                'n_total':         len(mses),
+                'avg_mse':         float(np.mean(mses)),
+                'median_mse':      float(np.median(mses)),
+            }
+            writer.writerow(row)
+            csv_f.flush()
+            csv_rows.append(row)
+            print(f'  -> {n_recon}/{len(mses)} reconstructed  avg_mse={row["avg_mse"]:.6f}')
+
+    print(f'Saved: {csv_path}')
     _save_plot(csv_rows, out_dir, args.threshold_mse, args.num_exp,
                args.network, args.dataset, args.mask_mode)
 
-
-def _save_sweep_csv(rows, out_dir):
-    path = os.path.join(out_dir, 'sweep_results.csv')
-    fields = ['mask_mode', 'topfrac', 'pct_masked', 'n_reconstructed',
-              'n_total', 'avg_mse', 'median_mse']
-
-    def _write(f):
-        w = csv.DictWriter(f, fieldnames=fields)
-        w.writeheader()
-        w.writerows(rows)
-
-    if safe_write(path, _write, newline=''):
-        print(f'Saved: {path}')
 
 
 def _save_plot(rows, out_dir, threshold, num_exp, network, dataset, mask_mode):
