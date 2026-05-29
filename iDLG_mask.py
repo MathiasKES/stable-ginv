@@ -828,7 +828,7 @@ def main():
         print(f"\nRestart curve saved: {restart_csv_path}, {restart_plot_path}")
 
         # ---- Gain table: PSNR + MSE improvement at k=5 and k=10 vs k=1 ----
-        gain_ks = [k for k in [5, 10] if k <= NUM_RESTARTS]
+        gain_ks = [k for k in [3, 5, 10] if k <= NUM_RESTARTS]
         gain_rows_extra = {k: {} for k in gain_ks}
 
         def _normality_str(ci):
