@@ -432,7 +432,7 @@ def run_mse_sweep(args, dst, channel, num_classes, shape_img, save_path):
     print(f'Saving to: {out_dir}\n')
 
     csv_fields = ['mask_mode', 'topfrac', 'pct_masked', 'n_reconstructed',
-                  'n_total', 'avg_mse', 'median_mse']
+                  'n_total', 'avg_mse', 'median_mse', 'per_sample_mse']
     csv_path = os.path.join(out_dir, 'sweep_results.csv')
     csv_rows = []
 
@@ -455,6 +455,7 @@ def run_mse_sweep(args, dst, channel, num_classes, shape_img, save_path):
                 'n_total':         len(mses),
                 'avg_mse':         float(np.mean(mses)),
                 'median_mse':      float(np.median(mses)),
+                'per_sample_mse':  ';'.join(f'{m:.6f}' for m in mses),
             }
             writer.writerow(row)
             csv_f.flush()
