@@ -131,7 +131,7 @@ All masking is implemented in `functions/masking.py::build_gradient_mask()`. The
 | `gradsize_topk_entries` | Keep the K individual gradient scalar entries (across all tensors) with largest magnitude |
 | `gradsize_topfrac_entries` | Keep the top fraction of scalar entries across all tensors |
 | `gradsize_topk_entries_layer` | Per-tensor independent top-K entries — each parameter tensor keeps its own top K |
-| `gradsize_topfrac_entries_layer` | Per-tensor independent top-fraction entries — each tensor keeps its own top fraction |
+| `gradsize_topfrac_entries_layer` | Per-tensor independent top-fraction entries — each tensor keeps its own top fraction. For torchvision VGG models, intermediate classifier layers are excluded by default and only the final classifier layer is fully kept for label inference. |
 | `prefix` | Keep only tensors whose parameter name starts with one of the given prefixes |
 | `prefix_topk` | Within prefix-matched tensors, keep top-K by magnitude |
 | `prefix_topk_entries` | Within prefix-matched tensors, keep top-K scalar entries globally |
@@ -177,6 +177,7 @@ For each experiment, the flow is:
 - **LFW normalization constants:** Computed manually in `testing/compute_lfw_stats.py` and hardcoded in `functions/consts.py`. If you change the LFW preprocessing (resize, crop), recompute these.
 - **Masking sweep workflow:** The old `--mse_visualise`, `--threshold_mse`, and `--sweep_step` experiment path was removed. Run normal `iDLG_mask.py` commands for each `--gradsize_topfrac`; then call `scripts/plot_masking_sweep_csv.py <sweep_csv> --threshold_mse <value>`. The plot script includes the matching iDLG baseline as the 0% masked point when `results/baselines/idlg_baselines_registry.json` contains the corresponding baseline key.
 - **Jacobian dtype comparisons:** `functions/jacobian_rank_sweep.py --both_dtypes` executes the same sweep for `float32` and `float64`, writes one CSV with a `dtype` column, and saves one overlaid plot. If `--qr_pivot` is also enabled, the QR-pivot lines are dashed and use the same color as the corresponding dtype.
+- **VGG fraction sweeps:** For `gradsize_topfrac_entries_layer` on VGG, `classifier.0.*` and `classifier.3.*` are excluded automatically. `classifier.6.*` remains fully unmasked because the last-FC layer is required for iDLG label recovery. This substantially reduces VGG sweep runtime and memory use.
 
 ---
 
@@ -213,6 +214,10 @@ For each experiment, the flow is:
 - `functions/jacobian_rank_sweep.py` — `--dtype {float32,float64}` added. Default is `float64`, matching previous behaviour.
 - `functions/jacobian_rank_sweep.py` — `--both_dtypes` added. Runs the same rank sweep for float32 and float64, reseeding before each dtype so randomly initialized models are comparable.
 - `functions/jacobian_rank_sweep.py` — output CSV now includes `dtype`; output PNG overlays dtype-specific rank curves in one graph. With `--qr_pivot`, QR curves are dashed in the same color as their dtype's main curve.
+
+**Session 2026-05-29 (VGG masking speedup):**
+- `functions/masking.py` — For torchvision VGG models with `gradsize_topfrac_entries_layer`, intermediate classifier parameters are excluded from the per-layer mask groups. The existing last-FC override then restores only `classifier.6.weight` and `classifier.6.bias` fully.
+- `tests/test_masking.py` — Added a VGG-shaped unit test confirming `classifier.0.*` and `classifier.3.*` are skipped while `classifier.6.*` remains all-True.
 
 **Session 2026-05-27 (Jacobian rank sweep improvements — first batch):**
 - `functions/jacobian_rank_sweep.py` — Added `per_sample_ranks` column to CSV (semicolon-separated integers, one per sample per row count); per-sample rank list now also printed to stdout after the sweep finishes.

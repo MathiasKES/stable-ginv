@@ -166,6 +166,8 @@ After running `iDLG_mask.py`, you will also find:
 
 **Jacobian dtype comparison:** Use `python functions/jacobian_rank_sweep.py --both_dtypes` to compare float32 and float64 rank curves in one run. The generated CSV includes a `dtype` column, and the generated plot shows the two dtypes in different colors.
 
+**VGG frac sweeps:** With `gradsize_topfrac_entries_layer`, VGG models automatically exclude the large intermediate classifier layers. The final classifier layer (`classifier.6`) is still kept so iDLG can recover the label.
+
 ---
 
 ## 9. Masking Modes Explained Simply
@@ -179,7 +181,7 @@ Imagine the gradient as a list of tensors — one per layer of the network. Each
 | `gradsize_topfrac` | Sends only the top X% of layers by gradient size |
 | `gradsize_topk_entries` | Sends only the K individual numbers with the biggest values |
 | `gradsize_topfrac_entries` | Sends only the top X% of individual numbers (global, across all layers) |
-| `gradsize_topfrac_entries_layer` | Within each layer independently, sends only the top X% of numbers |
+| `gradsize_topfrac_entries_layer` | Within each layer independently, sends only the top X% of numbers. For VGG, skips the intermediate classifier layers and keeps only the final classifier layer for label recovery. |
 | `prefix` | Sends only gradients from layers whose names start with given prefixes (e.g., `conv1`, `layer1`) |
 | `prefix_topk` | Like `prefix` but keeps only the top K tensors within those layers |
 | `prefix_topfrac_entries_layer` | Within named layers, sends only the top X% of numbers per layer |

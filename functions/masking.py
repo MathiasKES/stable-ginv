@@ -17,6 +17,22 @@ def _get_last_fc_param_indices(net):
     return indices
 
 
+def _is_vgg(net):
+    return net.__class__.__name__.lower() == "vgg"
+
+
+def _gradsize_entries_layer_param_names(net):
+    """Parameter groups for per-layer entry masking, with VGG classifier heads excluded."""
+    named_params = list(net.named_parameters())
+    if not _is_vgg(net):
+        return tuple(name for name, _ in named_params)
+
+    # VGG's intermediate classifier layers dominate parameter count and slow
+    # create_graph=True reconstruction. Exclude classifier.* here; the final
+    # classifier.6 layer is restored below by the last-FC label-inference rule.
+    return tuple(name for name, _ in named_params if not name.startswith("classifier."))
+
+
 def _grad_magnitude(g, metric):
     """Scalar gradient magnitude for a single tensor using the given metric."""
     if metric == "l2":       return g.detach().norm(p=2).item()
@@ -384,7 +400,7 @@ def build_gradient_mask(
     elif mask_mode == "gradsize_topfrac_entries_layer":
         # Each parameter tensor is its own group → per-tensor independent selection.
         # Equivalent to prefix_topfrac_entries_layer with every param name as its own prefix.
-        all_param_names = tuple(name for name, _ in net.named_parameters())
+        all_param_names = _gradsize_entries_layer_param_names(net)
         entry_masks, _, _ = get_entry_masks_by_prefix_group(
             net=net, original_dy_dx=original_dy_dx, prefixes=all_param_names,
             mode="topfrac_entries", top_frac=gradsize_topfrac,

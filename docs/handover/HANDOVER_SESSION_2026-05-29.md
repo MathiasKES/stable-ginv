@@ -106,3 +106,16 @@ python functions/jacobian_rank_sweep.py --both_dtypes
 ```
 
 Default remains `float64`, preserving the previous behaviour. `--both_dtypes` runs the same sweep twice, once with `float32` and once with `float64`, reseeding before each run so the same randomly initialized model/sample choices are used for comparison. The output CSV includes a `dtype` column, and the plot overlays both dtype curves in one graph with separate colors. If `--qr_pivot` is enabled, QR-pivot curves are drawn dashed in the same color as their dtype's select-mode curve.
+
+### Exclude VGG classifier head from per-layer frac masking
+
+**Files:** `functions/masking.py`, `tests/test_masking.py`
+
+For torchvision VGG models using `--mask_mode gradsize_topfrac_entries_layer`, the per-layer entry mask now excludes the intermediate classifier layers by default:
+
+- `classifier.0.*` is removed.
+- `classifier.3.*` is removed.
+- `classifier.6.weight` and `classifier.6.bias` are still fully kept by the existing last-FC label-inference rule.
+- `features.*` still gets the requested per-tensor top fraction.
+
+Example for `vgg13 --gradsize_topfrac 0.5`: each `features.*` parameter keeps its top 50% entries, `classifier.0` and `classifier.3` are not included in gradient matching, and `classifier.6` is fully visible. This keeps iDLG label recovery intact while avoiding the huge VGG classifier tensors that dominate runtime and memory in fraction sweeps.
