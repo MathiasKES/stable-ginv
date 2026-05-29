@@ -162,7 +162,7 @@ After running `iDLG_mask.py`, you will also find:
 
 **Baseline registry:** `iDLG_mask.py --methods both` (or `--methods idlg` followed by `--methods masked`) saves unmasked results as a baseline in `results/baselines/`. The masked run loads this automatically for paired comparison. Always use the same `--run_id` for both.
 
-**Masking sweep plots:** For `gradsize_topfrac_entries_layer`, run normal `iDLG_mask.py` commands for each `--gradsize_topfrac`. The runner appends compact rows to `results/masking_sweeps/`; then run `python scripts/plot_masking_sweep_csv.py <sweep_csv> --threshold_mse <value>` to create the line and bar charts.
+**Masking sweep plots:** For `gradsize_topfrac_entries_layer`, run normal `iDLG_mask.py` commands for each `--gradsize_topfrac`. The runner appends compact rows to `results/masking_sweeps/`; then run `python scripts/plot_masking_sweep_csv.py <sweep_csv> --threshold_mse <value>` to create the line and bar charts. If the matching iDLG baseline was run and saved in the baseline registry, the plot includes it as the 0% masked point.
 
 ---
 

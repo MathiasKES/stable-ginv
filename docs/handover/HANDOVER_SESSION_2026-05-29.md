@@ -79,12 +79,12 @@ python scripts/plot_masking_sweep_csv.py \
   --threshold_mse 0.03
 ```
 
-The plotting script loads `results/baselines/masked_registry.json` by default, resolves each row's `masked_key`, reads `best_mse_list`, and computes threshold counts from the registry. Outputs:
+The plotting script loads `results/baselines/masked_registry.json` by default, resolves each row's `masked_key`, reads `best_mse_list`, and computes threshold counts from the registry. It also loads `results/baselines/idlg_baselines_registry.json` by default, derives the matching baseline key from the masked registry args, and includes the baseline as the 0% masked point when present. Outputs:
 - `masking_sweep_summary.csv`
 - `sweep_plot.png`
 - `sweep_bar.png`
 
-Pass `--registry_path <path>` only if the registry is not in the default `results/baselines/masked_registry.json` location relative to the sweep CSV.
+Pass `--registry_path <path>` or `--baseline_registry_path <path>` only if the registries are not in the default `results/baselines/` location relative to the sweep CSV. Pass `--no_baseline` to omit the baseline point.
 
 ### Main results CSV now links to registries
 
