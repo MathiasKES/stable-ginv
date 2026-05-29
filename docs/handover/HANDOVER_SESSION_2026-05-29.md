@@ -119,3 +119,78 @@ For torchvision VGG models using `--mask_mode gradsize_topfrac_entries_layer`, t
 - `features.*` still gets the requested per-tensor top fraction.
 
 Example for `vgg13 --gradsize_topfrac 0.5`: each `features.*` parameter keeps its top 50% entries, `classifier.0` and `classifier.3` are not included in gradient matching, and `classifier.6` is fully visible. This keeps iDLG label recovery intact while avoiding the huge VGG classifier tensors that dominate runtime and memory in fraction sweeps.
+
+---
+
+## Changes (Claude session, second pass — 2026-05-29)
+
+### Jacobian rank sweep refactor — not yet committed at session start
+
+**Files:** `functions/jacobian_rank_sweep.py`, `helper/metrics.py`
+
+These changes were present locally but not yet pushed to `origin/main`. No behavioural changes; pure cleanup and two targeted fixes.
+
+**`functions/jacobian_rank_sweep.py` — helper extraction:**
+Inline blocks repeated across `main()` and `_mp_worker` were extracted into named helpers:
+
+| Helper | Replaces |
+|---|---|
+| `_storage_root()` | Duplicated HPC path check |
+| `_save_dir()` | Inline results path logic |
+| `_seed_all(seed)` | 3-line torch/numpy/cuda seed block (was copy-pasted 3×) |
+| `_resolve_device(device, worker_rank)` | Inline device string logic in two places |
+| `_new_rank_results(row_counts, qr_pivot)` | Dict initialisation for rank accumulators |
+| `_summarize_rank_results(...)` | Mean/std computation loop |
+| `_print_rank_summary(...)` | Per-sample rank print loop |
+| `_run_serial(...)` | Serial execution path |
+| `_run_parallel(...)` | Parallel execution path |
+| `_run_dtype(...)` | Full per-dtype body (~90 lines in `main`) |
+
+Also: `_print_mask_debug()` had two unused arguments (`prefixes`, `prefix_layer_fracs`) that were removed.
+
+**`helper/metrics.py` — two fixes:**
+- `selected_idx.to(x_norm.device)` moved outside the fwAD column loop (was called once per column, i.e. 3072× per sample for CIFAR). Small but real speedup.
+- `_qr_rank()` renamed to `_qr_pivot_rows()` (returns reordered J only; rank computation separated). In independent mode, `--qr_pivot` now skips the redundant QR + SVD since reordering an already independently-built J_k cannot change its rank.
+
+---
+
+### Print rank for all row counts, not just max — unpushed
+
+**Files:** `functions/jacobian_rank_sweep.py`
+
+`_worker_core` previously only printed the rank line when processing the maximum row count. The `if rows == max_rows:` guard was removed so a rank line is emitted for every row count per sample:
+
+```
+[1/30] rows=4000: rank=2891  shape=(4000, 3072)
+[1/30] rows=5000: rank=2961  shape=(5000, 3072)
+...
+[1/30] rows=10000: rank=3072  shape=(10000, 3072)
+```
+
+---
+
+### `--no_normalisation`: optional row normalisation toggle — unpushed
+
+**Files:** `functions/jacobian_rank_sweep.py`, `helper/metrics.py`
+
+By default, `_rank_of_J` divides each row of J by its L2 norm before calling `matrix_rank`. This was added previously to prevent a monotonicity bug (rank decreasing with more rows) caused by large-magnitude rows inflating `sigma_max` and thus the adaptive threshold.
+
+New flag `--no_normalisation` skips this step. Without normalisation, `matrix_rank` uses its default relative threshold (`max(M,N) * eps * sigma_max`) directly on the raw J. This means the rank reflects gradient *magnitude-weighted* independence rather than pure *directional* independence — arguably more relevant to whether the attacker can actually reconstruct an image, since very small gradient entries carry negligible signal.
+
+**Risk:** the monotonicity bug (rank non-increasing with k) can return without normalisation if rows span many orders of magnitude. Verify rank is non-decreasing across your `--row_counts` when using this flag.
+
+Implementation: `normalize_rows=True` parameter added to `_rank_of_J` and `compute_jacobian_rank_sweep`; `not args.no_normalisation` is passed through from `_worker_core`.
+
+---
+
+### Enhanced `--print_svd_info` output — unpushed
+
+**Files:** `helper/metrics.py`
+
+The SVD info line previously only printed the bottom-10 singular values. It now also prints `sigma_max`, the computed `atol`, and whether normalisation was applied:
+
+```
+[SVD] M=6000 N=3072  normalised=True  sigma_max=4.21e+01  atol=1.38e-12  bottom-10: [...]
+```
+
+This makes it easy to see whether the bottom singular values have comfortable margin above the threshold or are borderline.

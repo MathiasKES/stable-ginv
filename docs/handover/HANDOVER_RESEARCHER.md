@@ -178,6 +178,8 @@ For each experiment, the flow is:
 - **Masking sweep workflow:** The old `--mse_visualise`, `--threshold_mse`, and `--sweep_step` experiment path was removed. Run normal `iDLG_mask.py` commands for each `--gradsize_topfrac`; then call `scripts/plot_masking_sweep_csv.py <sweep_csv> --threshold_mse <value>`. The plot script includes the matching iDLG baseline as the 0% masked point when `results/baselines/idlg_baselines_registry.json` contains the corresponding baseline key.
 - **Jacobian dtype comparisons:** `functions/jacobian_rank_sweep.py --both_dtypes` executes the same sweep for `float32` and `float64`, writes one CSV with a `dtype` column, and saves one overlaid plot. If `--qr_pivot` is also enabled, the QR-pivot lines are dashed and use the same color as the corresponding dtype.
 - **VGG fraction sweeps:** For `gradsize_topfrac_entries_layer` on VGG, `classifier.0.*` and `classifier.3.*` are excluded automatically. `classifier.6.*` remains fully unmasked because the last-FC layer is required for iDLG label recovery. This substantially reduces VGG sweep runtime and memory use.
+- **Row normalisation in rank sweep:** By default, rows of J are L2-normalised before `matrix_rank` to prevent a monotonicity bug (rank decreasing with more rows). Pass `--no_normalisation` to skip this — the default relative threshold then reflects actual gradient magnitudes rather than directions. If using `--no_normalisation`, verify rank is non-decreasing across your row counts for a sanity check.
+- **SVD diagnostics:** `--print_svd_info` now prints `sigma_max`, the computed `atol`, whether normalisation was applied, and the bottom-10 singular values. Use this to check whether borderline singular values have comfortable margin above the threshold.
 
 ---
 
@@ -218,6 +220,13 @@ For each experiment, the flow is:
 **Session 2026-05-29 (VGG masking speedup):**
 - `functions/masking.py` — For torchvision VGG models with `gradsize_topfrac_entries_layer`, intermediate classifier parameters are excluded from the per-layer mask groups. The existing last-FC override then restores only `classifier.6.weight` and `classifier.6.bias` fully.
 - `tests/test_masking.py` — Added a VGG-shaped unit test confirming `classifier.0.*` and `classifier.3.*` are skipped while `classifier.6.*` remains all-True.
+
+**Session 2026-05-29 (Jacobian rank sweep — rank print, normalisation flag, refactor):**
+- `functions/jacobian_rank_sweep.py` — Rank is now printed for every row count per sample, not just the maximum. Format: `[i/n] rows=K: rank=R  shape=(K, 3072)`.
+- `functions/jacobian_rank_sweep.py` + `helper/metrics.py` — `--no_normalisation` flag added. By default rows of J are L2-normalised before `matrix_rank` (existing behaviour). `--no_normalisation` skips this, making the threshold reflect actual gradient magnitudes. Normalisation can be toggled per run without code changes.
+- `helper/metrics.py` — `--print_svd_info` now also prints `sigma_max`, the computed `atol` (`max(M,N)*eps*sigma_max`), and `normalised=True/False` alongside the bottom-10 singular values.
+- `functions/jacobian_rank_sweep.py` — Internal refactor: helper functions `_storage_root`, `_save_dir`, `_seed_all`, `_resolve_device`, `_new_rank_results`, `_summarize_rank_results`, `_print_rank_summary`, `_run_serial`, `_run_parallel`, `_run_dtype` extracted from `main()`. No behavioural changes.
+- `helper/metrics.py` — `selected_idx.to(device)` moved outside the fwAD column loop (was called 3072× per sample for CIFAR). `_qr_rank` renamed to `_qr_pivot_rows`. In `--independent --qr_pivot` mode, the redundant QR + second SVD is now skipped (rank of a freshly-built J_k cannot change under row reordering).
 
 **Session 2026-05-27 (Jacobian rank sweep improvements — first batch):**
 - `functions/jacobian_rank_sweep.py` — Added `per_sample_ranks` column to CSV (semicolon-separated integers, one per sample per row count); per-sample rank list now also printed to stdout after the sweep finishes.
