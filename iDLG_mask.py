@@ -1,6 +1,7 @@
 # iDLG_mask.py
 import os
 import sys
+import hashlib
 import numpy as np
 import torch
 from torchvision import transforms
@@ -19,7 +20,6 @@ from functions.io_utils import (paired_summary, paired_t_ci, baseline_key_from_a
 from functions.Dataset import load_dataset
 from run_single_exp import run_single_experiment
 from tqdm import tqdm
-from helper.masking_sweep import run_mse_sweep, run_mse_calibration
 
 from functions.io_utils import setstdout
 
@@ -220,33 +220,22 @@ def main():
 
     parser.add_argument("--gamma", type=float, default=0.5, help="gamma for learning rate scheduler")
 
-    parser.add_argument("--mse_visualise", action="store_true", help=(
-        "Instead of running experiments, run a calibration or sweep pass. "
-        "Without --threshold_mse: runs baseline iDLG on --num_exp images and saves "
-        "sorted_mse.png, mse_histogram.png, recon_grid.png, and mse_results.csv so you can pick a threshold. "
-        "With --threshold_mse: sweeps --mask_mode from --sweep_step to 1.0 and plots "
-        "images reconstructed vs. fraction of gradient entries shared."
-    ))
-    parser.add_argument("--threshold_mse", type=float, default=None, help=(
-        "MSE threshold below which an image counts as reconstructed. "
-        "Used with --mse_visualise to switch from calibration mode to sweep mode."
-    ))
-    parser.add_argument("--sweep_step", type=float, default=0.1, help=(
-        "Top-fraction step size for --mse_visualise sweep mode. "
-        "For example, 0.1 sweeps 0.1, 0.2, ..., 1.0. "
-        "Only used when both --mse_visualise and --threshold_mse are set."
-    ))
-
     args = parser.parse_args()
 
     if args.optimizer != "lbfgs":
         if "--max_iteration" in sys.argv or "--history_size" in sys.argv:
             parser.error("--max_iteration and --history_size can only be used when --optimizer lbfgs")
 
-    if not args.mse_visualise and not (0.0 < args.gradsize_topfrac <= 1.0):
+    if not (0.0 < args.gradsize_topfrac <= 1.0):
         parser.error(f"--gradsize_topfrac must be in (0, 1], got {args.gradsize_topfrac}")
-    if args.mse_visualise and args.threshold_mse is not None and not (0.0 < args.sweep_step <= 1.0):
-        parser.error(f"--sweep_step must be in (0, 1], got {args.sweep_step}")
+    methods_was_explicit = any(arg == "--methods" or arg.startswith("--methods=") for arg in sys.argv)
+    if (
+        args.mask_mode == "gradsize_topfrac_entries_layer"
+        and args.methods == "idlg"
+        and not methods_was_explicit
+    ):
+        args.methods = "masked"
+        print("[INFO] --mask_mode gradsize_topfrac_entries_layer selected without --methods; running --methods masked.")
 
     # -------- Masking config --------
     MASK_MODE = args.mask_mode
@@ -302,12 +291,6 @@ def main():
 
     # -------- load data --------
     dst, channel, num_classes, shape_img = load_dataset(dataset, data_path)
-
-    if args.mse_visualise:
-        run_mse_calibration(args, dst, channel, num_classes, shape_img, save_path)
-        if args.threshold_mse is not None:
-            run_mse_sweep(args, dst, channel, num_classes, shape_img, save_path)
-        return
 
     # -------- panel buffers --------
     panel_block_size = num_exp
@@ -1282,6 +1265,10 @@ def main():
         print(f"registry: {baseline_registry_path}")
         print(f"summary csv: {baseline_summary_csv_path}")
 
+    write_sweep_mse_csv = MASK_MODE == "gradsize_topfrac_entries_layer" and METHODS in ["masked", "both"]
+    masked_key = None
+    masked_comparable_args = None
+
     if METHODS in ["masked", "both"] and best_psnr_masked_all:
         masked_registry = load_masked_registry(masked_registry_path)
         masked_key, masked_comparable_args = masked_key_from_args(args)
@@ -1321,6 +1308,45 @@ def main():
         "optimizer": OPTIMIZER,
         "max_iter": MAX_ITERATION,
         "history": HISTORY_SIZE}
+
+    def _write_masking_sweep_mse_csv():
+        if not write_sweep_mse_csv:
+            return
+
+        if masked_key is None:
+            print("\n[WARNING] No masked registry key available for masking-sweep CSV.")
+            return
+
+        sweep_file_args = dict(masked_comparable_args)
+        sweep_file_args.pop("gradsize_topfrac", None)
+        key_json = json.dumps(sweep_file_args, sort_keys=True, separators=(",", ":"))
+        key_hash = hashlib.md5(key_json.encode("utf-8")).hexdigest()[:12]
+        sweep_dir = os.path.join(save_path, "masking_sweeps")
+        csv_path_sweep = os.path.join(
+            sweep_dir,
+            f"mse_{NETWORK_NAME}_{dataset}_{MASK_MODE}_{key_hash}.csv",
+        )
+        file_exists_sweep = os.path.isfile(csv_path_sweep)
+
+        row = {
+            "command": "python " + " ".join(sys.argv),
+            "topfrac": GRADSIZE_TOPFRAC,
+            "masked_key": masked_key,
+        }
+        fields = [
+            "command",
+            "topfrac",
+            "masked_key",
+        ]
+
+        def _append_sweep(f):
+            writer = csv.DictWriter(f, fieldnames=fields)
+            if not file_exists_sweep:
+                writer.writeheader()
+            writer.writerow(row)
+
+        safe_write(csv_path_sweep, _append_sweep, mode="a", newline="")
+        print(f"\nSaved masking-sweep MSE row to: {csv_path_sweep}")
     
     grad_value = ""
     if MASK_MODE in [
@@ -1348,6 +1374,7 @@ def main():
         rows.append({
             "method": "iDLG",
             **common,
+            "registry_key": baseline_key,
             "mask_mode": "",
             "grad_param": "",
             "med_best_loss": round(med_best_loss_idlg,5),
@@ -1365,6 +1392,7 @@ def main():
         rows.append({
             "method": "iDLG_masked",
             **common,
+            "registry_key": masked_key or "",
             "mask_mode": MASK_MODE,
             "prefixes": args.prefixes if "prefix" in MASK_MODE else "",
             "grad_param": grad_value,
@@ -1395,7 +1423,7 @@ def main():
         "avg_best_ssim", "std_best_ssim",
         "mse_ci", "mse_significant", "psnr_ci", "psnr_significant", "psnr_normality", "mse_normality",
         "ssim_ci", "ssim_significant", "ssim_normality",
-        "png_path",
+        "png_path", "registry_key",
     ]
 
     def _append_exp_results(f):
@@ -1405,6 +1433,7 @@ def main():
         writer.writerows(rows)
 
     safe_write(csv_path, _append_exp_results, mode="a", newline="")
+    _write_masking_sweep_mse_csv()
 
     print("\n=== Average PSNR over all experiments ===")
     print(f"\nSaved CSV rows to: {csv_path}")
