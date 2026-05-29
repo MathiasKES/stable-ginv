@@ -81,7 +81,7 @@ python run_single_exp.py
 ```
 
 ### `functions/jacobian_rank_sweep.py` — use for parameter sweeps of rank
-Iterates over a grid of masking parameters and logs rank results.
+Iterates over a grid of masking parameters and logs rank results. Default numerical dtype is `float64`; pass `--dtype float32` to run in single precision, or `--both_dtypes` to run float32 and float64 back-to-back and plot both rank curves in one graph.
 
 **Archived (do not use):** `run_single_exp_batch.py`, `jacobian_parallel.py`, `iDLG_original.py` — moved to `archive/`. Use `iDLG_mask.py` and `run_single_exp.py` instead.
 
@@ -176,6 +176,7 @@ For each experiment, the flow is:
 - **Last FC layer always unmasked:** `build_gradient_mask` unconditionally preserves the last `nn.Linear` layer regardless of mask mode. This is intentional — it guarantees the iDLG label-recovery trick always has the gradient it needs. Do not bypass this by calling the individual masking functions directly.
 - **LFW normalization constants:** Computed manually in `testing/compute_lfw_stats.py` and hardcoded in `functions/consts.py`. If you change the LFW preprocessing (resize, crop), recompute these.
 - **Masking sweep workflow:** The old `--mse_visualise`, `--threshold_mse`, and `--sweep_step` experiment path was removed. Run normal `iDLG_mask.py` commands for each `--gradsize_topfrac`; then call `scripts/plot_masking_sweep_csv.py <sweep_csv> --threshold_mse <value>`. The plot script includes the matching iDLG baseline as the 0% masked point when `results/baselines/idlg_baselines_registry.json` contains the corresponding baseline key.
+- **Jacobian dtype comparisons:** `functions/jacobian_rank_sweep.py --both_dtypes` executes the same sweep for `float32` and `float64`, writes one CSV with a `dtype` column, and saves one overlaid plot. If `--qr_pivot` is also enabled, the QR-pivot lines are dashed and use the same color as the corresponding dtype.
 
 ---
 
@@ -207,6 +208,11 @@ For each experiment, the flow is:
 - `iDLG_mask.py` normal runs now handle sweep data for `gradsize_topfrac_entries_layer`: each run still saves a masked registry entry, and appends `command`, `topfrac`, and `masked_key` to a config-specific CSV in `results/masking_sweeps/`. The sweep CSV filename hashes the masked registry comparable args with `gradsize_topfrac` removed, so all fractions for the same setup land in one file.
 - `scripts/plot_masking_sweep_csv.py` added. It reads the sweep CSV, resolves each `masked_key` in `results/baselines/masked_registry.json`, computes reconstructed counts from `best_mse_list` using the supplied threshold, and writes `masking_sweep_summary.csv`, `sweep_plot.png`, and `sweep_bar.png`. It also derives the matching baseline key from the masked registry args and includes the baseline as 0% masked when available.
 - Main `exp_results_<network>.csv` rows now include `registry_key` as the last column. iDLG rows use the baseline key; masked rows use the masked registry key.
+
+**Session 2026-05-29 (Jacobian rank dtype comparison):**
+- `functions/jacobian_rank_sweep.py` — `--dtype {float32,float64}` added. Default is `float64`, matching previous behaviour.
+- `functions/jacobian_rank_sweep.py` — `--both_dtypes` added. Runs the same rank sweep for float32 and float64, reseeding before each dtype so randomly initialized models are comparable.
+- `functions/jacobian_rank_sweep.py` — output CSV now includes `dtype`; output PNG overlays dtype-specific rank curves in one graph. With `--qr_pivot`, QR curves are dashed in the same color as their dtype's main curve.
 
 **Session 2026-05-27 (Jacobian rank sweep improvements — first batch):**
 - `functions/jacobian_rank_sweep.py` — Added `per_sample_ranks` column to CSV (semicolon-separated integers, one per sample per row count); per-sample rank list now also printed to stdout after the sweep finishes.

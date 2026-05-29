@@ -92,3 +92,17 @@ Pass `--registry_path <path>` or `--baseline_registry_path <path>` only if the r
 - `iDLG` rows store the baseline registry key.
 - `iDLG_masked` rows store the masked registry key.
 - `--methods both` writes both rows with their respective keys.
+
+### Add dtype comparison to Jacobian rank sweep — `cfed65e`
+
+**Files:** `functions/jacobian_rank_sweep.py`
+
+The Jacobian rank sweep now supports dtype control:
+
+```bash
+python functions/jacobian_rank_sweep.py --dtype float32
+python functions/jacobian_rank_sweep.py --dtype float64
+python functions/jacobian_rank_sweep.py --both_dtypes
+```
+
+Default remains `float64`, preserving the previous behaviour. `--both_dtypes` runs the same sweep twice, once with `float32` and once with `float64`, reseeding before each run so the same randomly initialized model/sample choices are used for comparison. The output CSV includes a `dtype` column, and the plot overlays both dtype curves in one graph with separate colors. If `--qr_pivot` is enabled, QR-pivot curves are drawn dashed in the same color as their dtype's select-mode curve.

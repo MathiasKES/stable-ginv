@@ -164,6 +164,8 @@ After running `iDLG_mask.py`, you will also find:
 
 **Masking sweep plots:** For `gradsize_topfrac_entries_layer`, run normal `iDLG_mask.py` commands for each `--gradsize_topfrac`. The runner appends compact rows to `results/masking_sweeps/`; then run `python scripts/plot_masking_sweep_csv.py <sweep_csv> --threshold_mse <value>` to create the line and bar charts. If the matching iDLG baseline was run and saved in the baseline registry, the plot includes it as the 0% masked point.
 
+**Jacobian dtype comparison:** Use `python functions/jacobian_rank_sweep.py --both_dtypes` to compare float32 and float64 rank curves in one run. The generated CSV includes a `dtype` column, and the generated plot shows the two dtypes in different colors.
+
 ---
 
 ## 9. Masking Modes Explained Simply
