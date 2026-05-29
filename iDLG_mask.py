@@ -231,7 +231,7 @@ def main():
         "MSE threshold below which an image counts as reconstructed. "
         "Used with --mse_visualise to switch from calibration mode to sweep mode."
     ))
-    parser.add_argument("--sweep_step", type=float, default=0.05, help=(
+    parser.add_argument("--sweep_step", type=float, default=0.1, help=(
         "Top-fraction step size for --mse_visualise sweep mode. "
         "For example, 0.1 sweeps 0.1, 0.2, ..., 1.0. "
         "Only used when both --mse_visualise and --threshold_mse are set."
