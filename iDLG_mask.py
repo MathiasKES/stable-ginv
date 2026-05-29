@@ -277,6 +277,7 @@ def main():
     dataset = args.dataset
     run_id = args.run_id
 
+    # Set datapath
     root_path = '.'
     if os.access('/work3/s234843/bachelor', os.R_OK | os.W_OK | os.X_OK):
         data_path = '/work3/s234843/bachelor/datasets'
@@ -291,6 +292,7 @@ def main():
     safe_makedirs(data_path)
     safe_makedirs(save_path)
     
+    # Set paths
     baseline_dir = os.path.join(save_path, "baselines")
     baseline_registry_path = os.path.join(baseline_dir, "idlg_baselines_registry.json")
     baseline_summary_csv_path = os.path.join(baseline_dir, "idlg_baselines_summary.csv")
@@ -365,7 +367,7 @@ def main():
         'GRAD_LOSS': GRAD_LOSS,
         "GAMMA": GAMMA,
         'NETWORK_NAME': NETWORK_NAME,
-'METHODS': METHODS,
+        'METHODS': METHODS,
         'COMPUTE_JACOBIAN_RANK': COMPUTE_JACOBIAN_RANK,
         'JACOBIAN_MAX_ENTRIES': JACOBIAN_MAX_ENTRIES,
         'JACOBIAN_SELECT_MODE': JACOBIAN_SELECT_MODE,
@@ -387,6 +389,7 @@ def main():
     if num_gpus == 0:
         raise RuntimeError("No CUDA GPUs available.")
     
+    # Set parallel worker method
     mp.set_start_method('spawn', force=True)
     mp.set_sharing_strategy('file_system')
 
