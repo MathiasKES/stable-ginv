@@ -1125,7 +1125,9 @@ def main():
             baseline_entry = registry[baseline_key]
             baseline_psnr_list = baseline_entry["best_psnr_list"]
             baseline_mse_list = baseline_entry["best_mse_list"]
-            baseline_ssim_list = baseline_entry["best_ssim_list"]
+            baseline_ssim_list = baseline_entry.get("best_ssim_list")
+            if baseline_ssim_list is None:
+                print("WARNING: iDLG baseline does not have an SSIM list ('best_ssim_list'); skipping SSIM comparison.")
             n_total = len(baseline_psnr_list)
 
             paired_best_psnr_idlg = []
@@ -1142,7 +1144,7 @@ def main():
                 psnr_masked = result.get("best_psnr_masked")
                 mse_baseline = baseline_mse_list[idx]
                 mse_masked = result.get("best_mse_iDLG_masked")
-                ssim_baseline = baseline_ssim_list[idx]
+                ssim_baseline = baseline_ssim_list[idx] if baseline_ssim_list is not None else None
                 ssim_masked = result.get("best_ssim_masked")
 
                 all_valid = (
@@ -1157,8 +1159,9 @@ def main():
                 paired_best_psnr_masked.append(psnr_masked)
                 paired_best_mse_idlg.append(mse_baseline)
                 paired_best_mse_masked.append(mse_masked)
-                paired_best_ssim_idlg.append(ssim_baseline)
-                paired_best_ssim_masked.append(ssim_masked)
+                if ssim_baseline is not None and ssim_masked is not None:
+                    paired_best_ssim_idlg.append(ssim_baseline)
+                    paired_best_ssim_masked.append(ssim_masked)
 
             n_included = len(paired_best_psnr_masked)
             if n_included < n_total:
@@ -1189,18 +1192,19 @@ def main():
             psnr_normality_str = psnr_summary["normality_str"]
             mse_normality_str = mse_summary["normality_str"]
 
-            ssim_summary = paired_summary(
-                np.array(paired_best_ssim_masked),
-                np.array(paired_best_ssim_idlg),
-                metric="ssim",
-                confidence=0.95,
-                ci_decimals=5,
-            )
+            if paired_best_ssim_masked:
+                ssim_summary = paired_summary(
+                    np.array(paired_best_ssim_masked),
+                    np.array(paired_best_ssim_idlg),
+                    metric="ssim",
+                    confidence=0.95,
+                    ci_decimals=5,
+                )
 
-            ssim_paired_stats = ssim_summary["stats"]
-            ssim_ci_str = ssim_summary["ci_str"]
-            ssim_significant_str = ssim_summary["significant_str"]
-            ssim_normality_str = ssim_summary["normality_str"]
+                ssim_paired_stats = ssim_summary["stats"]
+                ssim_ci_str = ssim_summary["ci_str"]
+                ssim_significant_str = ssim_summary["significant_str"]
+                ssim_normality_str = ssim_summary["normality_str"]
 
             print(f"\nLoaded iDLG baseline (run_id={run_id}). Paired test uses {n_included}/{n_total} experiment(s).")
 
