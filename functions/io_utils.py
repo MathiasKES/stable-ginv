@@ -3,12 +3,34 @@ import hashlib
 import json
 import math
 import os
-
 import sys
 from datetime import datetime
+from statistics import NormalDist
 
 import numpy as np
-from scipy import stats
+
+_SCIPY_STATS = None
+_SCIPY_STATS_IMPORT_ERROR = None
+
+
+def _load_scipy_stats():
+    """Import scipy.stats only when needed; return None when the HPC runtime cannot load it."""
+    global _SCIPY_STATS, _SCIPY_STATS_IMPORT_ERROR
+    if _SCIPY_STATS is not None:
+        return _SCIPY_STATS
+    if _SCIPY_STATS_IMPORT_ERROR is not None:
+        return None
+    try:
+        from scipy import stats as scipy_stats
+    except Exception as exc:
+        _SCIPY_STATS_IMPORT_ERROR = exc
+        print(
+            "[WARNING] scipy.stats could not be imported; paired p-values and "
+            f"Shapiro normality tests will be skipped. Import error: {exc}"
+        )
+        return None
+    _SCIPY_STATS = scipy_stats
+    return _SCIPY_STATS
 
 
 def safe_chmod(path, mode=0o770):
@@ -56,7 +78,7 @@ def safe_savefig(fig, path, chmod_mode=0o770, **savefig_kwargs):
         return False
     try:
         fig.savefig(path, **savefig_kwargs)
-    except OSError as e:
+    except Exception as e:
         print(f"[WARNING] Failed to save figure {path}: {e}")
         return False
     safe_chmod(path, mode=chmod_mode)
@@ -190,16 +212,23 @@ def paired_t_ci(x, y, confidence=0.95):
     std_diff = float(np.std(d, ddof=1))
     se = std_diff / math.sqrt(n)
 
+    scipy_stats = _load_scipy_stats()
     alpha = 1.0 - confidence
-    tcrit = stats.t.ppf(1.0 - alpha / 2.0, df=n - 1)
+    if scipy_stats is None:
+        tcrit = NormalDist().inv_cdf(1.0 - alpha / 2.0)
+    else:
+        tcrit = scipy_stats.t.ppf(1.0 - alpha / 2.0, df=n - 1)
 
     ci_low = mean_diff - tcrit * se
     ci_high = mean_diff + tcrit * se
 
-    t_stat, p_value = stats.ttest_rel(x, y)
+    if scipy_stats is None:
+        t_stat, p_value = float("nan"), float("nan")
+    else:
+        t_stat, p_value = scipy_stats.ttest_rel(x, y)
 
-    if n >= 3:
-        sw_stat, sw_p = stats.shapiro(d)
+    if scipy_stats is not None and n >= 3:
+        sw_stat, sw_p = scipy_stats.shapiro(d)
     else:
         sw_stat, sw_p = float("nan"), float("nan")
 

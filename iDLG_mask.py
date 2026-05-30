@@ -39,18 +39,70 @@ class ExperimentRunAborted(RuntimeError):
     """Raised after a worker failure has caused the run to be cancelled and cleaned up."""
 
 
+def _load_visualization_helpers():
+    """Load plotting helpers; fall back to no-op plotting when visualization imports fail."""
+    try:
+        from helper.visualization import (
+            append_result_to_panel_buffers,
+            create_panel_buffers,
+            flush_recon_panel,
+            save_recon_gif,
+            save_restart_curve,
+            save_restart_images,
+        )
+        return (
+            append_result_to_panel_buffers,
+            create_panel_buffers,
+            flush_recon_panel,
+            save_recon_gif,
+            save_restart_curve,
+            save_restart_images,
+        )
+    except Exception as exc:
+        print(f"[WARNING] Visualization disabled because plotting libraries could not be imported: {exc}")
+        print("[WARNING] Experiments will continue; use registry/CSV outputs to plot later.")
+
+        def create_panel_buffers():
+            return {"disabled": True}
+
+        def append_result_to_panel_buffers(result, buffers, to_pil, warn_fn):
+            return None
+
+        def flush_recon_panel(params, buffers, panel_png_paths, save_dir, block_idx,
+                              dataset, mask_desc, timestamp_str, methods):
+            return block_idx
+
+        def save_recon_gif(*args, **kwargs):
+            return None
+
+        def save_restart_curve(*args, **kwargs):
+            return None
+
+        def save_restart_images(*args, **kwargs):
+            return None
+
+        return (
+            append_result_to_panel_buffers,
+            create_panel_buffers,
+            flush_recon_panel,
+            save_recon_gif,
+            save_restart_curve,
+            save_restart_images,
+        )
+
+
 def main():
     timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
     out_path = setstdout(ts=timestamp_str)
     args = parse_idlg_args(sys.argv)
-    from helper.visualization import (
+    (
         append_result_to_panel_buffers,
         create_panel_buffers,
         flush_recon_panel,
         save_recon_gif,
         save_restart_curve,
         save_restart_images,
-    )
+    ) = _load_visualization_helpers()
 
     # -------- Masking config --------
     MASK_MODE = args.mask_mode
