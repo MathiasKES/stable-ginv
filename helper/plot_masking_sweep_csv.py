@@ -184,6 +184,13 @@ def _plot_title(rows):
     return 'Masking sweep'
 
 
+def _rotate_xlabels(ax):
+    for label in ax.get_xticklabels():
+        label.set_rotation(45)
+        label.set_ha('right')
+        label.set_fontsize(8)
+
+
 def _plot(rows, threshold, out_dir):
     plot_labels = []
     for row in rows:
@@ -212,7 +219,7 @@ def _plot(rows, threshold, out_dir):
     ax.set_ylabel(ylabel)
     ax.set_title(title)
     ax.set_ylim(-0.5, n_total + 0.5)
-    ax.set_xticklabels(ax.get_xticklabels(), rotation=45, ha='right', fontsize=8)
+    _rotate_xlabels(ax)
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
     path = os.path.join(out_dir, 'sweep_plot.png')
@@ -232,7 +239,7 @@ def _plot(rows, threshold, out_dir):
     ax.set_xlabel('Gradient entries masked (%)')
     ax.set_ylabel(ylabel)
     ax.set_title(title)
-    ax.set_xticklabels(ax.get_xticklabels(), rotation=45, ha='right', fontsize=8)
+    _rotate_xlabels(ax)
     ax.set_ylim(0, n_total + 0.5)
     fig.tight_layout()
     path = os.path.join(out_dir, 'sweep_bar.png')
