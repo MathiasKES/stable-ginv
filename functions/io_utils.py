@@ -63,6 +63,48 @@ def safe_savefig(fig, path, chmod_mode=0o770, **savefig_kwargs):
     return True
 
 
+def resolve_storage_paths(root_path="."):
+    """Return (data_path, save_path) for DTU HPC when available, otherwise local paths."""
+    if os.access("/work3/s234843/bachelor", os.R_OK | os.W_OK | os.X_OK):
+        return "/work3/s234843/bachelor/datasets", "/work3/s234843/bachelor/results"
+    data_path = os.path.join(root_path, "data").replace("\\", "/")
+    save_path = os.path.join(root_path, "results").replace("\\", "/")
+    return data_path, save_path
+
+
+def mean_or_nan(values):
+    """Return float mean, or nan for an empty sequence."""
+    return float(np.mean(values)) if len(values) else float("nan")
+
+
+def std_or_nan(values, ddof=1):
+    """Return float std when there are enough samples for ddof, otherwise nan."""
+    return float(np.std(values, ddof=ddof)) if len(values) > ddof else float("nan")
+
+
+def median_or_nan(values):
+    """Return float median, or nan for an empty sequence."""
+    return float(np.median(values)) if len(values) else float("nan")
+
+
+def append_csv_rows(path, rows, fieldnames):
+    """Append rows to a CSV file, writing the header when the file is new."""
+    file_exists = os.path.isfile(path)
+
+    def _append(f):
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        if not file_exists:
+            writer.writeheader()
+        writer.writerows(rows)
+
+    return safe_write(path, _append, mode="a", newline="")
+
+
+def append_csv_row(path, row, fieldnames):
+    """Append one row to a CSV file, writing the header when the file is new."""
+    return append_csv_rows(path, [row], fieldnames)
+
+
 def setstdout(ts=None, path=None):
     """Set up stdout tee to a log file. Returns the path used, or None if not interactive.
 
@@ -211,6 +253,49 @@ def paired_summary(x_masked, x_idlg, metric, confidence=0.95, ci_decimals=5):
         "significant_str": f"True, {better}" if significant else "False",
         "normality_str": normality_str,
     }
+
+
+def normality_str_from_ci(ci):
+    """Format Shapiro normality details from a CI result dict."""
+    sw_p = ci.get("shapiro_p", float("nan"))
+    if np.isnan(sw_p):
+        return "normality: n/a"
+    label = "normal" if sw_p > 0.05 else "NON-NORMAL"
+    return f"normality: {label} (W={ci['shapiro_stat']:.4f}, p={sw_p:.4f})"
+
+
+def paired_metric_summaries(paired_values):
+    """Return paired-summary fields for MSE, PSNR, and SSIM metric lists."""
+    empty_stats = {
+        "n": float("nan"),
+        "mean_diff": float("nan"),
+        "std_diff": float("nan"),
+        "ci_low": float("nan"),
+        "ci_high": float("nan"),
+        "t_stat": float("nan"),
+        "p_value": float("nan"),
+    }
+    out = {}
+    for metric, decimals in (("mse", 10), ("psnr", 5), ("ssim", 5)):
+        masked_key = f"{metric}_masked"
+        idlg_key = f"{metric}_idlg"
+        if paired_values.get(masked_key):
+            summary = paired_summary(
+                np.array(paired_values[masked_key]),
+                np.array(paired_values[idlg_key]),
+                metric=metric,
+                confidence=0.95,
+                ci_decimals=decimals,
+            )
+        else:
+            summary = {
+                "stats": empty_stats.copy(),
+                "ci_str": "",
+                "significant_str": "",
+                "normality_str": "",
+            }
+        out[metric] = summary
+    return out
 
 
 def masked_key_from_args(args):

@@ -2,7 +2,7 @@
 
 **Audience:** An agent or developer performing a targeted code review or cleanup task. Read this before touching any file.
 
-**Last updated:** 2026-05-29
+**Last updated:** 2026-05-30
 
 ---
 
@@ -25,7 +25,7 @@ This is a Python 3.13 research codebase for running gradient inversion attack ex
 
 | File | Review Priority | Notes |
 |------|-----------------|-------|
-| `iDLG_mask.py` | HIGH | Main batch runner; argparse CLI; saves baseline + masked registries |
+| `iDLG_mask.py` | HIGH | High-level batch runner; CLI orchestration, worker scheduling, registry/CSV write order |
 | `run_single_exp.py` | HIGH | Single-experiment runner; source of truth for algorithm |
 
 **`functions/` — core domain logic**
@@ -33,7 +33,9 @@ This is a Python 3.13 research codebase for running gradient inversion attack ex
 | File | Review Priority | Notes |
 |------|-----------------|-------|
 | `functions/masking.py` | HIGH | Gradient masking; core research contribution — do not refactor logic |
-| `functions/io_utils.py` | MEDIUM | Baseline registry, CSV helpers |
+| `functions/idlg_cli.py` | MEDIUM | `iDLG_mask.py` argparse flags/defaults and validation |
+| `functions/experiment_results.py` | MEDIUM | Batch aggregation, restart bests, paired summaries, CSV row builders |
+| `functions/io_utils.py` | MEDIUM | Baseline/masked registries, stats helpers, CSV helpers, storage paths |
 | `functions/Dataset.py` | LOW | Simple dataset loaders |
 | `functions/consts.py` | LOW | All normalization constants (single source of truth) |
 | `functions/jacobian_rank_sweep.py` | LOW | Sweep script; fine as-is |
@@ -45,15 +47,12 @@ This is a Python 3.13 research codebase for running gradient inversion attack ex
 | `helper/Network.py` | LOW | Model definitions + factory; clean |
 | `helper/metrics.py` | MEDIUM | PSNR, SSIM, Jacobian rank, grad match loss |
 | `helper/training_utils.py` | LOW | `make_scheduler` only (`build_network` deleted) |
-| `helper/visualization.py` | LOW | Panel PNG and animated GIF output |
+| `helper/visualization.py` | LOW | Panel PNG, animated GIF, restart curve/image output |
+| `helper/plot_masking_sweep_csv.py` | LOW | Reads sweep CSV rows containing `masked_key`, resolves MSE lists from `masked_registry.json`, and writes threshold plots; default `--threshold_mse 0.01` |
 
 **`archive/`** — retired scripts (`iDLG_original.py`, `jacobian_parallel.py`, `run_single_exp_batch.py`, old visualize/testing scripts). Nothing imports from these.
 
-**`scripts/`**
-
-| File | Review Priority | Notes |
-|------|-----------------|-------|
-| `scripts/plot_masking_sweep_csv.py` | LOW | Reads sweep CSV rows containing `masked_key`, resolves MSE lists from `masked_registry.json`, and writes threshold plots |
+**`scripts/`** — DTU HPC job scripts only.
 
 ---
 
@@ -90,11 +89,11 @@ No function signatures have type annotations. This makes it hard to understand w
 
 Moved to `archive/`. Nothing imports from it.
 
-### Issue 7: Code duplication between entry points
+### Issue 7: Remaining duplication between entry points
 
-`iDLG_mask.py` and `run_single_exp.py` share large blocks of identical logic (network setup, dataset loading, gradient computation, masking, optimization loop). This means bug fixes need to be applied in multiple places.
+`iDLG_mask.py` has been reduced to high-level orchestration, with CLI parsing in `functions/idlg_cli.py` and repeated aggregation/CSV/restart helpers in `functions/experiment_results.py`. `run_single_exp.py` still owns reconstruction behavior and should stay unchanged unless the algorithm itself is being changed.
 
-**Fix for Phase 2:** Extract the shared experiment logic into a reusable function in a new `experiment.py` module.
+**Fix for Phase 2:** If a larger split is needed, extract shared experiment construction into a reusable module without changing reconstruction math, masking behavior, optimizer behavior, CLI flags, CSV columns, or registry keys.
 
 ---
 
@@ -115,9 +114,11 @@ Moved to `archive/`. Nothing imports from it.
 
 **Config dict pattern:** `iDLG_mask.py` uses argparse CLI; `run_single_exp.py` uses a plain Python `config` dict passed to worker functions. Keep both patterns as-is — do not convert `run_single_exp.py` to argparse without discussing with the project owner.
 
-**Multi-GPU worker pattern:** `iDLG_mask.py` spawns one process per GPU via `torch.multiprocessing.spawn`. Results are collected via a `multiprocessing.Manager().Queue()`. Follow this pattern for any new parallel experiment scripts.
+**Multi-GPU worker pattern:** `iDLG_mask.py` launches `torch.multiprocessing.Process` workers and collects results through a queue. It supports both normal per-GPU experiment splits and parallel restart scheduling when `num_exp < num_gpus` and `NUM_RESTARTS > 1`.
 
 **Reproducibility:** Every worker sets `torch.manual_seed(seed)`, `torch.cuda.manual_seed_all(seed)`, and `np.random.seed(seed)` using `seed = config['run_id'] + idx_net + 1`. Preserve this pattern.
+
+**Plotting:** Active statistical charts use seaborn (`sns.lineplot`, `sns.barplot`). Matplotlib remains for the Agg backend, figure/axis creation, `imshow` image panels/GIF frames, layout, labels, and saving. Do not convert reconstruction image grids to seaborn heatmaps.
 
 **Matplotlib Agg backend:** `helper/visualization.py` line 2 sets `matplotlib.use("Agg")` before importing pyplot. This must remain the first import in any file that uses matplotlib, or it will crash on headless servers.
 
@@ -129,7 +130,7 @@ Moved to `archive/`. Nothing imports from it.
 ```bash
 python -m pytest tests/ -v
 ```
-44 tests covering masking routing paths, last-FC invariant, per-layer entry modes, gradient flattening, and safe I/O helpers. Should pass quickly on CPU.
+45 tests covering masking routing paths, last-FC invariant, per-layer entry modes, gradient flattening, and safe I/O helpers. Should pass quickly on CPU.
 
 **Manual checks:**
 

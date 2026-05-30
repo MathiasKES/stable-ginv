@@ -210,3 +210,17 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Local machine and agent artifacts
+.DS_Store
+.Rhistory
+.claude/
+.claude-flow/
+.mcp.json
+agentdb.rvf
+agentdb.rvf.lock
+
+# Generated experiment outputs
+results/
+results 2
+results 2/

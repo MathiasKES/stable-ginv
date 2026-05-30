@@ -59,8 +59,9 @@ stable-ginv/
 ├── helper/
 │   ├── Network.py        Model factory (get_model) + custom CNNs (LeNet, MediumCNN, etc.)
 │   ├── metrics.py        PSNR, SSIM, total variation, Jacobian rank, grad match loss
-│   ├── training_utils.py build_network, make_scheduler
-│   └── visualization.py  save_recon_panel, save_recon_gif
+│   ├── training_utils.py make_scheduler
+│   ├── visualization.py  save_recon_panel, save_recon_gif, restart outputs
+│   └── plot_masking_sweep_csv.py  Plot registry-backed masking sweep CSVs
 │
 ├── archive/              Retired scripts — not imported anywhere, kept for reference
 ├── scripts/              DTU HPC job scripts (LSF scheduler)
@@ -93,21 +94,35 @@ LFW requires manual setup:
 | `--num_restarts` | int | `3` |
 | `--iteration` | int | `1000` |
 
-Masking modes: `none`, `gradsize_topk`, `gradsize_topfrac`, `gradsize_threshold`,
-`gradsize_topk_entries`, `gradsize_topfrac_entries`, `prefix`, `prefix_topk`,
-`prefix_topfrac`, `prefix_topk_entries`, `prefix_topfrac_entries`,
-`prefix_topk_entries_layer`, `prefix_topfrac_entries_layer`.
+Masking modes: `none`, `gradsize_topk`, `gradsize_topfrac`,
+`gradsize_topk_entries`, `gradsize_topfrac_entries`,
+`gradsize_topk_entries_layer`, `gradsize_topfrac_entries_layer`,
+`prefix`, `prefix_topk`, `prefix_topfrac`, `prefix_topk_entries`,
+`prefix_topfrac_entries`, `prefix_topk_entries_layer`,
+`prefix_topfrac_entries_layer`.
 
 ---
 
 ## Output
 
 ```
-results/{timestamp}_{jobid}_results.csv      per-run metrics
-results/{timestamp}_{jobid}_{block}.png      reconstruction panel
-results/{timestamp}_{jobid}_{block}_anim.gif animated reconstruction (if --save_gif)
-results/baselines/idlg_baselines_registry.json  baseline store for paired comparison
+results/exp_results_<network>.csv               per-run metrics
+results/{timestamp}_{jobid}_{block}.png         reconstruction panel
+results/{timestamp}_{jobid}_{block}_anim.gif    animated reconstruction (if --save_gif)
+results/baselines/idlg_baselines_registry.json  iDLG baseline store for paired comparison
+results/baselines/masked_registry.json          masked-run registry
+results/masking_sweeps/*.csv                    compact sweep rows for gradsize_topfrac_entries_layer
 ```
+
+Plot a masking sweep CSV with:
+
+```bash
+python helper/plot_masking_sweep_csv.py results/masking_sweeps/<sweep_csv>.csv
+```
+
+The default reconstruction threshold is `--threshold_mse 0.01`.
+The summary CSV includes `network` and `dataset`, and the generated plot titles show both.
+If the sweep contains a masked `topfrac=1.0` row, it is kept alongside the unmasked iDLG baseline as a separate `0% masked` point/bar.
 
 ---
 

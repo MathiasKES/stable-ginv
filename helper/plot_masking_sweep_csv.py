@@ -2,10 +2,12 @@
 Plot masking-sweep results from sweep CSV rows that reference masked registry entries.
 
 Example:
-    python scripts/plot_masking_sweep_csv.py \
+    python helper/plot_masking_sweep_csv.py \
         results/masking_sweeps/mse_resnet18_cifar100_gradsize_topfrac_entries_layer_<hash>.csv \
-        --threshold_mse 0.03 \
         --out_dir results/masking_sweep_plots
+
+Default threshold: --threshold_mse 0.01.
+The summary CSV includes network/dataset columns, and plot titles show both.
 
 The input CSV is produced by:
     python iDLG_mask.py --methods masked \
@@ -22,10 +24,13 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import numpy as np
+import seaborn as sns
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from functions.io_utils import safe_makedirs, safe_savefig, safe_write
+
+sns.set_theme(style='whitegrid')
 
 
 def _default_registry_path(csv_path):
@@ -85,6 +90,8 @@ def _read_rows(path, registry):
             rows.append({
                 **row,
                 'args': entry.get('args', {}),
+                'network': entry.get('args', {}).get('network', ''),
+                'dataset': entry.get('args', {}).get('dataset', ''),
                 'topfrac': topfrac,
                 'pct_masked': (1.0 - topfrac) * 100.0,
                 'n_total': len(mses),
@@ -111,6 +118,9 @@ def _baseline_row(rows, baseline_registry):
         'topfrac': 1.0,
         'masked_key': '',
         'baseline_key': baseline_key,
+        'args': masked_args,
+        'network': masked_args.get('network', ''),
+        'dataset': masked_args.get('dataset', ''),
         'pct_masked': 0.0,
         'n_total': len(mses),
         'per_sample_mse': mses,
@@ -136,12 +146,14 @@ def _summarise(rows, threshold):
             'avg_mse': float(np.mean(mses)),
             'median_mse': float(np.median(mses)),
         })
-    return sorted(summary, key=lambda r: r['pct_masked'])
+    return sorted(summary, key=lambda r: (r['pct_masked'], r['source'] != 'baseline'))
 
 
 def _write_summary(rows, out_dir):
     path = os.path.join(out_dir, 'masking_sweep_summary.csv')
     fields = [
+        'network',
+        'dataset',
         'source',
         'topfrac',
         'pct_masked',
@@ -161,22 +173,46 @@ def _write_summary(rows, out_dir):
         print(f'Saved: {path}')
 
 
+def _plot_title(rows):
+    first = rows[0] if rows else {}
+    network = first.get('network') or first.get('args', {}).get('network')
+    dataset = first.get('dataset') or first.get('args', {}).get('dataset')
+    if network and dataset:
+        return f'Masking sweep: {network} / {dataset}'
+    if network or dataset:
+        return f"Masking sweep: {network or dataset}"
+    return 'Masking sweep'
+
+
 def _plot(rows, threshold, out_dir):
-    pct = [r['pct_masked'] for r in rows]
+    plot_labels = []
+    for row in rows:
+        pct_label = f"{row['pct_masked']:.0f}%"
+        if row.get('source') == 'baseline':
+            plot_labels.append(f'{pct_label} baseline')
+        elif row['pct_masked'] == 0.0:
+            plot_labels.append(f'{pct_label} masked')
+        else:
+            plot_labels.append(pct_label)
+
     n_recon = [r['n_reconstructed'] for r in rows]
     n_total = max(r['n_total'] for r in rows)
-    title = 'Masking sweep'
+    title = _plot_title(rows)
     ylabel = f'Images reconstructed (MSE <= {threshold})'
 
     fig, ax = plt.subplots(figsize=(12, 5))
-    ax.plot(pct, n_recon, marker='o', linewidth=1.8)
+    sns.lineplot(
+        x=plot_labels,
+        y=n_recon,
+        marker='o',
+        linewidth=1.8,
+        ax=ax,
+    )
     ax.set_xlabel('Gradient entries masked (%)')
     ax.set_ylabel(ylabel)
     ax.set_title(title)
-    ax.set_xlim(-2.5, max(pct) + 2.5)
     ax.set_ylim(-0.5, n_total + 0.5)
-    ax.set_xticks(pct)
-    ax.set_xticklabels([f'{p:.0f}%' for p in pct], rotation=45, ha='right', fontsize=8)
+    ax.set_xticklabels(ax.get_xticklabels(), rotation=45, ha='right', fontsize=8)
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
     path = os.path.join(out_dir, 'sweep_plot.png')
@@ -185,14 +221,19 @@ def _plot(rows, threshold, out_dir):
     plt.close(fig)
 
     fig, ax = plt.subplots(figsize=(12, 5))
-    ax.bar(range(len(pct)), n_recon, color='steelblue', edgecolor='black', linewidth=0.6)
+    sns.barplot(
+        x=plot_labels,
+        y=n_recon,
+        color='steelblue',
+        edgecolor='black',
+        linewidth=0.6,
+        ax=ax,
+    )
     ax.set_xlabel('Gradient entries masked (%)')
     ax.set_ylabel(ylabel)
     ax.set_title(title)
-    ax.set_xticks(range(len(pct)))
-    ax.set_xticklabels([f'{p:.0f}%' for p in pct], rotation=45, ha='right', fontsize=8)
+    ax.set_xticklabels(ax.get_xticklabels(), rotation=45, ha='right', fontsize=8)
     ax.set_ylim(0, n_total + 0.5)
-    ax.grid(True, axis='y', alpha=0.3)
     fig.tight_layout()
     path = os.path.join(out_dir, 'sweep_bar.png')
     if safe_savefig(fig, path, dpi=150):
@@ -203,13 +244,13 @@ def _plot(rows, threshold, out_dir):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('csv_path', help='CSV produced by normal iDLG_mask.py gradsize_topfrac_entries_layer runs')
-    parser.add_argument('--threshold_mse', type=float, required=True)
+    parser.add_argument('--threshold_mse', type=float, default=0.01)
     parser.add_argument('--registry_path', default=None,
                         help='Masked registry JSON. Defaults to ../baselines/masked_registry.json from the sweep CSV.')
     parser.add_argument('--baseline_registry_path', default=None,
                         help='iDLG baseline registry JSON. Defaults to ../baselines/idlg_baselines_registry.json from the sweep CSV.')
     parser.add_argument('--no_baseline', action='store_true',
-                        help='Do not include the matching iDLG baseline as the 0% masked point.')
+                        help='Do not include the matching iDLG baseline as the 0%% masked point.')
     parser.add_argument('--out_dir', default=None)
     args = parser.parse_args()
 
@@ -225,7 +266,6 @@ def main():
         baseline_registry = _load_registry(baseline_registry_path)
         baseline = _baseline_row(rows, baseline_registry)
         if baseline is not None:
-            rows = [r for r in rows if r['pct_masked'] != 0.0]
             rows.append(baseline)
     rows = _summarise(rows, args.threshold_mse)
 

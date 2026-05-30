@@ -22,6 +22,7 @@ os.environ.setdefault("XDG_CACHE_HOME", _xdg_cache_dir)
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+import seaborn as sns
 from tqdm import tqdm
 
 import functions.consts as consts
@@ -30,6 +31,8 @@ from functions.io_utils import parse_prefixes_with_fracs
 from helper.Network import get_model, weights_init
 from functions.masking import build_gradient_mask
 from helper.metrics import compute_jacobian_rank_sweep
+
+sns.set_theme(style="whitegrid")
 
 
 _HPC_ROOT = "/work3/s234843/bachelor"
@@ -533,29 +536,52 @@ def main():
                     row += [run["mean_ranks_qr"][i], run["std_ranks_qr"][i], ranks_qr_str]
                 writer.writerow(row)
 
-    plt.figure(figsize=(7, 5))
+    plot_rows = []
     for dtype_name, run in runs.items():
         legend_label = f"{dtype_name} (select={args.jacobian_select_mode}, samples={args.num_samples}"
         if args.method == "masked":
             legend_label += f", mask={args.mask_mode}"
         legend_label += ")"
-        container = plt.errorbar(run["xs"], run["mean_ranks"], yerr=run["std_ranks"],
-                                 marker="o", capsize=4, label=legend_label)
+        for rows_used, ranks in run["rank_results"].items():
+            for rank in ranks:
+                plot_rows.append({
+                    "Rows used": rows_used,
+                    "Jacobian rank": rank,
+                    "Series": legend_label,
+                })
         if run["rank_results_qr"] is not None:
-            color = container.lines[0].get_color()
             qr_label = f"{dtype_name} qr_pivot ({args.jacobian_select_mode} pool)"
-            plt.errorbar(run["xs"], run["mean_ranks_qr"], yerr=run["std_ranks_qr"],
-                         marker="s", capsize=4, linestyle="--", color=color, label=qr_label)
-    plt.axhline(unknowns, linestyle=":", label=f"unknowns = {unknowns}")
-    plt.xlabel("Number of Jacobian rows / gradients used")
-    plt.ylabel("Average Jacobian rank")
-    plt.title(f"Jacobian rank sweep: {args.network}, {args.dataset}, {args.method}")
-    plt.legend()
-    plt.tight_layout()
+            for rows_used, ranks in run["rank_results_qr"].items():
+                for rank in ranks:
+                    plot_rows.append({
+                        "Rows used": rows_used,
+                        "Jacobian rank": rank,
+                        "Series": qr_label,
+                    })
+
+    fig, ax = plt.subplots(figsize=(7, 5))
+    if plot_rows:
+        sns.lineplot(
+            data=plot_rows,
+            x="Rows used",
+            y="Jacobian rank",
+            hue="Series",
+            style="Series",
+            markers=True,
+            dashes=True,
+            errorbar="sd",
+            ax=ax,
+        )
+    ax.axhline(unknowns, linestyle=":", label=f"unknowns = {unknowns}")
+    ax.set_xlabel("Number of Jacobian rows / gradients used")
+    ax.set_ylabel("Average Jacobian rank")
+    ax.set_title(f"Jacobian rank sweep: {args.network}, {args.dataset}, {args.method}")
+    ax.legend()
+    fig.tight_layout()
 
     plot_path = os.path.join(save_dir, base + ".png")
-    plt.savefig(plot_path, dpi=200)
-    plt.close()
+    fig.savefig(plot_path, dpi=200)
+    plt.close(fig)
 
     print(f"\nSaved CSV to: {csv_path}")
     print(f"Saved plot to: {plot_path}")

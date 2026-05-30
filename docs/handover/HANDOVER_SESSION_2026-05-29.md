@@ -40,7 +40,7 @@ Change: `gain_ks = [k for k in [5, 10] if k <= NUM_RESTARTS]` → `[3, 5, 10]`.
 
 ### Simplify masking sweep results flow — `62988ad`
 
-**Files:** `iDLG_mask.py`, `scripts/plot_masking_sweep_csv.py`, `helper/masking_sweep.py`
+**Files:** `iDLG_mask.py`, `helper/plot_masking_sweep_csv.py`, `helper/masking_sweep.py`
 
 The old experiment-side sweep mode was removed:
 - `--mse_visualise` removed from `iDLG_mask.py`
@@ -71,15 +71,14 @@ The sweep CSV filename hashes the masked-registry comparable args with `gradsize
 
 ### Plotting now reads the masked registry
 
-New script:
+Plotting utility:
 
 ```bash
-python scripts/plot_masking_sweep_csv.py \
-  results/masking_sweeps/<sweep_csv>.csv \
-  --threshold_mse 0.03
+python helper/plot_masking_sweep_csv.py \
+  results/masking_sweeps/<sweep_csv>.csv
 ```
 
-The plotting script loads `results/baselines/masked_registry.json` by default, resolves each row's `masked_key`, reads `best_mse_list`, and computes threshold counts from the registry. It also loads `results/baselines/idlg_baselines_registry.json` by default, derives the matching baseline key from the masked registry args, and includes the baseline as the 0% masked point when present. Outputs:
+The plotting script loads `results/baselines/masked_registry.json` by default, resolves each row's `masked_key`, reads `best_mse_list`, and computes threshold counts from the registry. The default threshold is `--threshold_mse 0.01`; pass a different value only for a deliberate sensitivity check. It also loads `results/baselines/idlg_baselines_registry.json` by default, derives the matching baseline key from the masked registry args, and includes the baseline as the 0% masked point when present. Outputs:
 - `masking_sweep_summary.csv`
 - `sweep_plot.png`
 - `sweep_bar.png`
@@ -207,7 +206,7 @@ Previously, the sweep CSV filename hash included `run_id` and `num_exp` (via `ma
 
 Fix: `run_id`, `num_exp`, and `gradsize_topk` are now excluded from the hash before it is computed. The CSV filename now depends only on the structural config (network, dataset, optimizer, lr, gamma, grad_loss, iteration, tv_weight, num_restarts, mask_mode, gradsize_metric, prefixes). All topfrac values for the same config now append to the same file regardless of batch size or random seed.
 
-**Compatibility:** Existing CSVs on the HPC were named with the old hash and will not match new runs. The underlying data is preserved in `masked_registry.json` and can be re-plotted with `scripts/plot_masking_sweep_csv.py`.
+**Compatibility:** Existing CSVs on the HPC were named with the old hash and will not match new runs. The underlying data is preserved in `masked_registry.json` and can be re-plotted with `helper/plot_masking_sweep_csv.py`.
 
 ---
 

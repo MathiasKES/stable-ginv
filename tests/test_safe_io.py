@@ -33,6 +33,7 @@ if PROJECT_ROOT not in sys.path:
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+import seaborn as sns
 
 from functions.io_utils import (
     safe_chmod,
@@ -202,7 +203,7 @@ class SafeSavefigTests(unittest.TestCase):
     def test_success(self):
         p = os.path.join(self.tmp, "plots", "fig.png")
         fig, ax = plt.subplots()
-        ax.plot([0, 1], [0, 1])
+        sns.lineplot(x=[0, 1], y=[0, 1], ax=ax)
         ok = safe_savefig(fig, p, dpi=50)
         plt.close(fig)
         self.assertTrue(ok)

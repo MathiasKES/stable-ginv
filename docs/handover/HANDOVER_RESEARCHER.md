@@ -2,7 +2,7 @@
 
 **Audience:** A developer or researcher who is continuing active work on this codebase — adding new masking modes, running new experiments, debugging, or extending the pipeline.
 
-**Last updated:** 2026-05-29
+**Last updated:** 2026-05-30
 
 ---
 
@@ -25,13 +25,15 @@ The `invertinggradients/` subfolder is a **git submodule** cloned from Geiping e
 
 ```
 stable-ginv/
-├── iDLG_mask.py             Main batch experiment runner (multi-GPU, all masking modes)
+├── iDLG_mask.py             High-level batch experiment runner (CLI, scheduling, orchestration)
 ├── run_single_exp.py        Detailed single-experiment runner (GIF, Jacobian rank, SSIM)
 │
 ├── functions/               Core domain logic
 │   ├── masking.py           ALL gradient masking: build_gradient_mask, get_keep_ids*,
 │   │                        get_entry_masks*, flatten_observed_gradients
-│   ├── io_utils.py          Baseline registry, paired stats, CSV helpers, parse_prefixes_with_fracs
+│   ├── idlg_cli.py          argparse definition and validation for iDLG_mask.py
+│   ├── experiment_results.py  Batch result aggregation, restart bests, CSV row builders
+│   ├── io_utils.py          Baseline/masked registries, stats, CSV helpers, storage paths
 │   ├── Dataset.py           load_dataset() (shared), MNIST/CIFAR/LFW loaders
 │   ├── consts.py            Normalization constants (single source of truth)
 │   └── jacobian_rank_sweep.py  Sweep masking params and compute Jacobian rank per config
@@ -40,7 +42,8 @@ stable-ginv/
 │   ├── Network.py           Model factory (get_model handles ALL architectures) + custom CNNs
 │   ├── metrics.py           PSNR, SSIM, total variation, Jacobian rank, grad match loss
 │   ├── training_utils.py    make_scheduler only (build_network absorbed into get_model)
-│   └── visualization.py     save_recon_panel, save_recon_gif
+│   ├── visualization.py     Reconstruction panels/GIFs plus restart curve/image outputs
+│   └── plot_masking_sweep_csv.py  Plot registry-backed masking sweep CSVs
 │
 ├── archive/                 Retired scripts (not imported anywhere):
 │                            iDLG_original.py, jacobian_parallel.py,
@@ -48,7 +51,6 @@ stable-ginv/
 │
 ├── testing/                 Dataset validation scripts (not pytest — manual runs)
 ├── scripts/                 HPC job scripts (DTU cluster)
-│   └── plot_masking_sweep_csv.py  Plot threshold sweep curves from registry-backed CSV rows
 │
 └── invertinggradients/      Git submodule — Geiping et al. reference implementation
     └── inversefed/          GradientReconstructor, metrics, models, data loaders
@@ -59,13 +61,13 @@ stable-ginv/
 ## 3. Entry Points
 
 ### `iDLG_mask.py` — use for large batch experiments
-Spawns one process per GPU via `torch.multiprocessing`. Each process runs `N` experiments independently and puts results into a shared queue. Configured by editing the `config` dict near the bottom of the file.
+Parses CLI arguments via `functions/idlg_cli.py`, builds worker configs, schedules normal or parallel-restart workers, aggregates results through `functions/experiment_results.py`, and writes CSV/registry outputs. The reconstruction behavior still lives in `run_single_exp.py`.
 
 ```bash
-python iDLG_mask.py
+python iDLG_mask.py --network resnet18 --dataset cifar10 --num_exp 10 --methods both
 ```
 
-Output: PNG reconstructions + CSV table in the path set by `SAVE_PATH`.
+Output: PNG reconstructions, restart plots/images when enabled, registry JSON files, and CSV tables under the resolved project/HPC results path.
 
 For `--mask_mode gradsize_topfrac_entries_layer`, normal masked runs also append a compact sweep row to `results/masking_sweeps/`. That row stores the command, `topfrac`, and the `masked_key`; per-sample MSE values stay in `results/baselines/masked_registry.json`.
 
@@ -170,12 +172,13 @@ For each experiment, the flow is:
 - **`OPTIMIZE_NORM_SPACE`:** Set to `True` whenever `NETWORK_TRAINED = True`. This means the dummy image is optimized in the normalized pixel space matching ImageNet stats. Reconstructions are then un-normalized for saving. If you add a new dataset with different normalization, you need to wire its stats into `functions/consts.py` **and** into the saving/display logic.
 - **Normalization constants:** `functions/consts.py` is the single source of truth for the main codebase. `invertinggradients/inversefed/consts.py` is a separate copy inside the submodule — do not modify it.
 - **`invertinggradients/` is a submodule:** It has its own `.git`. Do not commit files inside it to the main repo. If you need to update it: `cd invertinggradients && git pull`.
+- **Plotting convention:** Statistical plots use seaborn (`sns.lineplot`, `sns.barplot`) with matplotlib only for figure creation, labels, saving, and image rendering (`imshow`). Reconstruction panels and GIF frames remain matplotlib image displays because seaborn does not replace RGB image rendering.
 - **Matplotlib backend:** `helper/visualization.py` line 2 forces `matplotlib.use("Agg")` for headless operation. Do not call `matplotlib.pyplot` before this runs in any file that uses visualization.
 - **HPC scripts:** `scripts/` targets the DTU HPC cluster (LSF job scheduler). The `init.sh` sets up the conda environment from `environment.yml`.
 - **No argparse in `run_single_exp.py`:** Configuration is via editing the `config` dict. `iDLG_mask.py` does have full argparse CLI support.
 - **Last FC layer always unmasked:** `build_gradient_mask` unconditionally preserves the last `nn.Linear` layer regardless of mask mode. This is intentional — it guarantees the iDLG label-recovery trick always has the gradient it needs. Do not bypass this by calling the individual masking functions directly.
 - **LFW normalization constants:** Computed manually in `testing/compute_lfw_stats.py` and hardcoded in `functions/consts.py`. If you change the LFW preprocessing (resize, crop), recompute these.
-- **Masking sweep workflow:** Run normal `iDLG_mask.py` commands for each `--gradsize_topfrac`; all runs with the same config (same network/dataset/optimizer/lr/etc.) append to the same CSV in `results/masking_sweeps/` regardless of `--run_id` or `--num_exp`. Then call `scripts/plot_masking_sweep_csv.py <sweep_csv> --threshold_mse <value>`. The plot script includes the matching iDLG baseline as the 0% masked point when `results/baselines/idlg_baselines_registry.json` contains the corresponding baseline key. Note: the old `--mse_visualise`, `--threshold_mse`, and `--sweep_step` flags were removed.
+- **Masking sweep workflow:** Run normal `iDLG_mask.py` commands for each `--gradsize_topfrac`; all runs with the same config (same network/dataset/optimizer/lr/etc.) append to the same CSV in `results/masking_sweeps/` regardless of `--run_id` or `--num_exp`. Then call `helper/plot_masking_sweep_csv.py <sweep_csv>`; its default reconstruction threshold is `--threshold_mse 0.01`. The plot script includes the matching iDLG baseline as the 0% masked point when `results/baselines/idlg_baselines_registry.json` contains the corresponding baseline key. Note: the old experiment-side `--mse_visualise`, `--threshold_mse`, and `--sweep_step` flags were removed from `iDLG_mask.py`.
 - **Jacobian dtype comparisons:** `functions/jacobian_rank_sweep.py --both_dtypes` executes the same sweep for `float32` and `float64`, writes one CSV with a `dtype` column, and saves one overlaid plot. If `--qr_pivot` is also enabled, the QR-pivot lines are dashed and use the same color as the corresponding dtype.
 - **VGG fraction sweeps:** For `gradsize_topfrac_entries_layer` on VGG, `classifier.0.*` and `classifier.3.*` are excluded automatically. `classifier.6.*` remains fully unmasked because the last-FC layer is required for iDLG label recovery. This substantially reduces VGG sweep runtime and memory use.
 - **Row normalisation in rank sweep:** By default, rows of J are L2-normalised before `matrix_rank` to prevent a monotonicity bug (rank decreasing with more rows). Pass `--no_normalisation` to skip this — the default relative threshold then reflects actual gradient magnitudes rather than directions. If using `--no_normalisation`, verify rank is non-decreasing across your row counts for a sanity check.
@@ -183,7 +186,17 @@ For each experiment, the flow is:
 
 ---
 
-## 8. Recent Changes (as of 2026-05-29)
+## 8. Recent Changes (as of 2026-05-30)
+
+**Session 2026-05-30 (iDLG runner cleanup and plotting convention):**
+- `iDLG_mask.py` is now mostly orchestration: CLI parsing, worker config construction, process scheduling, registry/CSV write ordering, and summary printing remain there.
+- `functions/idlg_cli.py` owns the `iDLG_mask.py` argparse flags and validation. CLI names and defaults were preserved.
+- `functions/experiment_results.py` owns repeated result aggregation, restart best selection, paired summaries, CSV row building, masking sweep CSV writes, and final summary printing.
+- `functions/io_utils.py` now includes reusable numeric summary helpers, CSV append helpers, and shared project/HPC storage path resolution. `show_img.py` uses the same storage resolver.
+- `helper/visualization.py` now owns reconstruction panel buffering plus restart curve and restart image outputs.
+- `helper/plot_masking_sweep_csv.py` now owns registry-backed masking sweep plotting. It moved out of `scripts/`, `--threshold_mse` defaults to `0.01`, the summary CSV includes `network`/`dataset`, generated plot titles show both, and a masked `topfrac=1.0` row is kept separately from the unmasked iDLG baseline.
+- Statistical chart plotting in active scripts now uses seaborn. Matplotlib remains the backend for image display, axes labels, layout, and file saving.
+- Verification after the cleanup: `python -m pytest tests/ -v` passed with 45 tests.
 
 **First session (2026-05-22 / early 2026-05-23):**
 - `functions/masking.py` — last FC layer always preserved in `build_gradient_mask` (tensor-wise: union into keep_ids; entry-wise: all-True override); `_grad_magnitude` helper extracted; `gradsize_threshold` mode and parameter removed; `gradsize_topfrac_entries_layer` and `gradsize_topk_entries_layer` modes added (per-tensor independent selection via `get_entry_masks_by_prefix_group` with all param names as groups)
@@ -209,7 +222,7 @@ For each experiment, the flow is:
 **Session 2026-05-29 (masking sweep simplification):**
 - `helper/masking_sweep.py` deleted. There is no separate experiment-side sweep runner.
 - `iDLG_mask.py` normal runs now handle sweep data for `gradsize_topfrac_entries_layer`: each run still saves a masked registry entry, and appends `command`, `topfrac`, and `masked_key` to a config-specific CSV in `results/masking_sweeps/`. The sweep CSV filename hashes the masked registry comparable args with `gradsize_topfrac` removed, so all fractions for the same setup land in one file.
-- `scripts/plot_masking_sweep_csv.py` added. It reads the sweep CSV, resolves each `masked_key` in `results/baselines/masked_registry.json`, computes reconstructed counts from `best_mse_list` using the supplied threshold, and writes `masking_sweep_summary.csv`, `sweep_plot.png`, and `sweep_bar.png`. It also derives the matching baseline key from the masked registry args and includes the baseline as 0% masked when available.
+- `helper/plot_masking_sweep_csv.py` added. It reads the sweep CSV, resolves each `masked_key` in `results/baselines/masked_registry.json`, computes reconstructed counts from `best_mse_list` using the supplied threshold, and writes `masking_sweep_summary.csv`, `sweep_plot.png`, and `sweep_bar.png`. It also derives the matching baseline key from the masked registry args and includes the baseline as 0% masked when available.
 - Main `exp_results_<network>.csv` rows now include `registry_key` as the last column. iDLG rows use the baseline key; masked rows use the masked registry key.
 
 **Session 2026-05-29 (Jacobian rank dtype comparison):**
