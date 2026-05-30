@@ -8,6 +8,8 @@ Example:
 
 Default threshold: --threshold_mse 0.01.
 The summary CSV includes network/dataset columns, and plot titles show both.
+Output filenames include network, dataset, and threshold, for example:
+    sweep_plot_vgg13_cifar100_threshold_0p01.png
 
 The input CSV is produced by:
     python iDLG_mask.py --methods masked \
@@ -149,8 +151,32 @@ def _summarise(rows, threshold):
     return sorted(summary, key=lambda r: (r['pct_masked'], r['source'] != 'baseline'))
 
 
-def _write_summary(rows, out_dir):
-    path = os.path.join(out_dir, 'masking_sweep_summary.csv')
+def _metadata(rows):
+    first = rows[0] if rows else {}
+    network = first.get('network') or first.get('args', {}).get('network') or 'unknown_network'
+    dataset = first.get('dataset') or first.get('args', {}).get('dataset') or 'unknown_dataset'
+    return network, dataset
+
+
+def _safe_filename_part(value):
+    return ''.join(ch if ch.isalnum() or ch in ('-', '_') else '_' for ch in str(value))
+
+
+def _threshold_part(threshold):
+    return str(threshold).replace('.', 'p').replace('-', 'm')
+
+
+def _output_suffix(rows, threshold):
+    network, dataset = _metadata(rows)
+    return (
+        f"{_safe_filename_part(network)}_"
+        f"{_safe_filename_part(dataset)}_"
+        f"threshold_{_threshold_part(threshold)}"
+    )
+
+
+def _write_summary(rows, threshold, out_dir):
+    path = os.path.join(out_dir, f"masking_sweep_summary_{_output_suffix(rows, threshold)}.csv")
     fields = [
         'network',
         'dataset',
@@ -174,9 +200,11 @@ def _write_summary(rows, out_dir):
 
 
 def _plot_title(rows):
-    first = rows[0] if rows else {}
-    network = first.get('network') or first.get('args', {}).get('network')
-    dataset = first.get('dataset') or first.get('args', {}).get('dataset')
+    network, dataset = _metadata(rows)
+    if network == 'unknown_network':
+        network = ''
+    if dataset == 'unknown_dataset':
+        dataset = ''
     if network and dataset:
         return f'Masking sweep: {network} / {dataset}'
     if network or dataset:
@@ -206,6 +234,7 @@ def _plot(rows, threshold, out_dir):
     n_total = max(r['n_total'] for r in rows)
     title = _plot_title(rows)
     ylabel = f'Images reconstructed (MSE <= {threshold})'
+    suffix = _output_suffix(rows, threshold)
 
     fig, ax = plt.subplots(figsize=(12, 5))
     sns.lineplot(
@@ -222,7 +251,7 @@ def _plot(rows, threshold, out_dir):
     _rotate_xlabels(ax)
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
-    path = os.path.join(out_dir, 'sweep_plot.png')
+    path = os.path.join(out_dir, f'sweep_plot_{suffix}.png')
     if safe_savefig(fig, path, dpi=150):
         print(f'Saved: {path}')
     plt.close(fig)
@@ -242,7 +271,7 @@ def _plot(rows, threshold, out_dir):
     _rotate_xlabels(ax)
     ax.set_ylim(0, n_total + 0.5)
     fig.tight_layout()
-    path = os.path.join(out_dir, 'sweep_bar.png')
+    path = os.path.join(out_dir, f'sweep_bar_{suffix}.png')
     if safe_savefig(fig, path, dpi=150):
         print(f'Saved: {path}')
     plt.close(fig)
@@ -280,7 +309,7 @@ def main():
     if not safe_makedirs(out_dir):
         return
 
-    _write_summary(rows, out_dir)
+    _write_summary(rows, args.threshold_mse, out_dir)
     _plot(rows, args.threshold_mse, out_dir)
 
 

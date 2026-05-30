@@ -122,6 +122,7 @@ python helper/plot_masking_sweep_csv.py results/masking_sweeps/<sweep_csv>.csv
 
 The default reconstruction threshold is `--threshold_mse 0.01`.
 The summary CSV includes `network` and `dataset`, and the generated plot titles show both.
+Saved filenames include the network, dataset, and threshold.
 If the sweep contains a masked `topfrac=1.0` row, it is kept alongside the unmasked iDLG baseline as a separate `0% masked` point/bar.
 
 ---

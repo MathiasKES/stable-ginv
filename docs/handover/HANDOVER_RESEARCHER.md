@@ -194,7 +194,7 @@ For each experiment, the flow is:
 - `functions/experiment_results.py` owns repeated result aggregation, restart best selection, paired summaries, CSV row building, masking sweep CSV writes, and final summary printing.
 - `functions/io_utils.py` now includes reusable numeric summary helpers, CSV append helpers, and shared project/HPC storage path resolution. `show_img.py` uses the same storage resolver.
 - `helper/visualization.py` now owns reconstruction panel buffering plus restart curve and restart image outputs.
-- `helper/plot_masking_sweep_csv.py` now owns registry-backed masking sweep plotting. It moved out of `scripts/`, `--threshold_mse` defaults to `0.01`, the summary CSV includes `network`/`dataset`, generated plot titles show both, and a masked `topfrac=1.0` row is kept separately from the unmasked iDLG baseline.
+- `helper/plot_masking_sweep_csv.py` now owns registry-backed masking sweep plotting. It moved out of `scripts/`, `--threshold_mse` defaults to `0.01`, output filenames include network/dataset/threshold, the summary CSV includes `network`/`dataset`, generated plot titles show both, and a masked `topfrac=1.0` row is kept separately from the unmasked iDLG baseline.
 - Statistical chart plotting in active scripts now uses seaborn. Matplotlib remains the backend for image display, axes labels, layout, and file saving.
 - Verification after the cleanup: `python -m pytest tests/ -v` passed with 45 tests.
 
@@ -222,7 +222,7 @@ For each experiment, the flow is:
 **Session 2026-05-29 (masking sweep simplification):**
 - `helper/masking_sweep.py` deleted. There is no separate experiment-side sweep runner.
 - `iDLG_mask.py` normal runs now handle sweep data for `gradsize_topfrac_entries_layer`: each run still saves a masked registry entry, and appends `command`, `topfrac`, and `masked_key` to a config-specific CSV in `results/masking_sweeps/`. The sweep CSV filename hashes the masked registry comparable args with `gradsize_topfrac` removed, so all fractions for the same setup land in one file.
-- `helper/plot_masking_sweep_csv.py` added. It reads the sweep CSV, resolves each `masked_key` in `results/baselines/masked_registry.json`, computes reconstructed counts from `best_mse_list` using the supplied threshold, and writes `masking_sweep_summary.csv`, `sweep_plot.png`, and `sweep_bar.png`. It also derives the matching baseline key from the masked registry args and includes the baseline as 0% masked when available.
+- `helper/plot_masking_sweep_csv.py` added. It reads the sweep CSV, resolves each `masked_key` in `results/baselines/masked_registry.json`, computes reconstructed counts from `best_mse_list` using the supplied threshold, and writes `masking_sweep_summary_<network>_<dataset>_threshold_<value>.csv`, `sweep_plot_<network>_<dataset>_threshold_<value>.png`, and `sweep_bar_<network>_<dataset>_threshold_<value>.png`. It also derives the matching baseline key from the masked registry args and includes the baseline as 0% masked when available.
 - Main `exp_results_<network>.csv` rows now include `registry_key` as the last column. iDLG rows use the baseline key; masked rows use the masked registry key.
 
 **Session 2026-05-29 (Jacobian rank dtype comparison):**

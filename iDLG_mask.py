@@ -6,14 +6,6 @@ from torchvision import transforms
 from datetime import datetime
 
 import torch.multiprocessing as mp
-from helper.visualization import (
-    append_result_to_panel_buffers,
-    create_panel_buffers,
-    flush_recon_panel,
-    save_recon_gif,
-    save_restart_curve,
-    save_restart_images,
-)
 from functions.experiment_results import (
     append_result_metrics,
     build_common_csv_fields,
@@ -51,6 +43,14 @@ def main():
     timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
     out_path = setstdout(ts=timestamp_str)
     args = parse_idlg_args(sys.argv)
+    from helper.visualization import (
+        append_result_to_panel_buffers,
+        create_panel_buffers,
+        flush_recon_panel,
+        save_recon_gif,
+        save_restart_curve,
+        save_restart_images,
+    )
 
     # -------- Masking config --------
     MASK_MODE = args.mask_mode

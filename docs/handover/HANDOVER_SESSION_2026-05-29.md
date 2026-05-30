@@ -83,6 +83,8 @@ The plotting script loads `results/baselines/masked_registry.json` by default, r
 - `sweep_plot.png`
 - `sweep_bar.png`
 
+Current naming now appends network, dataset, and threshold to those files, e.g. `sweep_plot_vgg13_cifar100_threshold_0p01.png`.
+
 Pass `--registry_path <path>` or `--baseline_registry_path <path>` only if the registries are not in the default `results/baselines/` location relative to the sweep CSV. Pass `--no_baseline` to omit the baseline point.
 
 ### Main results CSV now links to registries
