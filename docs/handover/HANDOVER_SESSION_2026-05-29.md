@@ -194,3 +194,25 @@ The SVD info line previously only printed the bottom-10 singular values. It now 
 ```
 
 This makes it easy to see whether the bottom singular values have comfortable margin above the threshold or are borderline.
+
+---
+
+## Changes (Claude session — 2026-05-30)
+
+### Fix masking sweep CSV grouping — `a7cef13`
+
+**Files:** `iDLG_mask.py`
+
+Previously, the sweep CSV filename hash included `run_id` and `num_exp` (via `masked_comparable_args`). Since these differ between job submissions, each run produced a unique hash → one CSV per run, rather than one CSV per config. Runs with the same setup but different topfrac values were not being grouped together.
+
+Fix: `run_id`, `num_exp`, and `gradsize_topk` are now excluded from the hash before it is computed. The CSV filename now depends only on the structural config (network, dataset, optimizer, lr, gamma, grad_loss, iteration, tv_weight, num_restarts, mask_mode, gradsize_metric, prefixes). All topfrac values for the same config now append to the same file regardless of batch size or random seed.
+
+**Compatibility:** Existing CSVs on the HPC were named with the old hash and will not match new runs. The underlying data is preserved in `masked_registry.json` and can be re-plotted with `scripts/plot_masking_sweep_csv.py`.
+
+---
+
+### Add `sample_indices` column to Jacobian rank sweep CSV — `a7cef13`
+
+**Files:** `functions/jacobian_rank_sweep.py`
+
+The CSV output now includes a `sample_indices` column (semicolon-separated dataset indices) in the same order as `per_sample_ranks`. This makes it possible to identify which dataset image produced an anomalous rank (e.g. rank=2904 vs 3072) without needing to reproduce the random seed manually.
