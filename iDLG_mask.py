@@ -63,7 +63,17 @@ def _load_visualization_helpers():
         print("[WARNING] Experiments will continue; use registry/CSV outputs to plot later.")
 
         def create_panel_buffers():
-            return {"disabled": True}
+            return {
+                "gt": [],
+                "idlg": [],
+                "masked": [],
+                "psnr_idlg": [],
+                "ssim_idlg": [],
+                "mse_idlg": [],
+                "psnr_masked": [],
+                "ssim_masked": [],
+                "mse_masked": [],
+            }
 
         def append_result_to_panel_buffers(result, buffers, to_pil, warn_fn):
             return None
