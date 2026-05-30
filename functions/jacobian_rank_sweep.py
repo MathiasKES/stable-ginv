@@ -515,16 +515,19 @@ def main():
     with open(csv_path, "w", newline="") as f:
         writer = csv.writer(f)
         header = ["rows_used", "mean_rank", "std_rank",
-                  "unknowns", "num_samples", "jacobian_select_mode", "dtype", "independent", "per_sample_ranks"]
+                  "unknowns", "num_samples", "jacobian_select_mode", "dtype", "independent",
+                  "sample_indices", "per_sample_ranks"]
         if args.qr_pivot:
             header += ["mean_rank_qr", "std_rank_qr", "per_sample_ranks_qr"]
         writer.writerow(header)
+        sample_indices_str = ";".join(str(i) for i in sample_indices)
         for dtype_name, run in runs.items():
             rank_results = run["rank_results"]
             rank_results_qr = run["rank_results_qr"]
             for i, (x, m, s) in enumerate(zip(run["xs"], run["mean_ranks"], run["std_ranks"])):
                 ranks_str = ";".join(str(r) for r in rank_results[x])
-                row = [x, m, s, unknowns, args.num_samples, args.jacobian_select_mode, dtype_name, args.independent, ranks_str]
+                row = [x, m, s, unknowns, args.num_samples, args.jacobian_select_mode, dtype_name, args.independent,
+                       sample_indices_str, ranks_str]
                 if rank_results_qr is not None:
                     ranks_qr_str = ";".join(str(r) for r in rank_results_qr[x])
                     row += [run["mean_ranks_qr"][i], run["std_ranks_qr"][i], ranks_qr_str]

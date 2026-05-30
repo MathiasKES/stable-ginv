@@ -1321,7 +1321,8 @@ def main():
             return
 
         sweep_file_args = dict(masked_comparable_args)
-        sweep_file_args.pop("gradsize_topfrac", None)
+        for _drop in ("gradsize_topfrac", "gradsize_topk", "run_id", "num_exp"):
+            sweep_file_args.pop(_drop, None)
         key_json = json.dumps(sweep_file_args, sort_keys=True, separators=(",", ":"))
         key_hash = hashlib.md5(key_json.encode("utf-8")).hexdigest()[:12]
         sweep_dir = os.path.join(save_path, "masking_sweeps")
