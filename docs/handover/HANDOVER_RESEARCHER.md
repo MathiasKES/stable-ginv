@@ -2,7 +2,7 @@
 
 **Audience:** A developer or researcher who is continuing active work on this codebase — adding new masking modes, running new experiments, debugging, or extending the pipeline.
 
-**Last updated:** 2026-05-30
+**Last updated:** 2026-05-31
 
 ---
 
@@ -174,6 +174,9 @@ For each experiment, the flow is:
 - **`invertinggradients/` is a submodule:** It has its own `.git`. Do not commit files inside it to the main repo. If you need to update it: `cd invertinggradients && git pull`.
 - **Plotting convention:** Statistical plots use seaborn (`sns.lineplot`, `sns.barplot`) with matplotlib only for figure creation, labels, saving, and image rendering (`imshow`). Reconstruction panels and GIF frames remain matplotlib image displays because seaborn does not replace RGB image rendering.
 - **Matplotlib backend:** `helper/visualization.py` line 2 forces `matplotlib.use("Agg")` for headless operation. Do not call `matplotlib.pyplot` before this runs in any file that uses visualization.
+- **HPC C++ runtime path:** After activating the conda environment on DTU HPC, run `export LD_LIBRARY_PATH="$CONDA_PREFIX/lib:$LD_LIBRARY_PATH"` before Python. Without this, compiled SciPy/Matplotlib extensions may load the old system `/lib64/libstdc++.so.6` and fail with `CXXABI_1.3.15 not found`. Add the export to job scripts before the Python command.
+- **Optional plotting fallback:** `iDLG_mask.py` lazy-loads visualization helpers. If Matplotlib/Seaborn cannot import, experiments continue without PNG panels, GIFs, or restart plots; registry JSON and CSV outputs are still written so plots can be generated later.
+- **Optional SciPy stats fallback:** `functions/io_utils.py` lazy-loads `scipy.stats` only when paired comparisons are needed. If SciPy cannot import, paired p-values and Shapiro-Wilk normality checks are skipped and the CI uses a normal-approximation critical value. Fix the HPC library path before producing final statistical results.
 - **HPC scripts:** `scripts/` targets the DTU HPC cluster (LSF job scheduler). The `init.sh` sets up the conda environment from `environment.yml`.
 - **No argparse in `run_single_exp.py`:** Configuration is via editing the `config` dict. `iDLG_mask.py` does have full argparse CLI support.
 - **Last FC layer always unmasked:** `build_gradient_mask` unconditionally preserves the last `nn.Linear` layer regardless of mask mode. This is intentional — it guarantees the iDLG label-recovery trick always has the gradient it needs. Do not bypass this by calling the individual masking functions directly.
@@ -197,6 +200,12 @@ For each experiment, the flow is:
 - `helper/plot_masking_sweep_csv.py` now owns registry-backed masking sweep plotting. It moved out of `scripts/`, `--threshold_mse` defaults to `0.01`, output filenames include network/dataset/threshold, the summary CSV includes `network`/`dataset`, generated plot titles show both, and a masked `topfrac=1.0` row is kept separately from the unmasked iDLG baseline.
 - Statistical chart plotting in active scripts now uses seaborn. Matplotlib remains the backend for image display, axes labels, layout, and file saving.
 - Verification after the cleanup: `python -m pytest tests/ -v` passed with 45 tests.
+
+**Session 2026-05-31 (HPC compiled-library resilience):**
+- DTU HPC jobs must prepend `$CONDA_PREFIX/lib` to `LD_LIBRARY_PATH` so compiled SciPy/Matplotlib extensions load conda's `libstdc++.so.6`.
+- `iDLG_mask.py` now lazy-loads visualization helpers and continues in no-plot mode if plotting libraries cannot import.
+- `functions/io_utils.py` now lazy-loads `scipy.stats`; unavailable SciPy no longer prevents experiment startup.
+- `safe_savefig()` catches plotting exceptions and logs a warning instead of aborting the run.
 
 **First session (2026-05-22 / early 2026-05-23):**
 - `functions/masking.py` — last FC layer always preserved in `build_gradient_mask` (tensor-wise: union into keep_ids; entry-wise: all-True override); `_grad_magnitude` helper extracted; `gradsize_threshold` mode and parameter removed; `gradsize_topfrac_entries_layer` and `gradsize_topk_entries_layer` modes added (per-tensor independent selection via `get_entry_masks_by_prefix_group` with all param names as groups)

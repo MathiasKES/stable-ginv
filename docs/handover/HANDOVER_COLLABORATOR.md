@@ -2,7 +2,7 @@
 
 **Audience:** A new collaborator joining the bachelor's project who needs to understand the research context, set up the environment, and run their first experiment.
 
-**Last updated:** 2026-05-30
+**Last updated:** 2026-05-31
 
 ---
 
@@ -94,7 +94,14 @@ conda activate stable-ginv  # name may differ — check environment.yml first li
 python -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_name(0))"
 ```
 
-**On DTU HPC:** Use `scripts/init.sh` to load required modules before activating the conda environment.
+**On DTU HPC:** Use `scripts/init.sh` to load required modules before activating the conda environment. After activation, prepend the conda library path so SciPy and Matplotlib load the correct C++ runtime:
+
+```bash
+export LD_LIBRARY_PATH="$CONDA_PREFIX/lib:$LD_LIBRARY_PATH"
+python -c "import scipy; import matplotlib; import seaborn; print('imports ok')"
+```
+
+Add the same `export` line to job scripts before the Python command. If it is missing, imports may fail with `CXXABI_1.3.15 not found`. `iDLG_mask.py` can continue without plots, but final jobs should use the correct library path so PNG/GIF outputs and full paired statistics are available.
 
 ---
 

@@ -2,7 +2,7 @@
 
 **Audience:** An agent or developer performing a targeted code review or cleanup task. Read this before touching any file.
 
-**Last updated:** 2026-05-30
+**Last updated:** 2026-05-31
 
 ---
 
@@ -122,6 +122,10 @@ Moved to `archive/`. Nothing imports from it.
 
 **Matplotlib Agg backend:** `helper/visualization.py` line 2 sets `matplotlib.use("Agg")` before importing pyplot. This must remain the first import in any file that uses matplotlib, or it will crash on headless servers.
 
+**HPC compiled libraries:** DTU HPC jobs need `export LD_LIBRARY_PATH="$CONDA_PREFIX/lib:$LD_LIBRARY_PATH"` after conda activation and before Python. Otherwise SciPy/Matplotlib may load `/lib64/libstdc++.so.6` and fail with `CXXABI_1.3.15 not found`.
+
+**Degraded mode:** `iDLG_mask.py::_load_visualization_helpers()` deliberately falls back to no-op plotting helpers if Matplotlib/Seaborn cannot import. `functions/io_utils.py::_load_scipy_stats()` similarly defers SciPy import and skips p-values/Shapiro checks when unavailable. Preserve registry/CSV writes when changing these paths.
+
 ---
 
 ## 6. How to Verify Nothing Is Broken
@@ -131,6 +135,12 @@ Moved to `archive/`. Nothing imports from it.
 python -m pytest tests/ -v
 ```
 45 tests covering masking routing paths, last-FC invariant, per-layer entry modes, gradient flattening, and safe I/O helpers. Should pass quickly on CPU.
+
+**DTU HPC import check:**
+```bash
+export LD_LIBRARY_PATH="$CONDA_PREFIX/lib:$LD_LIBRARY_PATH"
+python -c "import scipy; import matplotlib; import seaborn; print('imports ok')"
+```
 
 **Manual checks:**
 

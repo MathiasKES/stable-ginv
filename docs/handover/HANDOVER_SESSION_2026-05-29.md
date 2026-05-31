@@ -217,3 +217,27 @@ Fix: `run_id`, `num_exp`, and `gradsize_topk` are now excluded from the hash bef
 **Files:** `functions/jacobian_rank_sweep.py`
 
 The CSV output now includes a `sample_indices` column (semicolon-separated dataset indices) in the same order as `per_sample_ranks`. This makes it possible to identify which dataset image produced an anomalous rank (e.g. rank=2904 vs 3072) without needing to reproduce the random seed manually.
+
+---
+
+## Changes (Codex session — 2026-05-31)
+
+### DTU HPC compiled-library resilience — `645519b`, `ad80623`
+
+DTU HPC Python processes were loading the old system `/lib64/libstdc++.so.6` instead of the conda environment library. Compiled SciPy and Matplotlib extensions then failed with:
+
+```text
+version `CXXABI_1.3.15' not found
+```
+
+Permanent jobscript fix after conda activation:
+
+```bash
+export LD_LIBRARY_PATH="$CONDA_PREFIX/lib:$LD_LIBRARY_PATH"
+```
+
+Code resilience changes:
+- `functions/io_utils.py` lazy-loads `scipy.stats`. If unavailable, experiment startup continues; paired p-values and Shapiro-Wilk normality checks are skipped, and CI calculation falls back to a normal-approximation critical value.
+- `iDLG_mask.py` lazy-loads visualization helpers. If Matplotlib/Seaborn cannot import, experiments continue without PNG panels, GIFs, or restart plots while registry JSON and CSV outputs are still written.
+- `safe_savefig()` logs plot-save errors instead of aborting the run.
+- The initial no-plot fallback buffer bug was fixed in `ad80623`.
