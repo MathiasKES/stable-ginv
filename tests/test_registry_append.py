@@ -63,6 +63,45 @@ def test_masked_registry_rejects_overlapping_sample_ranges():
         update_masked_registry(registry, key, overlapping_args, [10, 11], [12, 13], [14, 15])
 
 
+def test_registry_overwrites_exact_existing_range_with_newest_metrics():
+    registry = {}
+    key, args = baseline_key_from_args(_args(run_id=0, num_exp=3))
+    update_idlg_baseline(registry, key, args, [1, 2, 3], [4, 5, 6], [7, 8, 9])
+
+    entry = update_idlg_baseline(registry, key, args, [10, 11, 12], [13, 14, 15], [16, 17, 18])
+
+    assert entry["args"]["num_exp"] == 3
+    assert entry["best_psnr_list"] == [10.0, 11.0, 12.0]
+    assert entry["best_mse_list"] == [13.0, 14.0, 15.0]
+    assert entry["best_ssim_list"] == [16.0, 17.0, 18.0]
+
+
+def test_registry_overwrites_contained_subrange_with_newest_metrics():
+    registry = {}
+    key, first_args = baseline_key_from_args(_args(run_id=0, num_exp=5))
+    _, rerun_args = baseline_key_from_args(_args(run_id=2, num_exp=2))
+    update_idlg_baseline(registry, key, first_args, [1, 2, 3, 4, 5], [6, 7, 8, 9, 10], [11, 12, 13, 14, 15])
+
+    entry = update_idlg_baseline(registry, key, rerun_args, [20, 21], [22, 23], [24, 25])
+
+    assert entry["args"]["num_exp"] == 5
+    assert entry["best_psnr_list"] == [1.0, 2.0, 20.0, 21.0, 5.0]
+    assert entry["best_mse_list"] == [6.0, 7.0, 22.0, 23.0, 10.0]
+    assert entry["best_ssim_list"] == [11.0, 12.0, 24.0, 25.0, 15.0]
+
+
+def test_registry_removes_stale_ssim_when_newest_range_has_no_ssim():
+    registry = {}
+    key, first_args = baseline_key_from_args(_args(run_id=0, num_exp=3))
+    _, rerun_args = baseline_key_from_args(_args(run_id=1, num_exp=1))
+    update_idlg_baseline(registry, key, first_args, [1, 2, 3], [4, 5, 6], [7, 8, 9])
+
+    entry = update_idlg_baseline(registry, key, rerun_args, [10], [11], [])
+
+    assert "best_ssim_list" not in entry
+    assert entry["best_ssim_by_run_id"] == {"0": 7.0, "2": 9.0}
+
+
 def test_registry_copies_legacy_key_before_append_without_editing_old_entry():
     registry = {}
     key, first_args = baseline_key_from_args(_args(run_id=0, num_exp=3))
@@ -98,6 +137,25 @@ def test_registry_seeds_v2_from_read_only_legacy_entry():
     assert legacy_registry == {"legacy-key": legacy_entry}
     assert list(writable_registry) == [key]
     assert writable_registry[key]["best_psnr_list"] == [1.0, 2.0, 3.0, 10.0, 11.0]
+
+
+def test_registry_replaces_read_only_legacy_range_in_v2_with_new_ssim():
+    writable_registry = {}
+    key, args = baseline_key_from_args(_args(run_id=0, num_exp=3))
+    legacy_entry = {
+        "args": args,
+        "best_psnr_list": [1.0, 2.0, 3.0],
+        "best_mse_list": [4.0, 5.0, 6.0],
+    }
+    legacy_registry = {"legacy-key": legacy_entry}
+
+    seed_registry_entry_from_fallback(writable_registry, legacy_registry, key, args)
+    entry = update_idlg_baseline(writable_registry, key, args, [10, 11, 12], [13, 14, 15], [16, 17, 18])
+
+    assert legacy_registry == {"legacy-key": legacy_entry}
+    assert entry["best_psnr_list"] == [10.0, 11.0, 12.0]
+    assert entry["best_mse_list"] == [13.0, 14.0, 15.0]
+    assert entry["best_ssim_list"] == [16.0, 17.0, 18.0]
 
 
 def test_registry_keeps_missing_historical_ssim_sparse_before_append():

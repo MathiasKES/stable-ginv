@@ -405,9 +405,40 @@ def seed_registry_entry_from_fallback(registry, fallback_registry, key, comparab
         registry[key] = copy.deepcopy(entry)
 
 
+def _replace_ssim_range(entry, stored_start, stored_count, incoming_start,
+                        incoming_count, incoming_ssim):
+    """Replace SSIM values for one stored range while preserving sparse legacy gaps."""
+    replace_ids = {str(incoming_start + offset) for offset in range(incoming_count)}
+    sparse_ssim = {
+        str(stored_start + offset): float(value)
+        for offset, value in enumerate(entry.get("best_ssim_list", []))
+    }
+    sparse_ssim.update({
+        str(run_id): float(value)
+        for run_id, value in entry.get("best_ssim_by_run_id", {}).items()
+    })
+    for run_id in replace_ids:
+        sparse_ssim.pop(run_id, None)
+    sparse_ssim.update({
+        str(incoming_start + offset): value
+        for offset, value in enumerate(incoming_ssim)
+    })
+
+    dense_ssim = [
+        sparse_ssim.get(str(stored_start + offset))
+        for offset in range(stored_count)
+    ]
+    if all(value is not None for value in dense_ssim):
+        entry["best_ssim_list"] = dense_ssim
+        entry.pop("best_ssim_by_run_id", None)
+    else:
+        entry.pop("best_ssim_list", None)
+        entry["best_ssim_by_run_id"] = sparse_ssim
+
+
 def _update_registry_entry(registry, key, comparable_args, best_psnr_list,
                            best_mse_list, best_ssim_list, label):
-    """Store metrics for a sample range, appending only contiguous later ranges."""
+    """Store metrics for a sample range, appending or replacing contained ranges."""
     incoming = {
         "best_psnr_list": [float(v) for v in best_psnr_list],
         "best_mse_list": [float(v) for v in best_mse_list],
@@ -447,6 +478,20 @@ def _update_registry_entry(registry, key, comparable_args, best_psnr_list,
     if len(stored_ssim_list) > stored_count:
         raise ValueError(f"Stored {label} SSIM list is longer than the PSNR list.")
     expected_start = stored_start + stored_count
+    incoming_end = incoming_start + incoming_count
+    if stored_start <= incoming_start and incoming_end <= expected_start:
+        offset = incoming_start - stored_start
+        entry["best_psnr_list"][offset:offset + incoming_count] = incoming["best_psnr_list"]
+        entry["best_mse_list"][offset:offset + incoming_count] = incoming["best_mse_list"]
+        _replace_ssim_range(
+            entry, stored_start, stored_count, incoming_start, incoming_count,
+            incoming["best_ssim_list"],
+        )
+        print(
+            f"\nReplaced {incoming_count} existing {label} sample(s) for "
+            f"run_id={incoming_start}..{incoming_end - 1}."
+        )
+        return entry
     if incoming_start != expected_start:
         raise ValueError(
             f"Cannot append {label} run_id={incoming_start}: stored samples cover "
