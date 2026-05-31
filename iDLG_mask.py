@@ -27,7 +27,8 @@ from functions.io_utils import (baseline_key_from_args,
     load_baseline_registry, save_baseline_registry, update_idlg_baseline,
     write_baseline_summary_csv, parse_prefixes_with_fracs, masked_key_from_args,
     load_masked_registry, save_masked_registry, update_masked_registry,
-    append_csv_rows, resolve_storage_paths, safe_makedirs)
+    append_csv_rows, find_registry_entry, resolve_storage_paths, safe_makedirs,
+    seed_registry_entry_from_fallback)
 from functions.Dataset import load_dataset
 from run_single_exp import run_single_experiment
 from tqdm import tqdm
@@ -154,9 +155,11 @@ def main():
     
     # Set paths
     baseline_dir = os.path.join(save_path, "baselines")
-    baseline_registry_path = os.path.join(baseline_dir, "idlg_baselines_registry.json")
-    baseline_summary_csv_path = os.path.join(baseline_dir, "idlg_baselines_summary.csv")
-    masked_registry_path = os.path.join(baseline_dir, "masked_registry.json")
+    legacy_baseline_registry_path = os.path.join(baseline_dir, "idlg_baselines_registry.json")
+    baseline_registry_path = os.path.join(baseline_dir, "idlg_baselines_registry_v2.json")
+    baseline_summary_csv_path = os.path.join(baseline_dir, "idlg_baselines_summary_v2.csv")
+    legacy_masked_registry_path = os.path.join(baseline_dir, "masked_registry.json")
+    masked_registry_path = os.path.join(baseline_dir, "masked_registry_v2.json")
 
     print(dataset, 'root_path:', root_path)
     print(dataset, 'data_path:', data_path)
@@ -398,13 +401,23 @@ def main():
 
     elif METHODS == "masked":
         registry = load_baseline_registry(baseline_registry_path)
+        legacy_registry = load_baseline_registry(legacy_baseline_registry_path)
+        stored_baseline_key, baseline_entry = find_registry_entry(
+            registry, baseline_key, comparable_args
+        )
+        if baseline_entry is None:
+            stored_baseline_key, baseline_entry = find_registry_entry(
+                legacy_registry, baseline_key, comparable_args
+            )
 
-        if baseline_key not in registry:
+        if baseline_entry is None:
             print("\nWARNING: No matching iDLG baseline found for this masked run.")
             print("Run the same command with --methods idlg first, using the same non-mask arguments.")
             print(f"Expected baseline key: {baseline_key}")
         else:
-            paired_report = paired_report_for_masked(all_results_by_idx, registry[baseline_key], run_id)
+            if stored_baseline_key != baseline_key:
+                print(f"\nLoaded legacy iDLG baseline entry: {stored_baseline_key}")
+            paired_report = paired_report_for_masked(all_results_by_idx, baseline_entry, run_id)
 
     # -------- Compute statistics --------
     stats = compute_aggregate_stats(metric_accumulators)
@@ -415,6 +428,8 @@ def main():
         )
 
         registry = load_baseline_registry(baseline_registry_path)
+        legacy_registry = load_baseline_registry(legacy_baseline_registry_path)
+        seed_registry_entry_from_fallback(registry, legacy_registry, baseline_key, comparable_args)
 
         update_idlg_baseline(
             registry,
@@ -439,7 +454,11 @@ def main():
 
     if METHODS in ["masked", "both"] and metric_accumulators["best_psnr_masked"]:
         masked_registry = load_masked_registry(masked_registry_path)
+        legacy_masked_registry = load_masked_registry(legacy_masked_registry_path)
         masked_key, masked_comparable_args = masked_key_from_args(args)
+        seed_registry_entry_from_fallback(
+            masked_registry, legacy_masked_registry, masked_key, masked_comparable_args
+        )
         update_masked_registry(
             masked_registry,
             masked_key,

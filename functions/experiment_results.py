@@ -282,9 +282,10 @@ def paired_report_for_masked(all_results_by_idx, baseline_entry, run_id):
     baseline_psnr_list = baseline_entry["best_psnr_list"]
     baseline_mse_list = baseline_entry["best_mse_list"]
     baseline_ssim_list = baseline_entry.get("best_ssim_list")
+    baseline_start = int(baseline_entry.get("args", {}).get("run_id", 0))
     if baseline_ssim_list is None:
         print("WARNING: iDLG baseline does not have an SSIM list ('best_ssim_list'); skipping SSIM comparison.")
-    n_total = len(baseline_psnr_list)
+    n_total = len(all_results_by_idx)
 
     paired_values = {
         "mse_idlg": [],
@@ -296,12 +297,21 @@ def paired_report_for_masked(all_results_by_idx, baseline_entry, run_id):
     }
     for idx in sorted(all_results_by_idx):
         result = all_results_by_idx[idx]
+        baseline_idx = run_id - baseline_start + idx
+        if baseline_idx < 0 or baseline_idx >= len(baseline_psnr_list):
+            raise ValueError(
+                f"No stored iDLG baseline for run_id={run_id + idx}. "
+                f"Available baseline samples cover run_id={baseline_start}.."
+                f"{baseline_start + len(baseline_psnr_list) - 1}."
+            )
 
-        psnr_baseline = baseline_psnr_list[idx]
+        psnr_baseline = baseline_psnr_list[baseline_idx]
         psnr_masked = result.get("best_psnr_masked")
-        mse_baseline = baseline_mse_list[idx]
+        mse_baseline = baseline_mse_list[baseline_idx]
         mse_masked = result.get("best_mse_iDLG_masked")
-        ssim_baseline = baseline_ssim_list[idx] if baseline_ssim_list is not None else None
+        ssim_baseline = baseline_entry.get("best_ssim_by_run_id", {}).get(str(run_id + idx))
+        if ssim_baseline is None and baseline_ssim_list is not None and baseline_idx < len(baseline_ssim_list):
+            ssim_baseline = baseline_ssim_list[baseline_idx]
         ssim_masked = result.get("best_ssim_masked")
 
         all_valid = (
@@ -316,7 +326,10 @@ def paired_report_for_masked(all_results_by_idx, baseline_entry, run_id):
         paired_values["psnr_masked"].append(psnr_masked)
         paired_values["mse_idlg"].append(mse_baseline)
         paired_values["mse_masked"].append(mse_masked)
-        if ssim_baseline is not None and ssim_masked is not None:
+        if (
+            ssim_baseline is not None and ssim_masked is not None and
+            np.isfinite(ssim_baseline) and np.isfinite(ssim_masked)
+        ):
             paired_values["ssim_idlg"].append(ssim_baseline)
             paired_values["ssim_masked"].append(ssim_masked)
 

@@ -1,0 +1,170 @@
+from types import SimpleNamespace
+
+import pytest
+
+from functions.experiment_results import paired_report_for_masked
+from functions.io_utils import (
+    baseline_key_from_args,
+    masked_key_from_args,
+    seed_registry_entry_from_fallback,
+    update_idlg_baseline,
+    update_masked_registry,
+)
+
+
+def _args(run_id, num_exp):
+    return SimpleNamespace(
+        dataset="cifar100",
+        network="resnet18",
+        pretrained=False,
+        lr=1.0,
+        gamma=0.5,
+        grad_loss="cos",
+        num_dummy=1,
+        iteration=1000,
+        num_exp=num_exp,
+        run_id=run_id,
+        tv_weight=0.0,
+        optimizer="lbfgs",
+        num_restarts=1,
+        max_iteration=20,
+        history_size=100,
+        mask_mode="gradsize_topfrac_entries_layer",
+        gradsize_topk=20,
+        gradsize_topfrac=0.5,
+        gradsize_metric="l2",
+        prefixes="",
+    )
+
+
+def test_baseline_registry_appends_contiguous_sample_ranges():
+    registry = {}
+    first_key, first_args = baseline_key_from_args(_args(run_id=0, num_exp=3))
+    second_key, second_args = baseline_key_from_args(_args(run_id=3, num_exp=2))
+
+    assert first_key == second_key
+    update_idlg_baseline(registry, first_key, first_args, [1, 2, 3], [4, 5, 6], [7, 8, 9])
+    entry = update_idlg_baseline(registry, second_key, second_args, [10, 11], [12, 13], [14, 15])
+
+    assert entry["args"]["run_id"] == 0
+    assert entry["args"]["num_exp"] == 5
+    assert entry["best_psnr_list"] == [1.0, 2.0, 3.0, 10.0, 11.0]
+    assert entry["best_mse_list"] == [4.0, 5.0, 6.0, 12.0, 13.0]
+    assert entry["best_ssim_list"] == [7.0, 8.0, 9.0, 14.0, 15.0]
+
+
+def test_masked_registry_rejects_overlapping_sample_ranges():
+    registry = {}
+    key, first_args = masked_key_from_args(_args(run_id=0, num_exp=3))
+    _, overlapping_args = masked_key_from_args(_args(run_id=2, num_exp=2))
+
+    update_masked_registry(registry, key, first_args, [1, 2, 3], [4, 5, 6], [7, 8, 9])
+    with pytest.raises(ValueError, match=r"next run must use --run_id 3"):
+        update_masked_registry(registry, key, overlapping_args, [10, 11], [12, 13], [14, 15])
+
+
+def test_registry_copies_legacy_key_before_append_without_editing_old_entry():
+    registry = {}
+    key, first_args = baseline_key_from_args(_args(run_id=0, num_exp=3))
+    _, second_args = baseline_key_from_args(_args(run_id=3, num_exp=2))
+    legacy_entry = {
+        "args": first_args,
+        "best_psnr_list": [1.0, 2.0, 3.0],
+        "best_mse_list": [4.0, 5.0, 6.0],
+        "best_ssim_list": [7.0, 8.0, 9.0],
+    }
+    registry["legacy-key"] = legacy_entry
+
+    update_idlg_baseline(registry, key, second_args, [10, 11], [12, 13], [14, 15])
+
+    assert registry["legacy-key"] == legacy_entry
+    assert registry[key]["args"]["num_exp"] == 5
+    assert registry[key]["best_psnr_list"] == [1.0, 2.0, 3.0, 10.0, 11.0]
+
+
+def test_registry_seeds_v2_from_read_only_legacy_entry():
+    writable_registry = {}
+    key, args = baseline_key_from_args(_args(run_id=3, num_exp=2))
+    legacy_entry = {
+        "args": baseline_key_from_args(_args(run_id=0, num_exp=3))[1],
+        "best_psnr_list": [1.0, 2.0, 3.0],
+        "best_mse_list": [4.0, 5.0, 6.0],
+    }
+    legacy_registry = {"legacy-key": legacy_entry}
+
+    seed_registry_entry_from_fallback(writable_registry, legacy_registry, key, args)
+    update_idlg_baseline(writable_registry, key, args, [10, 11], [12, 13], [14, 15])
+
+    assert legacy_registry == {"legacy-key": legacy_entry}
+    assert list(writable_registry) == [key]
+    assert writable_registry[key]["best_psnr_list"] == [1.0, 2.0, 3.0, 10.0, 11.0]
+
+
+def test_registry_keeps_missing_historical_ssim_sparse_before_append():
+    registry = {}
+    key, first_args = baseline_key_from_args(_args(run_id=0, num_exp=3))
+    _, second_args = baseline_key_from_args(_args(run_id=3, num_exp=2))
+    registry[key] = {
+        "args": first_args,
+        "best_psnr_list": [1.0, 2.0, 3.0],
+        "best_mse_list": [4.0, 5.0, 6.0],
+    }
+
+    entry = update_idlg_baseline(registry, key, second_args, [10, 11], [12, 13], [14, 15])
+
+    assert "best_ssim_list" not in entry
+    assert entry["best_ssim_by_run_id"] == {"3": 14.0, "4": 15.0}
+
+
+def test_masked_only_comparison_uses_run_id_offset():
+    baseline_entry = {
+        "args": {"run_id": 0, "num_exp": 4},
+        "best_psnr_list": [10.0, 20.0, 30.0, 40.0],
+        "best_mse_list": [0.4, 0.3, 0.2, 0.1],
+        "best_ssim_list": [0.1, 0.2, 0.3, 0.4],
+    }
+    results = {
+        0: {"best_psnr_masked": 31.0, "best_mse_iDLG_masked": 0.19, "best_ssim_masked": 0.31},
+        1: {"best_psnr_masked": 42.0, "best_mse_iDLG_masked": 0.08, "best_ssim_masked": 0.42},
+    }
+
+    report = paired_report_for_masked(results, baseline_entry, run_id=2)
+
+    assert report["psnr_paired_stats"]["mean_diff"] == pytest.approx(1.5)
+    assert report["mse_paired_stats"]["mean_diff"] == pytest.approx(-0.015)
+    assert report["ssim_paired_stats"]["mean_diff"] == pytest.approx(0.015)
+
+
+def test_masked_only_comparison_skips_missing_historical_ssim():
+    baseline_entry = {
+        "args": {"run_id": 0, "num_exp": 3},
+        "best_psnr_list": [10.0, 20.0, 30.0],
+        "best_mse_list": [0.4, 0.3, 0.2],
+    }
+    results = {
+        0: {"best_psnr_masked": 21.0, "best_mse_iDLG_masked": 0.29, "best_ssim_masked": 0.21},
+        1: {"best_psnr_masked": 32.0, "best_mse_iDLG_masked": 0.18, "best_ssim_masked": 0.32},
+    }
+
+    report = paired_report_for_masked(results, baseline_entry, run_id=1)
+
+    assert report["psnr_paired_stats"]["mean_diff"] == pytest.approx(1.5)
+    assert report["mse_paired_stats"]["mean_diff"] == pytest.approx(-0.015)
+    assert report["ssim_ci_str"] == ""
+
+
+def test_masked_only_comparison_uses_sparse_future_ssim():
+    baseline_entry = {
+        "args": {"run_id": 0, "num_exp": 4},
+        "best_psnr_list": [10.0, 20.0, 30.0, 40.0],
+        "best_mse_list": [0.4, 0.3, 0.2, 0.1],
+        "best_ssim_by_run_id": {"2": 0.3, "3": 0.4},
+    }
+    results = {
+        0: {"best_psnr_masked": 31.0, "best_mse_iDLG_masked": 0.19, "best_ssim_masked": 0.31},
+        1: {"best_psnr_masked": 42.0, "best_mse_iDLG_masked": 0.08, "best_ssim_masked": 0.42},
+    }
+
+    report = paired_report_for_masked(results, baseline_entry, run_id=2)
+
+    assert report["ssim_paired_stats"]["mean_diff"] == pytest.approx(0.015)

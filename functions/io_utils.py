@@ -1,4 +1,5 @@
 import csv
+import copy
 import hashlib
 import json
 import math
@@ -328,7 +329,7 @@ def paired_metric_summaries(paired_values):
 
 
 def masked_key_from_args(args):
-    """Hash of all hyperparameters (reconstruction + masking) for the masked registry."""
+    """Hash of masking hyperparameters, excluding the sample range for appendable runs."""
     comparable = {
         "dataset": args.dataset,
         "network": args.network,
@@ -338,8 +339,6 @@ def masked_key_from_args(args):
         "grad_loss": args.grad_loss,
         "num_dummy": args.num_dummy,
         "iteration": args.iteration,
-        "num_exp": args.num_exp,
-        "run_id": args.run_id,
         "tv_weight": args.tv_weight,
         "optimizer": args.optimizer,
         "num_restarts": args.num_restarts,
@@ -353,6 +352,8 @@ def masked_key_from_args(args):
     }
     key_json = json.dumps(comparable, sort_keys=True)
     key_hash = hashlib.md5(key_json.encode("utf-8")).hexdigest()
+    comparable["num_exp"] = args.num_exp
+    comparable["run_id"] = args.run_id
     return key_hash, comparable
 
 
@@ -369,24 +370,118 @@ def save_masked_registry(path, registry):
     return safe_write(path, lambda f: json.dump(registry, f, indent=2))
 
 
-def update_masked_registry(registry, key, comparable_args, best_psnr_list, best_mse_list, best_ssim_list):
-    """Store a single masked run entry. Overwrites any existing entry for the same key."""
+def _config_without_sample_range(args):
+    return {
+        name: value
+        for name, value in args.items()
+        if name not in ("num_exp", "run_id")
+    }
+
+
+def find_registry_entry(registry, key, comparable_args):
+    """Return a current or legacy registry entry matching one configuration."""
     if key in registry:
-        print(
-            f"\nWARNING: Overwriting existing masked registry entry for "
-            f"run_id={comparable_args.get('run_id')}, mask_mode={comparable_args.get('mask_mode')}."
+        return key, registry[key]
+    target_config = _config_without_sample_range(comparable_args)
+    matches = [
+        (stored_key, entry)
+        for stored_key, entry in registry.items()
+        if _config_without_sample_range(entry.get("args", {})) == target_config
+    ]
+    if len(matches) > 1:
+        raise ValueError(
+            "Multiple legacy registry entries match this configuration. "
+            "Merge or remove the duplicate entries before appending."
         )
-    registry[key] = {
-        "args": comparable_args,
+    return matches[0] if matches else (None, None)
+
+
+def seed_registry_entry_from_fallback(registry, fallback_registry, key, comparable_args):
+    """Copy one matching read-only fallback entry into a writable registry."""
+    if find_registry_entry(registry, key, comparable_args)[1] is not None:
+        return
+    _, entry = find_registry_entry(fallback_registry, key, comparable_args)
+    if entry is not None:
+        registry[key] = copy.deepcopy(entry)
+
+
+def _update_registry_entry(registry, key, comparable_args, best_psnr_list,
+                           best_mse_list, best_ssim_list, label):
+    """Store metrics for a sample range, appending only contiguous later ranges."""
+    incoming = {
         "best_psnr_list": [float(v) for v in best_psnr_list],
         "best_mse_list": [float(v) for v in best_mse_list],
-        "best_ssim_list": [float(v) for v in best_ssim_list],
     }
-    return registry[key]
+    lengths = {len(values) for values in incoming.values()}
+    if len(lengths) != 1:
+        raise ValueError(f"{label} PSNR and MSE lists must have equal lengths.")
+
+    incoming_start = int(comparable_args["run_id"])
+    incoming_count = lengths.pop()
+    if incoming_count != int(comparable_args["num_exp"]):
+        raise ValueError(
+            f"{label} received {incoming_count} metric values for "
+            f"num_exp={comparable_args['num_exp']}."
+        )
+    incoming["best_ssim_list"] = [float(v) for v in best_ssim_list]
+    if len(incoming["best_ssim_list"]) not in (0, incoming_count):
+        raise ValueError(f"{label} SSIM list must be empty or match the PSNR and MSE lists.")
+
+    stored_key, entry = find_registry_entry(registry, key, comparable_args)
+    if entry is None:
+        registry[key] = {
+            "args": dict(comparable_args),
+            **incoming,
+        }
+        return registry[key]
+
+    if stored_key != key:
+        entry = copy.deepcopy(entry)
+        registry[key] = entry
+        print(f"\nCopied legacy {label} registry entry to appendable key {key}.")
+
+    entry_args = entry["args"]
+    stored_start = int(entry_args["run_id"])
+    stored_count = len(entry["best_psnr_list"])
+    stored_ssim_list = entry.get("best_ssim_list", [])
+    if len(stored_ssim_list) > stored_count:
+        raise ValueError(f"Stored {label} SSIM list is longer than the PSNR list.")
+    expected_start = stored_start + stored_count
+    if incoming_start != expected_start:
+        raise ValueError(
+            f"Cannot append {label} run_id={incoming_start}: stored samples cover "
+            f"run_id={stored_start}..{expected_start - 1}, so the next run must use "
+            f"--run_id {expected_start}."
+        )
+
+    entry["best_psnr_list"].extend(incoming["best_psnr_list"])
+    entry["best_mse_list"].extend(incoming["best_mse_list"])
+    if len(stored_ssim_list) == stored_count:
+        entry.setdefault("best_ssim_list", []).extend(incoming["best_ssim_list"])
+    elif incoming["best_ssim_list"]:
+        sparse_ssim = entry.setdefault("best_ssim_by_run_id", {})
+        sparse_ssim.update({
+            str(incoming_start + offset): value
+            for offset, value in enumerate(incoming["best_ssim_list"])
+        })
+    entry_args["num_exp"] = stored_count + incoming_count
+    print(
+        f"\nAppended {incoming_count} {label} sample(s); "
+        f"registry entry now contains {entry_args['num_exp']} sample(s)."
+    )
+    return entry
+
+
+def update_masked_registry(registry, key, comparable_args, best_psnr_list, best_mse_list, best_ssim_list):
+    """Store or append a contiguous masked sample range for one configuration."""
+    return _update_registry_entry(
+        registry, key, comparable_args, best_psnr_list, best_mse_list, best_ssim_list,
+        label="masked",
+    )
 
 
 def baseline_key_from_args(args):
-    """Hash of reconstruction/data/model hyperparameters for paired baseline comparison."""
+    """Hash of baseline hyperparameters, excluding the sample range for appendable runs."""
     comparable = {
         "dataset": args.dataset,
         "network": args.network,
@@ -396,8 +491,6 @@ def baseline_key_from_args(args):
         "grad_loss": args.grad_loss,
         "num_dummy": args.num_dummy,
         "iteration": args.iteration,
-        "num_exp": args.num_exp,
-        "run_id": args.run_id,
         "tv_weight": args.tv_weight,
         "optimizer": args.optimizer,
         "num_restarts": args.num_restarts,
@@ -407,6 +500,8 @@ def baseline_key_from_args(args):
 
     key_json = json.dumps(comparable, sort_keys=True)
     key_hash = hashlib.md5(key_json.encode("utf-8")).hexdigest()
+    comparable["num_exp"] = args.num_exp
+    comparable["run_id"] = args.run_id
     return key_hash, comparable
 
 
@@ -424,21 +519,18 @@ def save_baseline_registry(path, registry):
 
 
 def update_idlg_baseline(registry, key, comparable_args, best_psnr_list, best_mse_list, best_ssim_list):
-    """Store a single iDLG baseline run. Overwrites any existing entry for the same key."""
-    if key in registry:
-        print(
-            f"\nWARNING: Overwriting existing iDLG baseline for "
-            f"run_id={comparable_args['run_id']}."
-        )
+    """Store or append a contiguous iDLG baseline sample range for one configuration."""
+    return _update_registry_entry(
+        registry, key, comparable_args, best_psnr_list, best_mse_list, best_ssim_list,
+        label="iDLG baseline",
+    )
 
-    entry = {
-        "args": comparable_args,
-        "best_psnr_list": best_psnr_list,
-        "best_mse_list": best_mse_list,
-        "best_ssim_list": best_ssim_list,
-    }
-    registry[key] = entry
-    return entry
+
+def available_ssim_values(entry):
+    """Return finite SSIM values from legacy lists and sparse future samples."""
+    values = [float(v) for v in entry.get("best_ssim_list", [])]
+    values.extend(float(v) for v in entry.get("best_ssim_by_run_id", {}).values())
+    return [value for value in values if np.isfinite(value)]
 
 
 def write_baseline_summary_csv(path, registry):
@@ -475,7 +567,7 @@ def write_baseline_summary_csv(path, registry):
         a = entry["args"]
         psnr = np.array(entry["best_psnr_list"], dtype=float)
         mse = np.array(entry["best_mse_list"], dtype=float)
-        ssim_list = entry.get("best_ssim_list", [])
+        ssim_list = available_ssim_values(entry)
         ssim = np.array(ssim_list, dtype=float)
 
         rows.append({

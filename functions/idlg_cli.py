@@ -43,7 +43,10 @@ def build_parser():
     parser.add_argument("--dataset", type=str, default="cifar100", help=(
         "Dataset to sample from: MNIST, cifar10, cifar100, or lfw."
     ))
-    parser.add_argument("--run_id", type=int, default=0, help="Integer run identifier.")
+    parser.add_argument("--run_id", type=int, default=0, help=(
+        "Start offset for this experiment batch. Use the previous accumulated sample count "
+        "to append a contiguous batch to the matching registry entry."
+    ))
     parser.add_argument("--methods", type=str, default="idlg", choices=["idlg", "masked", "both"], help=(
         "Which reconstruction method(s) to run."
     ))

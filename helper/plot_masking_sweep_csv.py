@@ -30,24 +30,32 @@ import seaborn as sns
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from functions.io_utils import safe_makedirs, safe_savefig, safe_write
+from functions.io_utils import find_registry_entry, safe_makedirs, safe_savefig, safe_write
 
 sns.set_theme(style='whitegrid')
 
 
 def _default_registry_path(csv_path):
     results_dir = os.path.dirname(os.path.dirname(os.path.abspath(csv_path)))
-    return os.path.join(results_dir, 'baselines', 'masked_registry.json')
+    return os.path.join(results_dir, 'baselines', 'masked_registry_v2.json')
 
 
 def _default_baseline_registry_path(csv_path):
     results_dir = os.path.dirname(os.path.dirname(os.path.abspath(csv_path)))
-    return os.path.join(results_dir, 'baselines', 'idlg_baselines_registry.json')
+    return os.path.join(results_dir, 'baselines', 'idlg_baselines_registry_v2.json')
 
 
 def _load_registry(path):
     with open(path) as f:
         return json.load(f)
+
+
+def _load_registry_with_legacy(path):
+    legacy_path = path.replace('_registry_v2.json', '_registry.json')
+    registry = _load_registry(legacy_path) if os.path.isfile(legacy_path) else {}
+    if os.path.isfile(path):
+        registry.update(_load_registry(path))
+    return registry
 
 
 def _baseline_key_from_masked_args(masked_args):
@@ -62,8 +70,6 @@ def _baseline_key_from_masked_args(masked_args):
             'grad_loss',
             'num_dummy',
             'iteration',
-            'num_exp',
-            'run_id',
             'tv_weight',
             'optimizer',
             'num_restarts',
@@ -108,11 +114,31 @@ def _baseline_row(rows, baseline_registry):
     if not rows:
         return None
     masked_args = rows[0].get('args', {})
+    baseline_args = {
+        key: masked_args[key]
+        for key in [
+            'dataset',
+            'network',
+            'pretrained',
+            'lr',
+            'gamma',
+            'grad_loss',
+            'num_dummy',
+            'iteration',
+            'tv_weight',
+            'optimizer',
+            'num_restarts',
+            'max_iteration',
+            'history_size',
+        ]
+        if key in masked_args
+    }
     baseline_key = _baseline_key_from_masked_args(masked_args)
-    entry = baseline_registry.get(baseline_key)
+    stored_baseline_key, entry = find_registry_entry(baseline_registry, baseline_key, baseline_args)
     if entry is None:
         print(f'No matching baseline registry entry found for baseline_key={baseline_key}')
         return None
+    baseline_key = stored_baseline_key
     mses = [float(v) for v in entry.get('best_mse_list', [])]
     if not mses:
         return None
@@ -296,16 +322,16 @@ def main():
     parser.add_argument('csv_path', help='CSV produced by normal iDLG_mask.py gradsize_topfrac_entries_layer runs')
     parser.add_argument('--threshold_mse', type=float, default=0.01)
     parser.add_argument('--registry_path', default=None,
-                        help='Masked registry JSON. Defaults to ../baselines/masked_registry.json from the sweep CSV.')
+                        help='Masked registry JSON. Defaults to merged legacy and v2 registries from the sweep CSV.')
     parser.add_argument('--baseline_registry_path', default=None,
-                        help='iDLG baseline registry JSON. Defaults to ../baselines/idlg_baselines_registry.json from the sweep CSV.')
+                        help='iDLG baseline registry JSON. Defaults to merged legacy and v2 registries from the sweep CSV.')
     parser.add_argument('--no_baseline', action='store_true',
                         help='Do not include the matching iDLG baseline as the 0%% masked point.')
     parser.add_argument('--out_dir', default=None)
     args = parser.parse_args()
 
     registry_path = args.registry_path or _default_registry_path(args.csv_path)
-    registry = _load_registry(registry_path)
+    registry = _load_registry(registry_path) if args.registry_path else _load_registry_with_legacy(registry_path)
     rows = _read_rows(args.csv_path, registry)
     if not rows:
         print('No matching rows found.')
@@ -314,7 +340,11 @@ def main():
     _warn_if_mixed_sweep_rows(rows)
     if not args.no_baseline:
         baseline_registry_path = args.baseline_registry_path or _default_baseline_registry_path(args.csv_path)
-        baseline_registry = _load_registry(baseline_registry_path)
+        baseline_registry = (
+            _load_registry(baseline_registry_path)
+            if args.baseline_registry_path
+            else _load_registry_with_legacy(baseline_registry_path)
+        )
         baseline = _baseline_row(rows, baseline_registry)
         if baseline is not None:
             rows.append(baseline)
