@@ -17,6 +17,13 @@ This is a Python 3.13 research codebase for running gradient inversion attack ex
 - CSV output format (downstream analysis scripts depend on column names)
 - Any logic inside `invertinggradients/` (it is a git submodule, treat as read-only)
 
+**When updating handover files:**
+- Keep active handovers current-state only.
+- Remove redundant, outdated, and superseded instructions.
+- Include enough architecture, command, safety, verification, and pending-work
+  context for a new agent to continue without reading historical logs.
+- Keep history in Git unless it directly affects existing experiment results.
+
 ---
 
 ## 2. File Inventory and Priority
@@ -46,27 +53,20 @@ This is a Python 3.13 research codebase for running gradient inversion attack ex
 |------|-----------------|-------|
 | `helper/Network.py` | LOW | Model definitions + factory; clean |
 | `helper/metrics.py` | MEDIUM | PSNR, SSIM, Jacobian rank, grad match loss |
-| `helper/training_utils.py` | LOW | `make_scheduler` only (`build_network` deleted) |
+| `helper/training_utils.py` | LOW | `make_scheduler` |
 | `helper/visualization.py` | LOW | Panel PNG, animated GIF, restart curve/image output |
 | `helper/plot_masking_sweep_csv.py` | LOW | Reads sweep CSV rows containing `masked_key`, resolves MSE lists from `masked_registry.json`, and writes threshold plots; default `--threshold_mse 0.01` |
+| `helper/plots.py` | LOW | Standalone Seaborn forest plots for layer-ablation PSNR confidence intervals |
 
-**`archive/`** — retired scripts (`iDLG_original.py`, `jacobian_parallel.py`, `run_single_exp_batch.py`, old visualize/testing scripts). Nothing imports from these.
+**`archive/`** — retired scripts (`iDLG_original.py`, `run_single_exp_batch.py`, old visualize/testing scripts). Nothing imports from these.
 
 **`scripts/`** — DTU HPC job scripts only.
 
 ---
 
-## 3. Specific Issues to Address
+## 3. Deferred Cleanup Areas
 
-### Issue 1: ~~`Misc_functions.py` split~~ ✅ DONE
-
-Split into `functions/masking.py`, `functions/io_utils.py`, `helper/metrics.py`, `helper/training_utils.py`, `helper/visualization.py`. Original file deleted.
-
-### Issue 2: ~~Duplicate normalization constants~~ ✅ DONE
-
-All dataset stats now live exclusively in `functions/consts.py`. `invertinggradients/inversefed/consts.py` still has its own copy — treat as read-only.
-
-### Issue 3: Mixed naming conventions
+### Mixed naming conventions
 
 The `config` dict uses inconsistent casing:
 - `'Iteration'` (capitalized, should be `'num_iterations'`)
@@ -75,21 +75,13 @@ The `config` dict uses inconsistent casing:
 
 **Fix for Phase 2 only:** Standardize to snake_case throughout the config dict. This is a breaking change across all entry points — do not do this piecemeal or scripts will silently use wrong values.
 
-### Issue 4: ~~Commented-out code blocks~~ ✅ DONE
-
-Removed across all entry points — `run_single_exp.py` and `iDLG_mask.py`.
-
-### Issue 5: No type hints
+### Limited type hints
 
 No function signatures have type annotations. This makes it hard to understand what masking functions return (`keep_ids` is a set, `entry_masks` is a list of tensors or None).
 
 **Fix for Phase 2 (P2.3):** Add type hints to all public functions in `functions/masking.py`, `helper/metrics.py`, `helper/Network.py`, `functions/Dataset.py`.
 
-### Issue 6: ~~`original/` directory~~ ✅ DONE
-
-Moved to `archive/`. Nothing imports from it.
-
-### Issue 7: Remaining duplication between entry points
+### Remaining duplication between entry points
 
 `iDLG_mask.py` has been reduced to high-level orchestration, with CLI parsing in `functions/idlg_cli.py` and repeated aggregation/CSV/restart helpers in `functions/experiment_results.py`. `run_single_exp.py` still owns reconstruction behavior and should stay unchanged unless the algorithm itself is being changed.
 
@@ -106,7 +98,7 @@ Moved to `archive/`. Nothing imports from it.
 - **Registry key links** — `exp_results_<network>.csv` now has `registry_key` as the last column. iDLG rows point to the baseline registry; masked rows point to the masked registry.
 - **`iDLG_original.py`** — kept as a baseline comparison. Leave it alone.
 - **`invertinggradients/`** — it is a git submodule. Do not commit changes to it from this repo.
-- **Dataset normalization constants** in `consts.py` — these are manually validated (LFW was computed in `testing/compute_lfw_stats.py`). Do not "correct" them without rerunning the validation script.
+- **Dataset normalization constants** in `consts.py` — these are manually validated (LFW was computed in `archive/testing/compute_lfw_stats.py`). Do not "correct" them without rerunning the validation script.
 
 ---
 
@@ -146,7 +138,7 @@ python -c "import scipy; import matplotlib; import seaborn; print('imports ok')"
 
 1. **Dataset loading test:**
    ```bash
-   python testing/lfw_test.py
+   python archive/testing/lfw_test.py
    ```
    Should load LFW, run a forward pass, and print gradient norms without errors.
 

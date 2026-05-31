@@ -42,17 +42,19 @@ def main():
     out_path = args.out or f"idx_{args.idx}.png"
 
     parent = os.path.dirname(out_path)
-    if parent:
-        safe_makedirs(parent)
+    if parent and not safe_makedirs(parent):
+        raise OSError(f"Failed to create output directory {parent}")
 
     fig, ax = plt.subplots()
-    ax.imshow(np.array(img), cmap='gray' if args.dataset == 'MNIST' else None)
-    ax.set_title(f"{args.dataset} idx={args.idx}  label={label}")
-    ax.axis('off')
+    try:
+        ax.imshow(np.array(img), cmap='gray' if args.dataset == 'MNIST' else None)
+        ax.set_title(f"{args.dataset} idx={args.idx}  label={label}")
+        ax.axis('off')
 
-    if not safe_savefig(fig, out_path, dpi=args.dpi, bbox_inches='tight'):
-        raise OSError(f"Failed to save {out_path}")
-    plt.close(fig)
+        if not safe_savefig(fig, out_path, dpi=args.dpi, bbox_inches='tight'):
+            raise OSError(f"Failed to save {out_path}")
+    finally:
+        plt.close(fig)
     print(f"Saved {out_path}  label={label}")
 
 

@@ -88,12 +88,13 @@ def _read_rows(path, registry):
             mses = [float(v) for v in entry.get('best_mse_list', [])]
             if not mses:
                 continue
+            entry_args = entry.get('args', {})
             topfrac = float(row['topfrac'])
             rows.append({
                 **row,
-                'args': entry.get('args', {}),
-                'network': entry.get('args', {}).get('network', ''),
-                'dataset': entry.get('args', {}).get('dataset', ''),
+                'args': entry_args,
+                'network': entry_args.get('network', ''),
+                'dataset': entry_args.get('dataset', ''),
                 'topfrac': topfrac,
                 'pct_masked': (1.0 - topfrac) * 100.0,
                 'n_total': len(mses),
@@ -135,6 +136,22 @@ def _dedupe_latest(rows):
     for row in rows:
         latest[row['topfrac']] = row
     return list(latest.values())
+
+
+def _warn_if_mixed_sweep_rows(rows):
+    sample_counts = sorted({row['n_total'] for row in rows})
+    if len(sample_counts) > 1:
+        print(
+            'WARNING: Sweep rows contain different sample counts '
+            f'{sample_counts}; reconstructed-image counts are not directly comparable.'
+        )
+
+    baseline_keys = {_baseline_key_from_masked_args(row.get('args', {})) for row in rows}
+    if len(baseline_keys) > 1:
+        print(
+            'WARNING: Sweep rows map to different baseline configurations. '
+            'The plotted baseline is derived from the first sweep row.'
+        )
 
 
 def _summarise(rows, threshold):
@@ -219,6 +236,20 @@ def _rotate_xlabels(ax):
         label.set_fontsize(8)
 
 
+def _save_plot(fig, ax, path, title, ylabel, n_total, ymin, grid_alpha=None):
+    ax.set_xlabel('Gradient entries masked (%)')
+    ax.set_ylabel(ylabel)
+    ax.set_title(title)
+    ax.set_ylim(ymin, n_total + 0.5)
+    _rotate_xlabels(ax)
+    if grid_alpha is not None:
+        ax.grid(True, alpha=grid_alpha)
+    fig.tight_layout()
+    if safe_savefig(fig, path, dpi=150):
+        print(f'Saved: {path}')
+    plt.close(fig)
+
+
 def _plot(rows, threshold, out_dir):
     plot_labels = []
     for row in rows:
@@ -244,17 +275,8 @@ def _plot(rows, threshold, out_dir):
         linewidth=1.8,
         ax=ax,
     )
-    ax.set_xlabel('Gradient entries masked (%)')
-    ax.set_ylabel(ylabel)
-    ax.set_title(title)
-    ax.set_ylim(-0.5, n_total + 0.5)
-    _rotate_xlabels(ax)
-    ax.grid(True, alpha=0.3)
-    fig.tight_layout()
     path = os.path.join(out_dir, f'sweep_plot_{suffix}.png')
-    if safe_savefig(fig, path, dpi=150):
-        print(f'Saved: {path}')
-    plt.close(fig)
+    _save_plot(fig, ax, path, title, ylabel, n_total, ymin=-0.5, grid_alpha=0.3)
 
     fig, ax = plt.subplots(figsize=(12, 5))
     sns.barplot(
@@ -265,16 +287,8 @@ def _plot(rows, threshold, out_dir):
         linewidth=0.6,
         ax=ax,
     )
-    ax.set_xlabel('Gradient entries masked (%)')
-    ax.set_ylabel(ylabel)
-    ax.set_title(title)
-    _rotate_xlabels(ax)
-    ax.set_ylim(0, n_total + 0.5)
-    fig.tight_layout()
     path = os.path.join(out_dir, f'sweep_bar_{suffix}.png')
-    if safe_savefig(fig, path, dpi=150):
-        print(f'Saved: {path}')
-    plt.close(fig)
+    _save_plot(fig, ax, path, title, ylabel, n_total, ymin=0)
 
 
 def main():
@@ -297,6 +311,7 @@ def main():
         print('No matching rows found.')
         return
     rows = _dedupe_latest(rows)
+    _warn_if_mixed_sweep_rows(rows)
     if not args.no_baseline:
         baseline_registry_path = args.baseline_registry_path or _default_baseline_registry_path(args.csv_path)
         baseline_registry = _load_registry(baseline_registry_path)

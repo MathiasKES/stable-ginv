@@ -27,13 +27,7 @@ source scripts/init.sh
 python -c "import torch; print(torch.cuda.is_available())"
 ```
 
-Run a single experiment (CPU-safe for testing):
-
-```bash
-python run_single_exp.py
-```
-
-Run a batch across all GPUs:
+Run experiments across available GPUs:
 
 ```bash
 python iDLG_mask.py --dataset cifar10 --network resnet18 --methods both \
@@ -47,7 +41,7 @@ python iDLG_mask.py --dataset cifar10 --network resnet18 --methods both \
 ```
 stable-ginv/
 ├── iDLG_mask.py          Batch runner — multi-GPU, argument parsing, CSV + PNG output
-├── run_single_exp.py     Single experiment — GIF, Jacobian rank, per-image SSIM/PSNR
+├── run_single_exp.py     Worker — reconstruction, metrics, GIF frames, Jacobian rank
 │
 ├── functions/
 │   ├── masking.py        All gradient masking strategies (build_gradient_mask, etc.)
@@ -61,7 +55,8 @@ stable-ginv/
 │   ├── metrics.py        PSNR, SSIM, total variation, Jacobian rank, grad match loss
 │   ├── training_utils.py make_scheduler
 │   ├── visualization.py  save_recon_panel, save_recon_gif, restart outputs
-│   └── plot_masking_sweep_csv.py  Plot registry-backed masking sweep CSVs
+│   ├── plot_masking_sweep_csv.py  Plot registry-backed masking sweep CSVs
+│   └── plots.py           Plot layer-ablation PSNR confidence intervals
 │
 ├── archive/              Retired scripts — not imported anywhere, kept for reference
 ├── scripts/              DTU HPC job scripts (LSF scheduler)
@@ -129,8 +124,9 @@ If the sweep contains a masked `topfrac=1.0` row, it is kept alongside the unmas
 
 ## Documentation
 
-- [`docs/CLAUDE.md`](docs/CLAUDE.md) — full codebase map, function signatures, config keys
+- [`docs/codebase.md`](docs/codebase.md) — full codebase map, function signatures, config keys
+- [`docs/handover/README.md`](docs/handover/README.md) — current-state starting point for a new session
 - [`docs/handover/HANDOVER_RESEARCHER.md`](docs/handover/HANDOVER_RESEARCHER.md) — for developers continuing the work
 - [`docs/handover/HANDOVER_REVIEWER.md`](docs/handover/HANDOVER_REVIEWER.md) — for code reviewers
 - [`docs/handover/HANDOVER_COLLABORATOR.md`](docs/handover/HANDOVER_COLLABORATOR.md) — for new thesis collaborators
-- [`docs/IMPROVEMENT_PLAN.md`](docs/IMPROVEMENT_PLAN.md) — two-phase code improvement roadmap
+- [`docs/CODE_CLEANUP.md`](docs/CODE_CLEANUP.md) — conservative cleanup plan
