@@ -12,7 +12,10 @@
 #     file is the python command itself; the program's own output follows.
 #   - When a run finishes the script re-reads cmds.txt and finds the FIRST line
 #     equal to the just-executed cmd:
-#       * rc == 0 → that line is removed from cmds.txt.
+#       * rc == 0 → that line is replaced with a single-line comment so it is
+#                   kept for inspection but skipped in future iterations.
+#                   Format:
+#                     # DONE [N]: <cmd>
 #       * rc != 0 → that line is replaced with a single-line diagnostic
 #                   comment so it is kept for inspection but skipped in
 #                   future iterations. Format:
@@ -149,8 +152,9 @@ while true; do
     fi
 
     if (( rc == 0 )); then
-        if modify_cmds "$cmd" delete; then
-            echo "[interactive_jobscript] [$uid] OK (dur=${dur}s)"
+        done_comment="# DONE [$rc]: $cmd"
+        if modify_cmds "$cmd" replace "$done_comment"; then
+            echo "[interactive_jobscript] [$uid] OK (dur=${dur}s) — marked as # DONE in cmds.txt"
         else
             echo "[interactive_jobscript] Line not found, finished: [$uid] (dur=${dur}s)"
         fi
