@@ -1,8 +1,13 @@
-import pandas as pd
+import argparse
+import os
+
+import matplotlib
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+import pandas as pd
 import seaborn as sns
 
-data = [
+resnet18_data = [
     # layer, config, ci_low, ci_high
 
     # L-BFGS no pretrain
@@ -38,15 +43,6 @@ data = [
     ("layer4", "Signed AdamW\nPretrained",  0.01,  1.07),
 ]
 
-# =========================
-# ResNet18 (old)
-# =========================
-resnet18_data = data
-
-
-# =========================
-# VGG13 (new)
-# =========================
 vgg13_data = [
 
     # L-BFGS no pretrain
@@ -144,126 +140,86 @@ vgg11_data = [
     ("classifier",  "Signed AdamW\nPretrained", -0.63,  0.15),
 ]
 
-#df = pd.DataFrame(data, columns=["layer", "config", "ci_low", "ci_high"])
+NETWORK_DATA = {
+    "resnet18": resnet18_data,
+    "vgg13": vgg13_data,
+    "vgg11": vgg11_data,
+}
 
-#df = pd.DataFrame(vgg13_data, columns=["layer", "config", "ci_low", "ci_high"])
 
-df = pd.DataFrame(vgg11_data, columns=["layer", "config", "ci_low", "ci_high"])
+def _build_dataframe(network):
+    df = pd.DataFrame(NETWORK_DATA[network], columns=["layer", "config", "ci_low", "ci_high"])
+    df["mean"] = (df["ci_low"] + df["ci_high"]) / 2
+    df["err_low"] = df["mean"] - df["ci_low"]
+    df["err_high"] = df["ci_high"] - df["mean"]
+    return df
 
-# midpoint of CI as point estimate
-df["mean"] = (df["ci_low"] + df["ci_high"]) / 2
 
-# asymmetric error bars
-df["err_low"] = df["mean"] - df["ci_low"]
-df["err_high"] = df["ci_high"] - df["mean"]
+def _layer_order(df):
+    return list(dict.fromkeys(df["layer"]))
 
-#layer_order = ["conv1", "bn1", "layer1", "layer2", "layer3", "layer4"]
-# layer_order = [
-#     "features.0",
-#     "features.2",
-#     "features.5",
-#     "features.7",
-#     "features.10",
-#     "features.12",
-#     "features.15",
-#     "features.17",
-#     "features.20",
-#     "features.22",
-#     "classifier",
-# ]
-layer_order = [
-    "features.0",
-    "features.3",
-    "features.6",
-    "features.8",
-    "features.11",
-    "features.13",
-    "features.16",
-    "classifier",
-]
-sns.set_theme(style="whitegrid", context="paper")
 
-g = sns.FacetGrid(
-    df,
-    col="config",
-    col_wrap=2,
-    height=5,
-    aspect=1.2,
-    sharex=True,
-    sharey=True
-)
+def save_forest_plot(network, out_dir):
+    df = _build_dataframe(network)
+    layer_order = _layer_order(df)
+    sns.set_theme(style="whitegrid", context="paper")
 
-def forestplot(data, **kwargs):
-    ax = plt.gca()
-
-    data = data.copy()
-    data["layer"] = pd.Categorical(
-        data["layer"],
-        categories=layer_order,
-        ordered=True
+    grid = sns.FacetGrid(
+        df,
+        col="config",
+        col_wrap=2,
+        height=5,
+        aspect=1.2,
+        sharex=True,
+        sharey=True,
     )
 
-    data = data.sort_values("layer", ascending=False)
+    def forestplot(data, **kwargs):
+        ax = plt.gca()
+        data = data.copy()
+        data["layer"] = pd.Categorical(data["layer"], categories=layer_order, ordered=True)
+        data = data.sort_values("layer", ascending=False)
+        y = range(len(data))
 
-    y = range(len(data))
+        ax.errorbar(
+            x=data["mean"],
+            y=y,
+            xerr=[data["err_low"], data["err_high"]],
+            fmt="o",
+            capsize=4,
+            linewidth=1.5,
+            markersize=5,
+        )
+        ax.axvline(0, linestyle="--", linewidth=1)
+        ax.set_yticks(list(y))
+        ax.set_yticklabels(data["layer"])
+        ax.set_xlabel(r"$\Delta$PSNR (dB)")
+        ax.set_ylabel("Masked layer")
 
-    ax.errorbar(
-        x=data["mean"],
-        y=y,
-        xerr=[data["err_low"], data["err_high"]],
-        fmt="o",
-        capsize=4,
-        linewidth=1.5,
-        markersize=5
+    grid.map_dataframe(forestplot)
+    grid.set_titles("{col_name}")
+    grid.figure.suptitle(
+        f"{network.upper()} Ablation Study\nPSNR Difference (Masked - Baseline)",
+        y=1.03,
     )
+    grid.figure.tight_layout()
 
-    ax.axvline(
-        0,
-        linestyle="--",
-        linewidth=1
-    )
+    os.makedirs(out_dir, exist_ok=True)
+    prefix = os.path.join(out_dir, f"{network}_ablation_forestplot")
+    grid.figure.savefig(f"{prefix}.pdf", bbox_inches="tight")
+    grid.figure.savefig(f"{prefix}.png", dpi=300, bbox_inches="tight")
+    plt.close(grid.figure)
+    print(f"Saved: {prefix}.pdf")
+    print(f"Saved: {prefix}.png")
 
-    ax.set_yticks(list(y))
-    ax.set_yticklabels(data["layer"])
 
-    ax.set_xlabel(r"$\Delta$PSNR (dB)")
-    ax.set_ylabel("Masked layer")
+def main():
+    parser = argparse.ArgumentParser(description="Plot layer-ablation PSNR confidence intervals.")
+    parser.add_argument("--network", choices=NETWORK_DATA, default="vgg11")
+    parser.add_argument("--out_dir", default=".")
+    args = parser.parse_args()
+    save_forest_plot(args.network, args.out_dir)
 
-g.map_dataframe(forestplot)
 
-g.set_titles("{col_name}")
-
-# plt.suptitle(
-#     "ResNet18 Ablation Study\nPSNR Difference (Masked − Baseline)",
-#     y=1.03
-# )
-
-# plt.suptitle(
-#     "VGG13 Ablation Study\nPSNR Difference (Masked − Baseline)",
-#     y=1.03
-# )
-plt.suptitle(
-    "VGG11 Ablation Study\nPSNR Difference (Masked − Baseline)",
-    y=1.03
-)
-
-plt.tight_layout()
-
-plt.savefig("vgg11_ablation_forestplot.pdf", bbox_inches="tight")
-plt.savefig("vgg11_ablation_forestplot.png", dpi=300, bbox_inches="tight")
-
-# plt.savefig(
-#     "resnet18_ablation_forestplot.pdf",
-#     bbox_inches="tight"
-# )
-
-# plt.savefig(
-#     "resnet18_ablation_forestplot.png",
-#     dpi=300,
-#     bbox_inches="tight"
-# )
-
-# plt.savefig("vgg13_ablation_forestplot.pdf", bbox_inches="tight")
-# plt.savefig("vgg13_ablation_forestplot.png", dpi=300, bbox_inches="tight")
-
-plt.show()
+if __name__ == "__main__":
+    main()

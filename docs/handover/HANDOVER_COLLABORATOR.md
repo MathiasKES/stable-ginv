@@ -38,7 +38,7 @@ Starting from random noise, the adversary iteratively updates `x'` until its gra
 
 The **iDLG trick** recovers the true label `y'` analytically from the gradient of the last fully-connected layer's bias, making label guessing unnecessary.
 
-**Masking:** Instead of sending the full gradient `g`, the client sends a masked version `g_masked` where some tensors (or individual entries) are zeroed out. We study 9 different masking strategies. The adversary only sees `g_masked`.
+**Masking:** Instead of sending the full gradient `g`, the client sends a masked version `g_masked` where some tensors (or individual entries) are zeroed out. The code supports several tensor-wise and entry-wise masking strategies. The adversary only sees `g_masked`.
 
 ---
 
@@ -112,58 +112,43 @@ Add the same `export` line to job scripts before the Python command. If it is mi
 **LFW (Labeled Faces in the Wild):** Must be downloaded manually.
 1. Download `lfw-deepfunneled.tgz` from the LFW website.
 2. Extract to `data/lfw/lfw-deepfunneled/`.
-3. Verify: `bash testing/count_lfw_images.sh` should print a count near 13,233.
-4. Verify loading: `python testing/lfw_test.py`
+3. Verify: `bash archive/testing/count_lfw_images.sh` should print a count near 13,233.
+4. Verify loading: `python archive/testing/lfw_test.py`
 
 ---
 
 ## 7. Running Your First Experiment
 
-The simplest starting point is `run_single_exp.py`. Edit the `config` dict at the bottom of the file:
+Use `iDLG_mask.py`. It is the active CLI and spawns workers across available
+GPUs:
 
-```python
-config = {
-    'channel': 3,
-    'num_classes': 10,
-    'shape_img': (32, 32),
-    'lr': 0.1,
-    'GAMMA': 0.9,
-    'num_dummy': 1,
-    'Iteration': 300,           # number of optimization steps
-    'MASK_MODE': 'none',        # start with no masking
-    'GRADSIZE_TOPK': 50,
-    'GRADSIZE_TOPFRAC': 0.5,
-    'GRADSIZE_METRIC': 'l2',
-    'NETWORK_NAME': 'resnet18',
-    'NETWORK_TRAINED': True,    # use ImageNet pretrained weights
-    'OPTIMIZER': 'lbfgs',
-    'NUM_RESTARTS': 1,
-    'TV_WEIGHT': 0.0,
-    'GRAD_LOSS': 'cos',
-    'COMPUTE_JACOBIAN_RANK': False,
-}
-```
-
-Then run:
 ```bash
-python run_single_exp.py
+python iDLG_mask.py \
+    --network resnet18 \
+    --dataset cifar10 \
+    --methods idlg \
+    --num_exp 1 \
+    --iteration 10 \
+    --num_restarts 1
 ```
 
-This will reconstruct one CIFAR-10 image using a pretrained ResNet-18 with no masking. You will see PSNR and SSIM printed to stdout and a PNG saved with the original and reconstructed images side by side.
+To compare unmasked and masked reconstruction:
 
-**To add masking**, change `MASK_MODE` to `'gradsize_topfrac'` and `GRADSIZE_TOPFRAC` to `0.5`. The adversary now only sees 50% of the gradient tensors (the 50% with largest L2 norm). PSNR should drop.
-
-**To run multiple experiments in parallel** across all your GPUs, use `iDLG_mask.py` instead. It spawns one worker per GPU.
+```bash
+python iDLG_mask.py \
+    --network resnet18 \
+    --dataset cifar10 \
+    --methods both \
+    --mask_mode gradsize_topfrac \
+    --gradsize_topfrac 0.5 \
+    --num_exp 10
+```
 
 ---
 
 ## 8. Understanding the Output
 
-After running `run_single_exp.py`, you will find:
-- A PNG image (named by network/dataset/mask config) with the original image on the left and the reconstruction on the right.
-- Terminal output showing PSNR and SSIM for each reconstruction.
-
-After running `iDLG_mask.py`, you will also find:
+After running `iDLG_mask.py`, you will find:
 - A CSV file with columns: `network`, `dataset`, `mask_mode`, `PSNR`, `SSIM`, `loss`, etc.
 - Use these for statistical comparisons between masking modes.
 - The CSV's final `registry_key` column points to the corresponding entry in `results/baselines/idlg_baselines_registry.json` or `results/baselines/masked_registry.json`.

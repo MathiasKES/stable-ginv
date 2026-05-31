@@ -1,19 +1,5 @@
 # stable-ginv — Codebase Map
 
-## Claude instructions
-
-- **Never commit automatically.** Only commit when the user explicitly asks.
-- **Never add co-authors to commit messages.**
-- **Always invoke the superpowers skill** (via the `Skill` tool) at the start of any task if a relevant skill might apply — even a 1% chance is enough to check.
-
----
-
-## Related repositories
-
-`/home/mathias/GitHub/bachelor_thesis/` — Overleaf Git-integrated thesis. **Never auto-commit to this repo.** Changes must be committed manually by the user so Overleaf syncs correctly.
-
----
-
 Research project: gradient inversion attacks on federated learning.
 Compares baseline iDLG against masked variants (selective gradient disclosure) across multiple masking strategies.
 
@@ -44,13 +30,14 @@ Compares baseline iDLG against masked variants (selective gradient disclosure) a
 |---|---|
 | `helper/Network.py` | Model definitions + factory (`get_model`, `LeNet*`, `MediumCNN`, `BiggerCNN`) |
 | `helper/metrics.py` | `compute_psnr_from_mse`, `compute_ssim_batch`, `total_variation`, `compute_jacobian_rank`, `compute_grad_match_loss` |
-| `helper/training_utils.py` | `make_scheduler` only (`build_network` moved into `get_model`) |
+| `helper/training_utils.py` | `make_scheduler` |
 | `helper/visualization.py` | `save_recon_panel`, `save_recon_gif`, restart curve/image outputs |
 | `helper/plot_masking_sweep_csv.py` | Plot registry-backed `results/masking_sweeps/*.csv`; default `--threshold_mse 0.01` |
+| `helper/plots.py` | Plot layer-ablation PSNR confidence intervals for ResNet-18, VGG-11, or VGG-13 |
 
-**`archive/`** — retired scripts (not imported anywhere): `iDLG_original.py`, `jacobian_parallel.py`, `run_single_exp_batch.py`, old visualize/testing scripts.
+**`archive/`** — retired scripts (not imported anywhere): `iDLG_original.py`, `run_single_exp_batch.py`, and old visualize/testing scripts.
 
-Paths: data → `./data` or `/work3/s234843/bachelor/datasets`; results → `./hpc/results` or `/work3/s234843/bachelor/results`. Detection is automatic via `os.access()`.
+Paths: data → `./data` or `/work3/s234843/bachelor/datasets`; results → `./results` or `/work3/s234843/bachelor/results`. Detection is automatic via `os.access()`.
 
 ---
 
@@ -65,7 +52,9 @@ Paths: data → `./data` or `/work3/s234843/bachelor/datasets`; results → `./h
 6. label_pred inferred from final FC layer gradient (iDLG trick); last FC is never masked (enforced by build_gradient_mask)
 ```
 
-Restarts: repeat step 4–5 `NUM_RESTARTS` times, keep best by MSE.
+Restarts: repeat step 4–5 `NUM_RESTARTS` times. Reconstruction snapshots are
+selected by gradient-matching loss; reported image metrics are computed from
+those snapshots.
 
 ---
 
@@ -137,7 +126,7 @@ flatten_observed_gradients(grad_list, keep_ids=None, entry_masks=None) -> Tensor
 compute_jacobian_rank(net, x_norm, y, criterion,
                       keep_ids=None, entry_masks=None,
                       max_entries=None, select_mode='topk_abs',
-                      device_for_J='cpu', rank_tol=1e-6)
+                      device_for_J='cpu')
   -> (rank: int, shape: tuple, used_entries: int, unknowns: int)
 # Row-by-row Jacobian build to avoid OOM.
 
@@ -303,14 +292,16 @@ registry_key`
 
 ## Gotchas
 
-- **Baseline registry is per-run-id, single-run.** `results/baselines/idlg_baselines_registry.json` stores one entry per `(hyperparams, run_id)` hash. Running `--methods idlg` or `--methods both` with a given `run_id` saves/overwrites the baseline for that slot. `--methods masked` with the same `run_id` loads it automatically. The registry uses keys `best_psnr_list` / `best_mse_list` — old files with `avg_best_psnr_list` must be deleted and re-run.
-- **`prefix_topfrac` uses per-prefix ranking** — consistent with `prefix_topk`. Any results produced before commit `849651c` using `prefix_topfrac` used global ranking instead and should be considered inconsistent.
+- **Baseline registry is per-run-id, single-run.** `results/baselines/idlg_baselines_registry.json` stores one entry per `(hyperparams, run_id)` hash. Running `--methods idlg` or `--methods both` with a given `run_id` saves/overwrites the baseline for that slot. `--methods masked` with the same `run_id` loads it automatically.
+- **`prefix_topfrac` uses per-prefix ranking** — consistent with `prefix_topk`.
 - **Masked registry** — `results/baselines/masked_registry.json` stores per-experiment PSNR, MSE, and SSIM lists for masked runs, keyed by MD5 hash of all reconstruction + masking hyperparameters. Saved automatically by `iDLG_mask.py` at end of run. Overwriting an existing key prints a warning. Shapiro-Wilk normality test results are printed to stdout and saved in the normality CSV columns.
 - **TV normalization** — TV is computed on `dummy_data` (normalized space, same as the network input), not on the de-normalized [0,1] image. This matches Geiping et al. Use `--tv_weight 0.01` for single-image trained-network experiments (paper value); default `0.0` means no TV.
 - **Last FC invariant** — `build_gradient_mask()` always preserves the final fully connected layer so iDLG label inference remains available.
 - **`iters` scoping** — after early stop `break`, `iters` holds the break iteration. Final GIF frame is captured there if `_last_gif_iter != iters`.
 - **Jacobian OOM** — `jacobian_max_entries` caps the row count; rows are built one at a time.
 - **`gradsize_topk_entries` vs `gradsize_topk`** — former keeps top-K *scalar* entries; latter keeps top-K *tensors* (whole layers).
-- **Normalization** — GT is normalized via `(x - dm) / ds` before `net()` and before Jacobian; dummy is `sigmoid(dummy_data)` then normalized the same way.
+- **Normalization** — GT is normalized via `(x - dm) / ds` before `net()` and
+  before Jacobian. Dummy data is optimized directly in normalized space and
+  converted back with `dummy_data * ds + dm` for metrics and saving.
 - **`weights_init` application** — `weights_init` (uniform init) is applied only to custom CNN architectures (`LeNet`, `LeNet_bigger`, `MediumCNN`, `BiggerCNN`) and only when `pretrained=False`. Torchvision backbones (ResNet, VGG, etc.) rely on PyTorch's own default initialization or their pretrained weights — do not apply `weights_init` to them.
 - **`prefix_topfrac_entries_layer`** — passes `prefix_top_fracs` (dict) to `get_entry_masks_by_prefix_group`; each prefix can have its own retention fraction via `--prefixes conv1:1.0,layer1:0.5,...`.
