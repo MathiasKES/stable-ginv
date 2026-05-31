@@ -8,7 +8,8 @@
 #   - Blank lines and lines starting with `#` are skipped.
 #   - The next run is always the first eligible line in the current cmds.txt.
 #   - Each command's stdout/stderr go to hpc/gpuout/interactive/<uid>_run.{out,err}
-#     where <uid> = <YYYYMMDD_HHMMSS>_L<line-number>. The first line of the .out
+#     where <uid> = <YYYYMMDD_HHMMSS>_L<line-number>_<rand4>, e.g.
+#     20260528_124945_L0001_a3f9. The first line of the .out
 #     file is the python command itself; the program's own output follows.
 #   - When a run finishes the script re-reads cmds.txt and finds the FIRST line
 #     equal to the just-executed cmd:
@@ -130,7 +131,8 @@ while true; do
     cmd=$NEXT_CMD
     lineno=$NEXT_LINE_NO
     ts="$(date +%Y%m%d_%H%M%S)"
-    uid="${ts}_L$(printf '%04d' "$lineno")"
+    rand="$(LC_ALL=C tr -dc 'a-z0-9' < /dev/urandom | head -c 4)"
+    uid="${ts}_L$(printf '%04d' "$lineno")_${rand}"
     out_file="$OUT_DIR/${uid}_run.out"
     err_file="$OUT_DIR/${uid}_run.err"
 
