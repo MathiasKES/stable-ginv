@@ -16,7 +16,7 @@
 #       * rc == 0 → that line is replaced with a single-line comment so it is
 #                   kept for inspection but skipped in future iterations.
 #                   Format:
-#                     # DONE [N]: <cmd>
+#                     # DONE [N] (dur=Ns): <cmd>
 #       * rc != 0 → that line is replaced with a single-line diagnostic
 #                   comment so it is kept for inspection but skipped in
 #                   future iterations. Format:
@@ -154,7 +154,7 @@ while true; do
     fi
 
     if (( rc == 0 )); then
-        done_comment="# DONE [$rc]: $cmd"
+        done_comment="# DONE [$rc] (dur=${dur}s): $cmd"
         if modify_cmds "$cmd" replace "$done_comment"; then
             echo "[interactive_jobscript] [$uid] OK (dur=${dur}s) — marked as # DONE in cmds.txt"
         else
