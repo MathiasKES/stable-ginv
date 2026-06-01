@@ -69,10 +69,25 @@ Usage
 
        python manual_stats.py
 
+Output:
+    A JSON object keyed by registry uid is written/merged, e.g.
+
+        {
+          "<baseline_uid>": {"method": "idlg",   ..., "ssim_normality": ""},
+          "<masked_uid>":   {"method": "masked", ..., "ssim_normality": "..."}
+        }
+
+    Each run adds/updates the baseline (method="idlg") and masked
+    (method="masked") uid entries. The baseline entry carries the aggregate
+    columns (method .. std_best_ssim); the <measure>_{ci,significant,normality}
+    columns are populated only on the masked entry. nan values are written as
+    "". Default output path:
+        /work3/s234843/bachelor/results/baselines/exp_results_resnet_manual.json
+
 Flags:
     --psnr-from-mse   Ignore any inserted PSNR and recompute it from MSE using
                       the pipeline's compute_psnr_from_mse(mse, max_val=1.0).
-    --out PATH.csv    Also append the resulting masked-method stat row to a CSV.
+    --out=PATH.json   Append entries to PATH.json instead of the default file.
 """
 import csv
 import json
@@ -89,7 +104,11 @@ from functions.experiment_results import (  # noqa: E402
     create_metric_accumulators,
     paired_report_for_both,
 )
-from functions.io_utils import resolve_storage_paths  # noqa: E402
+from functions.io_utils import (  # noqa: E402
+    resolve_storage_paths,
+    safe_chmod,
+    safe_makedirs,
+)
 from helper.metrics import compute_psnr_from_mse  # noqa: E402
 
 
@@ -216,6 +235,83 @@ STAT_COLUMNS = [
     "ssim_normality",
 ]
 
+# Inner-entry header columns (the registry uid is the top-level JSON key, not a field).
+HEADER_COLUMNS = ["method", "network", "grad_loss", "pretrained", "prefixes"]
+ENTRY_KEYS = HEADER_COLUMNS + STAT_COLUMNS
+# Paired-comparison columns: only populated for the masked entry.
+CI_KEYS = {
+    "mse_ci", "mse_significant", "psnr_ci", "psnr_significant", "psnr_normality",
+    "mse_normality", "ssim_ci", "ssim_significant", "ssim_normality",
+}
+
+DEFAULT_OUT = "/work3/s234843/bachelor/results/baselines/exp_results_resnet_manual.json"
+
+
+def _blank(value):
+    """Render nan / None as an empty string; leave everything else as-is."""
+    if value is None:
+        return ""
+    if isinstance(value, float) and math.isnan(value):
+        return ""
+    return value
+
+
+def build_entry(meta_side, method, stat_row, include_ci):
+    """Build one ordered output entry (the inner value for a uid key).
+
+    nan/None numeric values become "". For the baseline (include_ci=False) the
+    paired-comparison columns are left empty. The registry uid is the dict key,
+    so it is not repeated inside the entry.
+    """
+    entry = {
+        "method": method,
+        "network": meta_side["network"],
+        "grad_loss": meta_side["grad_loss"],
+        "pretrained": meta_side["pretrained"],
+        "prefixes": meta_side["prefixes"],
+    }
+    for key in STAT_COLUMNS:
+        if key in CI_KEYS:
+            entry[key] = _blank(stat_row.get(key, "")) if include_ci else ""
+        else:
+            entry[key] = _blank(stat_row.get(key))
+    return entry
+
+
+def build_entries(meta, stats, paired_report):
+    """Return {baseline_uid: baseline_entry, masked_uid: masked_entry}."""
+    baseline_entry = build_entry(
+        meta["baseline"], "idlg", baseline_stat_row(stats), include_ci=False,
+    )
+    masked_entry = build_entry(
+        meta["masked"], "masked", masked_stat_row(stats, paired_report), include_ci=True,
+    )
+    baseline_key = meta["baseline"]["registry"] or "idlg"
+    masked_key = meta["masked"]["registry"] or "masked"
+    return {baseline_key: baseline_entry, masked_key: masked_entry}
+
+
+def append_entries_json(path, entries):
+    """Merge uid->entry mappings into a JSON object file, creating it if needed."""
+    existing = {}
+    if os.path.isfile(path):
+        with open(path) as f:
+            try:
+                existing = json.load(f)
+            except json.JSONDecodeError:
+                existing = {}
+        if not isinstance(existing, dict):
+            raise SystemExit(
+                f"{path} is not a JSON object keyed by uid; refusing to overwrite."
+            )
+    existing.update(entries)
+
+    safe_makedirs(os.path.dirname(path))
+    with open(path, "w") as f:
+        json.dump(existing, f, indent=2)
+    safe_chmod(path)
+    print(f"\nWrote {len(entries)} uid entr(y/ies) to {path} (total {len(existing)}).")
+
 
 def print_report(stats, paired_report):
     base = baseline_stat_row(stats)
@@ -267,6 +363,21 @@ def _entry_to_metrics(registry, uid, registry_path):
     return metrics
 
 
+def _empty_meta():
+    return {"registry": "", "network": "", "grad_loss": "", "pretrained": "", "prefixes": ""}
+
+
+def _meta_from_args(uid, args):
+    """Pull the output header fields for one registry entry from its args block."""
+    return {
+        "registry": uid,
+        "network": args.get("network", ""),
+        "grad_loss": args.get("grad_loss", ""),
+        "pretrained": args.get("pretrained", ""),
+        "prefixes": args.get("prefixes", ""),
+    }
+
+
 def load_from_registries(baseline_uid, masked_uid, data):
     """Resolve baseline/masked metric lists by uid from the JSON registries.
 
@@ -274,6 +385,9 @@ def load_from_registries(baseline_uid, masked_uid, data):
     masked uid in masked_registry.json. Registry paths default to the pipeline
     locations (resolve_storage_paths) but may be overridden in data.json via
     "idlg_registry" / "masked_registry".
+
+    Returns (baseline_metrics, masked_metrics, meta) where meta carries the
+    uid + args header fields for each side.
     """
     default_idlg, default_masked = _default_registry_paths()
     idlg_path = data.get("idlg_registry", default_idlg)
@@ -286,9 +400,13 @@ def load_from_registries(baseline_uid, masked_uid, data):
 
     baseline = _entry_to_metrics(idlg_registry, baseline_uid, idlg_path)
     masked = _entry_to_metrics(masked_registry, masked_uid, masked_path)
+    meta = {
+        "baseline": _meta_from_args(baseline_uid, idlg_registry[baseline_uid].get("args", {})),
+        "masked": _meta_from_args(masked_uid, masked_registry[masked_uid].get("args", {})),
+    }
     print(f"Resolved baseline uid {baseline_uid} from {idlg_path}")
     print(f"Resolved masked   uid {masked_uid} from {masked_path}")
-    return baseline, masked
+    return baseline, masked, meta
 
 
 def load_json(path):
@@ -299,7 +417,7 @@ def load_json(path):
     # uid-lookup form: "baseline"/"masked" are registry uid strings.
     if isinstance(baseline, str) or isinstance(masked, str):
         return load_from_registries(baseline, masked, data)
-    return baseline, masked
+    return baseline, masked, {"baseline": _empty_meta(), "masked": _empty_meta()}
 
 
 def load_csv(path):
@@ -325,7 +443,7 @@ def load_csv(path):
         for key in ("psnr", "ssim", "loss"):
             if all(v is None for v in d[key]):
                 d.pop(key)
-    return baseline, masked
+    return baseline, masked, {"baseline": _empty_meta(), "masked": _empty_meta()}
 
 
 # --------------------------------------------------------------------------
@@ -349,7 +467,7 @@ def main(argv):
     args = [a for a in argv[1:] if not a.startswith("--")]
     flags = {a for a in argv[1:] if a.startswith("--")}
     psnr_from_mse = "--psnr-from-mse" in flags
-    out_path = None
+    out_path = DEFAULT_OUT
     for a in argv[1:]:
         if a.startswith("--out="):
             out_path = a.split("=", 1)[1]
@@ -357,14 +475,15 @@ def main(argv):
     if args:
         path = args[0]
         if path.lower().endswith(".json"):
-            baseline, masked = load_json(path)
+            baseline, masked, meta = load_json(path)
         elif path.lower().endswith(".csv"):
-            baseline, masked = load_csv(path)
+            baseline, masked, meta = load_csv(path)
         else:
             raise SystemExit(f"Unrecognised input extension: {path} (use .json or .csv)")
         print(f"Loaded {len(baseline['mse'])} experiment(s) from {path}")
     else:
         baseline, masked = EXAMPLE["baseline"], EXAMPLE["masked"]
+        meta = {"baseline": _empty_meta(), "masked": _empty_meta()}
         print(f"No input file given; using EXAMPLE ({len(baseline['mse'])} experiments). "
               "Edit the EXAMPLE dict or pass a .json/.csv file.")
 
@@ -372,15 +491,8 @@ def main(argv):
     stats, paired_report = compute(results)
     print_report(stats, paired_report)
 
-    if out_path:
-        row = masked_stat_row(stats, paired_report)
-        file_exists = os.path.isfile(out_path)
-        with open(out_path, "a", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=STAT_COLUMNS)
-            if not file_exists:
-                writer.writeheader()
-            writer.writerow(row)
-        print(f"\nAppended masked stat row to {out_path}")
+    entries = build_entries(meta, stats, paired_report)
+    append_entries_json(out_path, entries)
 
 
 if __name__ == "__main__":
