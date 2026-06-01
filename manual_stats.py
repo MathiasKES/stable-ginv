@@ -21,7 +21,24 @@ paired_report_for_both.
 --------------------------------------------------------------------------
 Usage
 --------------------------------------------------------------------------
-1) From a JSON file:
+1a) From a JSON file that references registry uids (recommended):
+
+       python manual_stats.py data.json
+
+   where data.json looks like:
+
+       {
+         "baseline": "2bbb422a71a492f69a1cf989866331b8",
+         "masked":   "63b40d0329a5b507a1cc72ee33bd169c"
+       }
+
+   The baseline uid is looked up in idlg_baselines_registry.json and the
+   masked uid in masked_registry.json (default locations come from
+   resolve_storage_paths). The best_mse_list / best_psnr_list / best_ssim_list
+   stored for each uid are used directly. Override registry locations with
+   optional "idlg_registry" / "masked_registry" keys in data.json.
+
+1b) From a JSON file with inline metric lists:
 
        python manual_stats.py data.json
 
@@ -72,6 +89,7 @@ from functions.experiment_results import (  # noqa: E402
     create_metric_accumulators,
     paired_report_for_both,
 )
+from functions.io_utils import resolve_storage_paths  # noqa: E402
 from helper.metrics import compute_psnr_from_mse  # noqa: E402
 
 
@@ -217,10 +235,71 @@ def print_report(stats, paired_report):
     print(",".join(str(mask[k]) for k in STAT_COLUMNS))
 
 
+def _default_registry_paths():
+    """Return (idlg_registry_path, masked_registry_path) the pipeline uses."""
+    _, save_path = resolve_storage_paths(".")
+    baseline_dir = os.path.join(save_path, "baselines")
+    return (
+        os.path.join(baseline_dir, "idlg_baselines_registry.json"),
+        os.path.join(baseline_dir, "masked_registry.json"),
+    )
+
+
+def _entry_to_metrics(registry, uid, registry_path):
+    """Extract {mse, psnr, ssim} lists for one uid from a loaded registry."""
+    if uid not in registry:
+        raise SystemExit(
+            f"uid {uid!r} not found in registry {registry_path}. "
+            f"Available uids: {', '.join(list(registry)[:5])}"
+            + (" ..." if len(registry) > 5 else "")
+        )
+    entry = registry[uid]
+    for key in ("best_mse_list", "best_psnr_list"):
+        if key not in entry:
+            raise SystemExit(f"uid {uid!r} in {registry_path} is missing '{key}'.")
+    metrics = {
+        "mse": entry["best_mse_list"],
+        "psnr": entry["best_psnr_list"],
+    }
+    # SSIM may be absent in older baselines; omit so it is treated as missing.
+    if entry.get("best_ssim_list") is not None:
+        metrics["ssim"] = entry["best_ssim_list"]
+    return metrics
+
+
+def load_from_registries(baseline_uid, masked_uid, data):
+    """Resolve baseline/masked metric lists by uid from the JSON registries.
+
+    The baseline uid is looked up in idlg_baselines_registry.json and the
+    masked uid in masked_registry.json. Registry paths default to the pipeline
+    locations (resolve_storage_paths) but may be overridden in data.json via
+    "idlg_registry" / "masked_registry".
+    """
+    default_idlg, default_masked = _default_registry_paths()
+    idlg_path = data.get("idlg_registry", default_idlg)
+    masked_path = data.get("masked_registry", default_masked)
+
+    with open(idlg_path) as f:
+        idlg_registry = json.load(f)
+    with open(masked_path) as f:
+        masked_registry = json.load(f)
+
+    baseline = _entry_to_metrics(idlg_registry, baseline_uid, idlg_path)
+    masked = _entry_to_metrics(masked_registry, masked_uid, masked_path)
+    print(f"Resolved baseline uid {baseline_uid} from {idlg_path}")
+    print(f"Resolved masked   uid {masked_uid} from {masked_path}")
+    return baseline, masked
+
+
 def load_json(path):
     with open(path) as f:
         data = json.load(f)
-    return data["baseline"], data["masked"]
+    baseline = data["baseline"]
+    masked = data["masked"]
+    # uid-lookup form: "baseline"/"masked" are registry uid strings.
+    if isinstance(baseline, str) or isinstance(masked, str):
+        return load_from_registries(baseline, masked, data)
+    return baseline, masked
 
 
 def load_csv(path):
