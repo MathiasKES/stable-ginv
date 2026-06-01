@@ -7,6 +7,18 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns
 
+lenet_data = [
+    # L-BFGS no pretrain
+    ("body.0", "L-BFGS\nNo pretrain", -32.14906, -22.51041),
+    ("body.2", "L-BFGS\nNo pretrain", -40.66, -29.60),
+    ("body.4", "L-BFGS\nNo pretrain", -10.91,  3.68),
+
+    # Signed AdamW no pretrain
+    ("body.0", "Signed AdamW\nNo pretrain", -1.21052, -0.41839),
+    ("body.2", "Signed AdamW\nNo pretrain", -1.74647, -0.89235),
+    ("body.4", "Signed AdamW\nNo pretrain", -0.17364,  0.40255),
+]
+
 resnet18_data = [
     # layer, config, ci_low, ci_high
 
@@ -41,6 +53,42 @@ resnet18_data = [
     ("layer2", "Signed AdamW\nPretrained", -1.22, -0.44),
     ("layer3", "Signed AdamW\nPretrained", -0.65,  0.01),
     ("layer4", "Signed AdamW\nPretrained",  0.01,  1.07),
+]
+
+resnet50_data = [
+    # layer, config, ci_low, ci_high
+
+    # L-BFGS no pretrain
+    ("conv1",  "L-BFGS\nNo pretrain", -2.45, -1.56),
+    ("bn1",    "L-BFGS\nNo pretrain", -0.46,  0.09),
+    ("layer1", "L-BFGS\nNo pretrain", -0.51,  0.10),
+    ("layer2", "L-BFGS\nNo pretrain", -0.41,  0.25),
+    ("layer3", "L-BFGS\nNo pretrain", -1.23, -0.39),
+    ("layer4", "L-BFGS\nNo pretrain", -0.66,  0.03),
+
+    # L-BFGS pretrained
+    ("conv1",  "L-BFGS\nPretrained", -0.52,  0.57),
+    ("bn1",    "L-BFGS\nPretrained", -0.34,  0.53),
+    ("layer1", "L-BFGS\nPretrained",  0.02,  0.93),
+    ("layer2", "L-BFGS\nPretrained",  0.03,  1.07),
+    ("layer3", "L-BFGS\nPretrained",  0.39,  1.37),
+    ("layer4", "L-BFGS\nPretrained", -0.32,  0.67),
+
+    # Signed AdamW no pretrain
+    ("conv1",  "Signed AdamW\nNo pretrain", -2.51, -1.54),
+    ("bn1",    "Signed AdamW\nNo pretrain", -0.02,  0.30),
+    ("layer1", "Signed AdamW\nNo pretrain", -0.39,  0.06),
+    ("layer2", "Signed AdamW\nNo pretrain", -0.16,  0.38),
+    ("layer3", "Signed AdamW\nNo pretrain", -1.00, -0.52),
+    ("layer4", "Signed AdamW\nNo pretrain", -0.48, -0.18),
+
+    # Signed AdamW pretrained
+    ("conv1",  "Signed AdamW\nPretrained", -0.004,  0.012),
+    ("bn1",    "Signed AdamW\nPretrained", -0.013,  0.002),
+    ("layer1", "Signed AdamW\nPretrained", -0.009,  0.006),
+    ("layer2", "Signed AdamW\nPretrained", -0.024, -0.004),
+    ("layer3", "Signed AdamW\nPretrained", -0.012,  0.006),
+    ("layer4", "Signed AdamW\nPretrained", -0.004,  0.008),
 ]
 
 vgg13_data = [
@@ -142,8 +190,10 @@ vgg11_data = [
 
 NETWORK_DATA = {
     "resnet18": resnet18_data,
+    "resnet50": resnet50_data,
     "vgg13": vgg13_data,
     "vgg11": vgg11_data,
+    "lenet": lenet_data,
 }
 
 
