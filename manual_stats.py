@@ -32,7 +32,14 @@ Usage
          "masked":   "63b40d0329a5b507a1cc72ee33bd169c"
        }
 
-   The baseline uid is looked up in idlg_baselines_registry.json and the
+   "masked" may also be a list of uids, each compared against the baseline:
+
+       {
+         "baseline": "2bbb422a71a492f69a1cf989866331b8",
+         "masked": ["63b40d03...", "0f99ecb1...", "f5f0b18b..."]
+       }
+
+   The baseline uid is looked up in idlg_baselines_registry.json and each
    masked uid in masked_registry.json (default locations come from
    resolve_storage_paths). The best_mse_list / best_psnr_list / best_ssim_list
    stored for each uid are used directly. Override registry locations with
@@ -278,17 +285,16 @@ def build_entry(meta_side, method, stat_row, include_ci):
     return entry
 
 
-def build_entries(meta, stats, paired_report):
-    """Return {baseline_uid: baseline_entry, masked_uid: masked_entry}."""
-    baseline_entry = build_entry(
-        meta["baseline"], "idlg", baseline_stat_row(stats), include_ci=False,
-    )
-    masked_entry = build_entry(
-        meta["masked"], "masked", masked_stat_row(stats, paired_report), include_ci=True,
-    )
-    baseline_key = meta["baseline"]["registry"] or "idlg"
-    masked_key = meta["masked"]["registry"] or "masked"
-    return {baseline_key: baseline_entry, masked_key: masked_entry}
+def build_baseline_entry(baseline_meta, stats):
+    """Return (uid_key, entry) for the iDLG baseline."""
+    entry = build_entry(baseline_meta, "idlg", baseline_stat_row(stats), include_ci=False)
+    return baseline_meta["registry"] or "idlg", entry
+
+
+def build_masked_entry(masked_meta, stats, paired_report):
+    """Return (uid_key, entry) for one masked comparison against the baseline."""
+    entry = build_entry(masked_meta, "masked", masked_stat_row(stats, paired_report), include_ci=True)
+    return masked_meta["registry"] or "masked", entry
 
 
 def append_entries_json(path, entries):
@@ -313,22 +319,19 @@ def append_entries_json(path, entries):
     print(f"\nWrote {len(entries)} uid entr(y/ies) to {path} (total {len(existing)}).")
 
 
-def print_report(stats, paired_report):
+def print_report(stats, paired_report, baseline_label="", masked_label=""):
     base = baseline_stat_row(stats)
     mask = masked_stat_row(stats, paired_report)
 
-    print("\n=== iDLG baseline aggregates ===")
+    print(f"\n=== iDLG baseline aggregates {('['+baseline_label+']') if baseline_label else ''} ===")
     for k in STAT_COLUMNS:
         if k in base:
             print(f"  {k:18s}: {base[k]}")
 
-    print("\n=== Masked aggregates + paired comparison (masked vs iDLG) ===")
+    print(f"\n=== Masked aggregates + paired comparison (masked vs iDLG) "
+          f"{('['+masked_label+']') if masked_label else ''} ===")
     for k in STAT_COLUMNS:
         print(f"  {k:18s}: {mask[k]}")
-
-    print("\n=== Masked row, requested column order ===")
-    print(",".join(STAT_COLUMNS))
-    print(",".join(str(mask[k]) for k in STAT_COLUMNS))
 
 
 def _default_registry_paths():
@@ -378,17 +381,21 @@ def _meta_from_args(uid, args):
     }
 
 
-def load_from_registries(baseline_uid, masked_uid, data):
-    """Resolve baseline/masked metric lists by uid from the JSON registries.
+def load_from_registries(baseline_uid, masked_uids, data):
+    """Resolve baseline + one-or-more masked metric lists by uid from the registries.
 
-    The baseline uid is looked up in idlg_baselines_registry.json and the
-    masked uid in masked_registry.json. Registry paths default to the pipeline
-    locations (resolve_storage_paths) but may be overridden in data.json via
-    "idlg_registry" / "masked_registry".
+    The baseline uid is looked up in idlg_baselines_registry.json and each
+    masked uid in masked_registry.json. "masked" may be a single uid string or
+    a list of uid strings (each compared against the baseline). Registry paths
+    default to the pipeline locations (resolve_storage_paths) but may be
+    overridden in data.json via "idlg_registry" / "masked_registry".
 
-    Returns (baseline_metrics, masked_metrics, meta) where meta carries the
-    uid + args header fields for each side.
+    Returns (baseline_metrics, baseline_meta, masked_items) where masked_items
+    is a list of {"metrics": ..., "meta": ...} dicts.
     """
+    if isinstance(masked_uids, str):
+        masked_uids = [masked_uids]
+
     default_idlg, default_masked = _default_registry_paths()
     idlg_path = data.get("idlg_registry", default_idlg)
     masked_path = data.get("masked_registry", default_masked)
@@ -399,14 +406,17 @@ def load_from_registries(baseline_uid, masked_uid, data):
         masked_registry = json.load(f)
 
     baseline = _entry_to_metrics(idlg_registry, baseline_uid, idlg_path)
-    masked = _entry_to_metrics(masked_registry, masked_uid, masked_path)
-    meta = {
-        "baseline": _meta_from_args(baseline_uid, idlg_registry[baseline_uid].get("args", {})),
-        "masked": _meta_from_args(masked_uid, masked_registry[masked_uid].get("args", {})),
-    }
+    baseline_meta = _meta_from_args(baseline_uid, idlg_registry[baseline_uid].get("args", {}))
     print(f"Resolved baseline uid {baseline_uid} from {idlg_path}")
-    print(f"Resolved masked   uid {masked_uid} from {masked_path}")
-    return baseline, masked, meta
+
+    masked_items = []
+    for muid in masked_uids:
+        masked_items.append({
+            "metrics": _entry_to_metrics(masked_registry, muid, masked_path),
+            "meta": _meta_from_args(muid, masked_registry[muid].get("args", {})),
+        })
+        print(f"Resolved masked   uid {muid} from {masked_path}")
+    return baseline, baseline_meta, masked_items
 
 
 def load_json(path):
@@ -414,10 +424,11 @@ def load_json(path):
         data = json.load(f)
     baseline = data["baseline"]
     masked = data["masked"]
-    # uid-lookup form: "baseline"/"masked" are registry uid strings.
-    if isinstance(baseline, str) or isinstance(masked, str):
+    # uid-lookup form: "baseline" is a registry uid string (masked: str or list).
+    if isinstance(baseline, str):
         return load_from_registries(baseline, masked, data)
-    return baseline, masked, {"baseline": _empty_meta(), "masked": _empty_meta()}
+    # inline form: single baseline/masked metric dicts.
+    return baseline, _empty_meta(), [{"metrics": masked, "meta": _empty_meta()}]
 
 
 def load_csv(path):
@@ -443,7 +454,7 @@ def load_csv(path):
         for key in ("psnr", "ssim", "loss"):
             if all(v is None for v in d[key]):
                 d.pop(key)
-    return baseline, masked, {"baseline": _empty_meta(), "masked": _empty_meta()}
+    return baseline, _empty_meta(), [{"metrics": masked, "meta": _empty_meta()}]
 
 
 # --------------------------------------------------------------------------
@@ -475,23 +486,38 @@ def main(argv):
     if args:
         path = args[0]
         if path.lower().endswith(".json"):
-            baseline, masked, meta = load_json(path)
+            baseline, baseline_meta, masked_items = load_json(path)
         elif path.lower().endswith(".csv"):
-            baseline, masked, meta = load_csv(path)
+            baseline, baseline_meta, masked_items = load_csv(path)
         else:
             raise SystemExit(f"Unrecognised input extension: {path} (use .json or .csv)")
-        print(f"Loaded {len(baseline['mse'])} experiment(s) from {path}")
+        print(f"Loaded {len(baseline['mse'])} experiment(s) and "
+              f"{len(masked_items)} masked comparison(s) from {path}")
     else:
-        baseline, masked = EXAMPLE["baseline"], EXAMPLE["masked"]
-        meta = {"baseline": _empty_meta(), "masked": _empty_meta()}
+        baseline = EXAMPLE["baseline"]
+        baseline_meta = _empty_meta()
+        masked_items = [{"metrics": EXAMPLE["masked"], "meta": _empty_meta()}]
         print(f"No input file given; using EXAMPLE ({len(baseline['mse'])} experiments). "
               "Edit the EXAMPLE dict or pass a .json/.csv file.")
 
-    results = build_results(baseline, masked, psnr_from_mse=psnr_from_mse)
-    stats, paired_report = compute(results)
-    print_report(stats, paired_report)
+    entries = {}
+    baseline_done = False
+    for item in masked_items:
+        results = build_results(baseline, item["metrics"], psnr_from_mse=psnr_from_mse)
+        stats, paired_report = compute(results)
+        print_report(
+            stats, paired_report,
+            baseline_label=baseline_meta["registry"],
+            masked_label=item["meta"]["registry"],
+        )
+        # Baseline aggregates are identical across masked comparisons; emit once.
+        if not baseline_done:
+            base_key, base_entry = build_baseline_entry(baseline_meta, stats)
+            entries[base_key] = base_entry
+            baseline_done = True
+        mask_key, mask_entry = build_masked_entry(item["meta"], stats, paired_report)
+        entries[mask_key] = mask_entry
 
-    entries = build_entries(meta, stats, paired_report)
     append_entries_json(out_path, entries)
 
 
