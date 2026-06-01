@@ -59,31 +59,53 @@ def get_parameter_counts(channel, num_classes, input_size):
     return counts
 
 
-def save_parameter_count_plot(counts, output_path, title, log_scale=False):
-    labels = [label for label, _ in counts]
-    counts_millions = [count / 1_000_000 for _, count in counts]
+def save_parameter_count_plot(counts, output_path):
+    labels = [label for label, _, _ in counts]
+    total_counts = [total for _, total, _ in counts]
+    backbone_counts = [backbone for _, _, backbone in counts]
+    total_counts_millions = [count / 1_000_000 for count in total_counts]
+    backbone_counts_millions = [count / 1_000_000 for count in backbone_counts]
+    positions = np.arange(len(labels))
+    width = 0.36
 
     sns.set_theme(style="whitegrid", context="paper")
     fig, ax = plt.subplots(figsize=(8, 5))
-    sns.barplot(
-        x=np.asarray(labels),
-        y=np.asarray(counts_millions),
-        ax=ax,
-        color=sns.color_palette()[0],
+    palette = sns.color_palette()
+    total_bars = ax.bar(
+        positions - width / 2,
+        total_counts_millions,
+        width=width,
+        color=palette[0],
+        label="Total parameters",
+    )
+    backbone_bars = ax.bar(
+        positions + width / 2,
+        backbone_counts_millions,
+        width=width,
+        color=palette[1],
+        label="Without classifier or fully connected layers",
     )
 
-    ax.set_title(title)
+    ax.set_title("Model Parameter Counts")
     ax.set_xlabel("Model")
     ax.set_ylabel("Parameters (millions)")
-    if log_scale:
-        ax.set_yscale("log")
+    ax.set_xticks(positions, labels)
+    ax.set_yscale("log")
+    ax.set_ylim(bottom=min(backbone_counts_millions) * 0.35)
+    ax.legend(loc="upper left")
     ax.bar_label(
-        ax.containers[0],
-        labels=[f"{count:,}" for _, count in counts],
+        total_bars,
+        labels=[f"{count:,}" for count in total_counts],
         padding=3,
-        fontsize=8,
+        fontsize=7,
     )
-    ax.margins(y=0.12)
+    ax.bar_label(
+        backbone_bars,
+        labels=[f"{count:,}" for count in backbone_counts],
+        padding=3,
+        fontsize=7,
+    )
+    ax.margins(y=0.18)
     fig.tight_layout()
 
     saved = safe_savefig(fig, output_path, dpi=300, bbox_inches="tight")
@@ -97,38 +119,15 @@ def main():
     parser.add_argument("--channel", type=int, default=3)
     parser.add_argument("--num_classes", type=int, default=10)
     parser.add_argument("--input_size", type=int, nargs=2, default=(32, 32), metavar=("H", "W"))
-    parser.add_argument("--output_log", default="results/model_parameter_counts_log.png")
-    parser.add_argument(
-        "--output_without_classifier",
-        default="results/model_parameter_counts_without_classifier.png",
-    )
-    parser.add_argument(
-        "--output_without_classifier_log",
-        default="results/model_parameter_counts_without_classifier_log.png",
-    )
+    parser.add_argument("--output", default="results/model_parameter_counts_log.png")
     args = parser.parse_args()
 
     counts = get_parameter_counts(args.channel, args.num_classes, tuple(args.input_size))
-    total_counts = [(label, total) for label, total, _ in counts]
-    backbone_counts = [(label, backbone) for label, _, backbone in counts]
     for label, total, backbone in counts:
         print(f"{label}: {total:,} total; {backbone:,} without classifier or fully connected layers")
     save_parameter_count_plot(
-        total_counts,
-        args.output_log,
-        title="Model Parameter Counts",
-        log_scale=True,
-    )
-    save_parameter_count_plot(
-        backbone_counts,
-        args.output_without_classifier,
-        title="Model Parameter Counts Without Classifier or Fully Connected Layers",
-    )
-    save_parameter_count_plot(
-        backbone_counts,
-        args.output_without_classifier_log,
-        title="Model Parameter Counts Without Classifier or Fully Connected Layers",
-        log_scale=True,
+        counts,
+        args.output,
     )
 
 

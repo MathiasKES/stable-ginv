@@ -176,6 +176,21 @@ def test_legacy_lookup_prefers_smallest_range_containing_requested_subset():
     assert stored_key == "small"
 
 
+def test_legacy_lookup_rejects_single_entry_that_does_not_cover_requested_range():
+    key, args = baseline_key_from_args(_args(run_id=0, num_exp=5))
+    registry = {
+        "short": {
+            "args": baseline_key_from_args(_args(run_id=0, num_exp=3))[1],
+            "best_psnr_list": [1.0, 2.0, 3.0],
+        },
+    }
+
+    stored_key, entry = find_registry_entry(registry, key, args)
+
+    assert stored_key is None
+    assert entry is None
+
+
 def test_registry_replaces_read_only_legacy_range_in_v2_with_new_ssim():
     writable_registry = {}
     key, args = baseline_key_from_args(_args(run_id=0, num_exp=3))
