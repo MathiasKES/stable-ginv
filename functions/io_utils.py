@@ -378,8 +378,17 @@ def _config_without_sample_range(args):
     }
 
 
-def find_registry_entry(registry, key, comparable_args):
-    """Return a current or legacy registry entry matching one configuration."""
+def _entry_sample_range(entry):
+    args = entry.get("args", {})
+    if "run_id" not in args:
+        return None
+    start = int(args["run_id"])
+    count = len(entry.get("best_psnr_list", []))
+    return start, start + count
+
+
+def find_registry_entry(registry, key, comparable_args, allow_append_predecessor=False):
+    """Return the best current or legacy registry entry matching one configuration."""
     if key in registry:
         return key, registry[key]
     target_config = _config_without_sample_range(comparable_args)
@@ -388,19 +397,64 @@ def find_registry_entry(registry, key, comparable_args):
         for stored_key, entry in registry.items()
         if _config_without_sample_range(entry.get("args", {})) == target_config
     ]
-    if len(matches) > 1:
+    if len(matches) <= 1:
+        return matches[0] if matches else (None, None)
+
+    if "run_id" not in comparable_args or "num_exp" not in comparable_args:
         raise ValueError(
             "Multiple legacy registry entries match this configuration. "
-            "Merge or remove the duplicate entries before appending."
+            "Provide a sample range or select the registry entry explicitly."
         )
-    return matches[0] if matches else (None, None)
+
+    requested_start = int(comparable_args["run_id"])
+    requested_end = requested_start + int(comparable_args["num_exp"])
+    containing = [
+        (stored_key, entry, start, end)
+        for stored_key, entry in matches
+        if (sample_range := _entry_sample_range(entry)) is not None
+        for start, end in [sample_range]
+        if start <= requested_start and requested_end <= end
+    ]
+    if containing:
+        stored_key, entry, _, _ = min(
+            containing,
+            key=lambda item: (
+                item[3] - item[2],
+                item[2],
+                item[0],
+            ),
+        )
+        return stored_key, entry
+
+    if allow_append_predecessor:
+        predecessors = [
+            (stored_key, entry, start, end)
+            for stored_key, entry in matches
+            if (sample_range := _entry_sample_range(entry)) is not None
+            for start, end in [sample_range]
+            if end == requested_start
+        ]
+        if predecessors:
+            stored_key, entry, _, _ = max(
+                predecessors,
+                key=lambda item: (
+                    item[3] - item[2],
+                    -item[2],
+                    item[0],
+                ),
+            )
+            return stored_key, entry
+
+    return None, None
 
 
 def seed_registry_entry_from_fallback(registry, fallback_registry, key, comparable_args):
     """Copy one matching read-only fallback entry into a writable registry."""
     if find_registry_entry(registry, key, comparable_args)[1] is not None:
         return
-    _, entry = find_registry_entry(fallback_registry, key, comparable_args)
+    _, entry = find_registry_entry(
+        fallback_registry, key, comparable_args, allow_append_predecessor=True
+    )
     if entry is not None:
         registry[key] = copy.deepcopy(entry)
 
@@ -458,7 +512,9 @@ def _update_registry_entry(registry, key, comparable_args, best_psnr_list,
     if len(incoming["best_ssim_list"]) not in (0, incoming_count):
         raise ValueError(f"{label} SSIM list must be empty or match the PSNR and MSE lists.")
 
-    stored_key, entry = find_registry_entry(registry, key, comparable_args)
+    stored_key, entry = find_registry_entry(
+        registry, key, comparable_args, allow_append_predecessor=True
+    )
     if entry is None:
         registry[key] = {
             "args": dict(comparable_args),
