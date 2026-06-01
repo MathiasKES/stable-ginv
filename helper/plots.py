@@ -43,6 +43,42 @@ resnet18_data = [
     ("layer4", "Signed AdamW\nPretrained",  0.01,  1.07),
 ]
 
+resnet50_data = [
+    # layer, config, ci_low, ci_high
+
+    # L-BFGS no pretrain
+    ("conv1",  "L-BFGS\nNo pretrain", -2.11, -1.28),
+    ("bn1",    "L-BFGS\nNo pretrain", -0.31,  0.27),
+    ("layer1", "L-BFGS\nNo pretrain", -0.13,  0.48),
+    ("layer2", "L-BFGS\nNo pretrain", -0.14,  0.42),
+    ("layer3", "L-BFGS\nNo pretrain", -0.79, -0.12),
+    ("layer4", "L-BFGS\nNo pretrain", -0.20,  0.41),
+
+    # L-BFGS pretrain
+    ("conv1",  "L-BFGS\nPretrained", -0.62,  0.60),
+    ("bn1",    "L-BFGS\nPretrained", -0.58,  0.78),
+    ("layer1", "L-BFGS\nPretrained", -0.07,  1.22),
+    ("layer2", "L-BFGS\nPretrained", -0.09,  1.10),
+    ("layer3", "L-BFGS\nPretrained",  0.17,  1.16),
+    ("layer4", "L-BFGS\nPretrained", -0.29,  1.03),
+
+    # Signed AdamW no pretrain
+    ("conv1",  "Signed AdamW\nNo pretrain", -2.12, -1.22),
+    ("bn1",    "Signed AdamW\nNo pretrain", -0.16,  0.22),
+    ("layer1", "Signed AdamW\nNo pretrain", -0.28,  0.19),
+    ("layer2", "Signed AdamW\nNo pretrain", -0.36,  0.32),
+    ("layer3", "Signed AdamW\nNo pretrain", -1.06, -0.48),
+    ("layer4", "Signed AdamW\nNo pretrain", -0.61,  0.03),
+
+    # Signed AdamW pretrained
+    ("conv1",  "Signed AdamW\nPretrained", -0.49,  0.03),
+    ("bn1",    "Signed AdamW\nPretrained", -0.06,  0.51),
+    ("layer1", "Signed AdamW\nPretrained", -0.32,  0.32),
+    ("layer2", "Signed AdamW\nPretrained",  0.14,  0.96),
+    ("layer3", "Signed AdamW\nPretrained", -0.25,  0.46),
+    ("layer4", "Signed AdamW\nPretrained", -0.39,  0.27),
+]
+
 vgg13_data = [
 
     # L-BFGS no pretrain
@@ -142,6 +178,7 @@ vgg11_data = [
 
 NETWORK_DATA = {
     "resnet18": resnet18_data,
+    "resnet50": resnet50_data,
     "vgg13": vgg13_data,
     "vgg11": vgg11_data,
 }
