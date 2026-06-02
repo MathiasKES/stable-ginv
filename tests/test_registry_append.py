@@ -54,14 +54,20 @@ def test_baseline_registry_appends_contiguous_sample_ranges():
     assert entry["best_ssim_list"] == [7.0, 8.0, 9.0, 14.0, 15.0]
 
 
-def test_masked_registry_rejects_overlapping_sample_ranges():
+def test_masked_registry_appends_only_unseen_suffix_from_overlapping_range():
     registry = {}
     key, first_args = masked_key_from_args(_args(run_id=0, num_exp=3))
     _, overlapping_args = masked_key_from_args(_args(run_id=2, num_exp=2))
 
     update_masked_registry(registry, key, first_args, [1, 2, 3], [4, 5, 6], [7, 8, 9])
-    with pytest.raises(ValueError, match=r"next run must use --run_id 3"):
-        update_masked_registry(registry, key, overlapping_args, [10, 11], [12, 13], [14, 15])
+    entry = update_masked_registry(
+        registry, key, overlapping_args, [10, 11], [12, 13], [14, 15]
+    )
+
+    assert entry["args"]["num_exp"] == 4
+    assert entry["best_psnr_list"] == [1.0, 2.0, 3.0, 11.0]
+    assert entry["best_mse_list"] == [4.0, 5.0, 6.0, 13.0]
+    assert entry["best_ssim_list"] == [7.0, 8.0, 9.0, 15.0]
 
 
 def test_registry_overwrites_exact_existing_range_with_newest_metrics():
