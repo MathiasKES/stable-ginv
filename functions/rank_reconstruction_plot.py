@@ -3,7 +3,9 @@ Visualise how reconstruction quality tracks Jacobian rank as the gradient
 budget grows.
 
 For each budget k the script:
-  1. Builds an entry mask  : global top-k entries by |grad|
+  1. Builds an entry mask  : global top-k non-FC entries by |grad|
+                             (FC layer excluded from mask, J, and reconstruction;
+                              used only for iDLG label inference)
                              (with --keep_fc: all last-FC entries + top-k non-FC)
   2. Runs reconstruction   : L-BFGS + L2 loss, 300 iterations, lr=1
   3. Computes Jacobian rank: with that exact entry mask
@@ -11,16 +13,10 @@ For each budget k the script:
 Produces a figure:  GT | k=k1,rank=r1 | k=k2,rank=r2 | ...
 
 Run example (LeNet / CIFAR-100, no keep_fc):
-  python3 -m functions.rank_reconstruction_plot \
-    --network lenet --dataset cifar100 \
-    --row_counts 3072,4000,5000,6000 \
-    --sample_idx 0 --n_iter 300 --output rank_recon.png
+  python3 -m functions.rank_reconstruction_plot --network lenet --dataset cifar100 --row_counts 3072,4000,5000,6000 --sample_idx 0 --n_iter 300 --output rank_recon.png
 
 With keep_fc (row_counts = non-FC budget on top of FC):
-  python3 -m functions.rank_reconstruction_plot \
-    --network lenet --dataset cifar100 \
-    --row_counts 3072,4000,5000,6000 \
-    --keep_fc --sample_idx 0 --n_iter 300 --output rank_recon_keepfc.png
+  python3 -m functions.rank_reconstruction_plot --network lenet --dataset cifar100 --row_counts 3072,4000,5000,6000 --keep_fc --sample_idx 0 --n_iter 300 --output rank_recon_keepfc.png
 """
 
 import argparse
@@ -43,15 +39,15 @@ from helper.Network import get_model, weights_init
 # mask helpers
 # ---------------------------------------------------------------------------
 
-def _build_global_topk_masks(grads, budget):
-    """Global top-k entries by |grad| across all parameters."""
+def _build_global_topk_masks(grads, fc_ids, budget):
+    """Global top-k entries by |grad| across non-FC parameters only. FC params excluded entirely."""
     all_info = []
     for i, g in enumerate(grads):
-        if g is None:
+        if g is None or i in fc_ids:
             continue
         all_info.append((i, g.shape, g.detach().abs().reshape(-1)))
 
-    entry_masks = [None] * len(grads)
+    entry_masks = [None] * len(grads)  # FC stays None → excluded from J and reconstruction
 
     if all_info and budget > 0:
         all_vals = torch.cat([v for _, _, v in all_info])
@@ -262,7 +258,7 @@ def main():
             budget_label = f"non-FC = {k:,}"
         else:
             print(f"\n=== total budget = {k} ===")
-            entry_masks = _build_global_topk_masks(true_grads, k)
+            entry_masks = _build_global_topk_masks(true_grads, fc_ids, k)
             total_kept = sum(int(m.sum().item()) for m in entry_masks if m is not None)
             print(f"  total entries in mask: {total_kept}")
             budget_label = f"entries = {k:,}"
