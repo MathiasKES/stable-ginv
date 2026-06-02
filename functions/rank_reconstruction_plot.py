@@ -39,15 +39,15 @@ from helper.Network import get_model, weights_init
 # mask helpers
 # ---------------------------------------------------------------------------
 
-def _build_global_topk_masks(grads, fc_ids, budget):
-    """Global top-k entries by |grad| across non-FC parameters only. FC params excluded entirely."""
+def _build_global_topk_masks(grads, budget):
+    """Global top-k entries by |grad| across all parameters."""
     all_info = []
     for i, g in enumerate(grads):
-        if g is None or i in fc_ids:
+        if g is None:
             continue
         all_info.append((i, g.shape, g.detach().abs().reshape(-1)))
 
-    entry_masks = [None] * len(grads)  # FC stays None → excluded from J and reconstruction
+    entry_masks = [None] * len(grads)
 
     if all_info and budget > 0:
         all_vals = torch.cat([v for _, _, v in all_info])
@@ -91,6 +91,26 @@ def _build_keepfc_masks(grads, fc_ids, non_fc_budget):
             entry_masks[i] = torch.ones(g.shape, dtype=torch.bool, device=g.device)
 
     return entry_masks
+
+
+# ---------------------------------------------------------------------------
+# diagnostics
+# ---------------------------------------------------------------------------
+
+def _print_mask_breakdown(entry_masks, named_params):
+    """Print how many entries were selected from each parameter tensor."""
+    rows = []
+    for i, (name, _) in enumerate(named_params):
+        m = entry_masks[i] if i < len(entry_masks) else None
+        if m is None:
+            continue
+        kept = int(m.sum().item())
+        if kept == 0:
+            continue
+        total = m.numel()
+        rows.append((name, kept, total))
+    for name, kept, total in rows:
+        print(f"    {name}: {kept}/{total}")
 
 
 # ---------------------------------------------------------------------------
@@ -247,6 +267,7 @@ def main():
         print(f"FC entries (force-kept): {fc_size}")
 
     # ---- per-budget loop ---------------------------------------------------
+    named_params = list(net.named_parameters())
     results = []
 
     for k in row_counts:
@@ -258,10 +279,13 @@ def main():
             budget_label = f"non-FC = {k:,}"
         else:
             print(f"\n=== total budget = {k} ===")
-            entry_masks = _build_global_topk_masks(true_grads, fc_ids, k)
+            entry_masks = _build_global_topk_masks(true_grads, k)
             total_kept = sum(int(m.sum().item()) for m in entry_masks if m is not None)
             print(f"  total entries in mask: {total_kept}")
             budget_label = f"entries = {k:,}"
+
+        print(f"  entries per layer:")
+        _print_mask_breakdown(entry_masks, named_params)
 
         # Jacobian rank — use float64 to avoid rank underestimation from float32 eps
         print(f"  computing Jacobian rank ...")
