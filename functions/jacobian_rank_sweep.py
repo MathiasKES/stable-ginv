@@ -29,7 +29,7 @@ import functions.consts as consts
 from functions.Dataset import load_dataset
 from functions.io_utils import parse_prefixes_with_fracs
 from helper.Network import get_model, weights_init
-from functions.masking import build_gradient_mask, _get_last_fc_param_indices
+from functions.masking import build_gradient_mask
 from helper.metrics import compute_jacobian_rank_sweep
 
 sns.set_theme(style="whitegrid")
@@ -221,9 +221,8 @@ def _worker_core(args, sample_indices, device, row_counts, prefixes, prefix_laye
             gradsize_topk=args.gradsize_topk,
             gradsize_topfrac=args.gradsize_topfrac,
             gradsize_metric="l2",
+            force_fc=not args.keep_fc,
         )
-
-        fc_param_indices = _get_last_fc_param_indices(net) if args.keep_fc else None
 
         if debug and local_i == 0:
             _print_mask_debug(args, net, original_dy_dx, keep_ids, entry_masks)
@@ -245,7 +244,6 @@ def _worker_core(args, sample_indices, device, row_counts, prefixes, prefix_laye
             independent=not args.no_independent,
             normalize_rows=args.normalise,
             force_fc=False,
-            fc_param_indices=fc_param_indices,
         )
         for rows in row_counts:
             jac_rank, jac_shape, _, _ = sweep[rows]

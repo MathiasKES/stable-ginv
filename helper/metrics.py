@@ -491,22 +491,22 @@ def compute_jacobian_rank_sweep(
 ):
     """Rank of J for multiple row counts.
 
-    independent=False (default):
-        Builds J once at max(row_counts) then slices J_max[:k] for each k.
-        Fast (one J build per sample) but rank at k depends on max_row_count
-        because the pool composition changes with the budget. Correct for
-        topk_abs; misleading for layer_spread.
-
-    independent=True:
+    independent=True (default):
         Builds J independently for each k using max_entries=k. Rank at k
         reflects exactly the information available when the attacker receives
         k gradient entries selected by select_mode. Theoretically correct for
         all select modes. Costs len(row_counts) × more forward passes.
 
+    independent=False (pool-slice mode):
+        Builds J once at max(row_counts) then slices J_max[:k] for each k.
+        Fast (one J build per sample) but rank at k depends on max_row_count
+        because the pool composition changes with the budget. Correct for
+        topk_abs; misleading for layer_spread.
+
     qr_pivot in independent mode: J_k is already the full k-entry selection,
         so QR-pivoting it and taking all k rows gives the same rank as J_k.
-        qr_pivot is most useful in the default (pool-slice) mode where it
-        finds the best k rows from a larger pool.
+        qr_pivot is most useful in pool-slice mode where it finds the best k
+        rows from a larger pool.
 
     Returns ({k: (rank, shape, used_entries, unknowns)}, results_qr_or_None).
     """
