@@ -266,9 +266,11 @@ def main():
         ax.imshow(img)
         full = rank == unknowns
         rank_str = f"rank = {rank}/{unknowns}"
+        mse = float(np.mean((img - gt_display) ** 2))
+        psnr = -10 * np.log10(mse) if mse > 0 else float("inf")
         color = "#1a7f1a" if full else "#c0392b"
         ax.set_title(
-            f"non-FC = {k:,}\n{rank_str}",
+            f"non-FC = {k:,}\n{rank_str}\nPSNR = {psnr:.1f} dB",
             fontsize=8,
             color=color,
             fontweight="bold" if full else "normal",
