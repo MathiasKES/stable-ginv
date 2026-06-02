@@ -3,10 +3,13 @@ Plot paired baseline and masked reconstruction metrics from registry entries.
 
 Example:
     python helper/plot_paired_masking_violin.py \
-        results/vgg13_lfw_best_masking_results.json \
         --baseline_key 0c874fed9a0fd7cfd7467b380dead189 \
         --masked_key b9473c4448bd3cec04ed9bfa37c34561 \
         --out_dir results
+
+By default, entries are read from:
+    results/baselines/idlg_baselines_registry.json
+    results/baselines/masked_registry.json
 """
 import argparse
 import csv
@@ -37,6 +40,11 @@ def _load_entry(registry, key, label):
         return registry[key]
     except KeyError as exc:
         raise ValueError(f"{label} key not found: {key}") from exc
+
+
+def _load_registry(path):
+    with open(path) as f:
+        return json.load(f)
 
 
 def _paired_rows(baseline_entry, masked_entry):
@@ -211,17 +219,34 @@ def main():
     parser = argparse.ArgumentParser(
         description="Plot paired baseline and masked per-sample reconstruction metrics."
     )
-    parser.add_argument("registry_path", help="JSON containing baseline and masked entries")
+    parser.add_argument(
+        "registry_path",
+        nargs="?",
+        help="Optional JSON containing both entries. Overrides the default registry files.",
+    )
+    parser.add_argument(
+        "--baseline_registry_path",
+        default="results/baselines/idlg_baselines_registry.json",
+        help="Baseline registry JSON. Ignored when registry_path is provided.",
+    )
+    parser.add_argument(
+        "--masked_registry_path",
+        default="results/baselines/masked_registry.json",
+        help="Masked registry JSON. Ignored when registry_path is provided.",
+    )
     parser.add_argument("--baseline_key", required=True)
     parser.add_argument("--masked_key", required=True)
     parser.add_argument("--out_dir", default="results")
     parser.add_argument("--output_prefix", default="paired_masking")
     args = parser.parse_args()
 
-    with open(args.registry_path) as f:
-        registry = json.load(f)
-    baseline_entry = _load_entry(registry, args.baseline_key, "Baseline")
-    masked_entry = _load_entry(registry, args.masked_key, "Masked")
+    if args.registry_path:
+        baseline_registry = masked_registry = _load_registry(args.registry_path)
+    else:
+        baseline_registry = _load_registry(args.baseline_registry_path)
+        masked_registry = _load_registry(args.masked_registry_path)
+    baseline_entry = _load_entry(baseline_registry, args.baseline_key, "Baseline")
+    masked_entry = _load_entry(masked_registry, args.masked_key, "Masked")
     rows = _paired_rows(baseline_entry, masked_entry)
 
     if not safe_makedirs(args.out_dir):
