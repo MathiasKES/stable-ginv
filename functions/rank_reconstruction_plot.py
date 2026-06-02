@@ -3,10 +3,9 @@ Visualise how reconstruction quality tracks Jacobian rank as the gradient
 budget grows.
 
 For each budget k the script:
-  1. Builds an entry mask  : global top-k non-FC entries by |grad|
-                             (FC layer excluded from mask, J, and reconstruction;
-                              used only for iDLG label inference)
-                             (with --keep_fc: all last-FC entries + top-k non-FC)
+  1. Builds an entry mask  : global top-k entries by |grad| across all params (FC in pool)
+                             (--keep_fc: select from non-FC only via select_mode, FC excluded;
+                              topk_abs = top-k non-FC by |grad|, layer_spread = spread across layers)
   2. Runs reconstruction   : L-BFGS + L2 loss, 300 iterations, lr=1
   3. Computes Jacobian rank: with that exact entry mask
 
@@ -15,7 +14,7 @@ Produces a figure:  GT | k=k1,rank=r1 | k=k2,rank=r2 | ...
 Run example (LeNet / CIFAR-100, no keep_fc):
   python3 -m functions.rank_reconstruction_plot --network lenet --dataset cifar100 --row_counts 3072,4000,5000,6000 --sample_idx 0 --n_iter 300 --output rank_recon.png
 
-With keep_fc (row_counts = non-FC budget on top of FC):
+With keep_fc (row_counts = non-FC budget; FC excluded from mask entirely):
   python3 -m functions.rank_reconstruction_plot --network lenet --dataset cifar100 --row_counts 3072,4000,5000,6000 --keep_fc --sample_idx 0 --n_iter 300 --output rank_recon_keepfc.png
 """
 
@@ -40,7 +39,7 @@ from helper.Network import get_model, weights_init
 # ---------------------------------------------------------------------------
 
 def _build_global_topk_masks(grads, budget):
-    """Global top-k entries by |grad| across all parameters."""
+    """Global top-k entries by |grad| across all parameters (FC included in pool)."""
     all_info = []
     for i, g in enumerate(grads):
         if g is None:
@@ -65,13 +64,10 @@ def _build_global_topk_masks(grads, budget):
 
 
 def _build_keepfc_masks(grads, fc_ids, non_fc_budget, select_mode="topk_abs", net=None):
-    """FC params: all entries True. Non-FC: selected by select_mode (topk_abs or layer_spread)."""
+    """Non-FC entries selected by select_mode (topk_abs or layer_spread); FC not forced."""
     entry_masks = [None] * len(grads)
 
     if select_mode == "layer_spread":
-        # Use the same layer_spread logic as the Jacobian sweep.
-        # _layer_spread_non_fc needs the full flat gradient vector (FC + non-FC)
-        # and returns flat indices into it for the selected non-FC entries.
         g_obs_det = flatten_observed_gradients(grads, keep_ids=None, entry_masks=None).detach()
         total = g_obs_det.numel()
         non_fc_total = sum(g.numel() for i, g in enumerate(grads) if g is not None and i not in fc_ids)
@@ -88,10 +84,7 @@ def _build_keepfc_masks(grads, fc_ids, non_fc_budget, select_mode="topk_abs", ne
             if g is None:
                 continue
             n = g.numel()
-            if i in fc_ids:
-                entry_masks[i] = torch.ones(g.shape, dtype=torch.bool, device=g.device)
-            else:
-                entry_masks[i] = flat_mask[offset:offset + n].reshape(g.shape)
+            entry_masks[i] = flat_mask[offset:offset + n].reshape(g.shape)
             offset += n
 
     else:  # topk_abs
@@ -112,10 +105,6 @@ def _build_keepfc_masks(grads, fc_ids, non_fc_budget, select_mode="topk_abs", ne
                 n = flat.numel()
                 entry_masks[i] = gmask[offset:offset + n].reshape(shape)
                 offset += n
-
-        for i, g in enumerate(grads):
-            if g is not None and i in fc_ids:
-                entry_masks[i] = torch.ones(g.shape, dtype=torch.bool, device=g.device)
 
     return entry_masks
 
@@ -229,7 +218,7 @@ def main():
     parser.add_argument("--row_counts", default="3072,4000,5000,6000",
                         help="Comma-separated gradient budgets (total entries without --keep_fc; non-FC budget with --keep_fc).")
     parser.add_argument("--keep_fc",    action="store_true",
-                        help="Force-keep all last-FC entries; row_counts then refers to non-FC budget.")
+                        help="Select from non-FC entries only; FC excluded from mask entirely.")
     parser.add_argument("--select_mode", default="topk_abs", choices=["topk_abs", "layer_spread"],
                         help="Non-FC entry selection strategy (only used with --keep_fc).")
     parser.add_argument("--n_iter",     type=int, default=300,
@@ -293,7 +282,7 @@ def main():
     fc_ids = _get_last_fc_param_indices(net)
     fc_size = sum(true_grads[i].numel() for i in fc_ids)
     if args.keep_fc:
-        print(f"FC entries (force-kept): {fc_size}")
+        print(f"FC entries (excluded from budget): {fc_size}")
 
     # ---- per-budget loop ---------------------------------------------------
     named_params = list(net.named_parameters())
@@ -305,7 +294,7 @@ def main():
             entry_masks = _build_keepfc_masks(true_grads, fc_ids, k,
                                               select_mode=args.select_mode, net=net)
             total_kept = sum(int(m.sum().item()) for m in entry_masks if m is not None)
-            print(f"  total entries in mask (non-FC={k} + FC={fc_size}): {total_kept}")
+            print(f"  total entries in mask (non-FC={k}): {total_kept}")
             budget_label = f"non-FC = {k:,}"
         else:
             print(f"\n=== total budget = {k} ===")
@@ -368,7 +357,7 @@ def main():
         )
         ax.axis("off")
 
-    mode_str = f"keep_fc, {args.select_mode}" if args.keep_fc else "global topk"
+    mode_str = f"non-FC only, {args.select_mode}" if args.keep_fc else "global topk"
     fig.suptitle(
         f"{network_name} / {args.dataset} — reconstruction quality vs Jacobian rank  ({mode_str})",
         fontsize=9, y=1.02,
