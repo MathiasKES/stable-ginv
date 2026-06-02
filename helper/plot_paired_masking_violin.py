@@ -8,8 +8,8 @@ Example:
         --out_dir results
 
 By default, entries are read from:
-    results/baselines/idlg_baselines_registry.json
-    results/baselines/masked_registry.json
+    <resolved results path>/baselines/idlg_baselines_registry[_v2].json
+    <resolved results path>/baselines/masked_registry[_v2].json
 """
 import argparse
 import csv
@@ -25,7 +25,7 @@ import seaborn as sns
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from functions.io_utils import safe_makedirs, safe_savefig, safe_write
+from functions.io_utils import resolve_storage_paths, safe_makedirs, safe_savefig, safe_write
 
 
 METRICS = [
@@ -45,6 +45,23 @@ def _load_entry(registry, key, label):
 def _load_registry(path):
     with open(path) as f:
         return json.load(f)
+
+
+def _load_default_registry(baseline_dir, name):
+    legacy_path = os.path.join(baseline_dir, f"{name}.json")
+    v2_path = os.path.join(baseline_dir, f"{name}_v2.json")
+    registry = {}
+    found_paths = []
+    for path in (legacy_path, v2_path):
+        if os.path.isfile(path):
+            registry.update(_load_registry(path))
+            found_paths.append(path)
+    if not found_paths:
+        raise FileNotFoundError(
+            f"No registry files found. Checked: {legacy_path}, {v2_path}"
+        )
+    print(f"Loaded: {', '.join(found_paths)}")
+    return registry
 
 
 def _paired_rows(baseline_entry, masked_entry):
@@ -226,13 +243,13 @@ def main():
     )
     parser.add_argument(
         "--baseline_registry_path",
-        default="results/baselines/idlg_baselines_registry.json",
-        help="Baseline registry JSON. Ignored when registry_path is provided.",
+        default=None,
+        help="Optional baseline registry JSON override. Ignored when registry_path is provided.",
     )
     parser.add_argument(
         "--masked_registry_path",
-        default="results/baselines/masked_registry.json",
-        help="Masked registry JSON. Ignored when registry_path is provided.",
+        default=None,
+        help="Optional masked registry JSON override. Ignored when registry_path is provided.",
     )
     parser.add_argument("--baseline_key", required=True)
     parser.add_argument("--masked_key", required=True)
@@ -243,8 +260,18 @@ def main():
     if args.registry_path:
         baseline_registry = masked_registry = _load_registry(args.registry_path)
     else:
-        baseline_registry = _load_registry(args.baseline_registry_path)
-        masked_registry = _load_registry(args.masked_registry_path)
+        _, save_path = resolve_storage_paths(".")
+        baseline_dir = os.path.join(save_path, "baselines")
+        baseline_registry = (
+            _load_registry(args.baseline_registry_path)
+            if args.baseline_registry_path
+            else _load_default_registry(baseline_dir, "idlg_baselines_registry")
+        )
+        masked_registry = (
+            _load_registry(args.masked_registry_path)
+            if args.masked_registry_path
+            else _load_default_registry(baseline_dir, "masked_registry")
+        )
     baseline_entry = _load_entry(baseline_registry, args.baseline_key, "Baseline")
     masked_entry = _load_entry(masked_registry, args.masked_key, "Masked")
     rows = _paired_rows(baseline_entry, masked_entry)
