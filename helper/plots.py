@@ -7,6 +7,18 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns
 
+lenet_data = [
+    # L-BFGS no pretrain
+    ("body.0", "L-BFGS\nNo pretrain", -32.14906, -22.51041),
+    ("body.2", "L-BFGS\nNo pretrain", -40.66, -29.60),
+    ("body.4", "L-BFGS\nNo pretrain", -10.91,  3.68),
+
+    # Signed AdamW no pretrain
+    ("body.0", "Signed AdamW\nNo pretrain", -1.21052, -0.41839),
+    ("body.2", "Signed AdamW\nNo pretrain", -1.74647, -0.89235),
+    ("body.4", "Signed AdamW\nNo pretrain", -0.17364,  0.40255),
+]
+
 resnet18_data = [
     # layer, config, ci_low, ci_high
 
@@ -142,8 +154,10 @@ vgg11_data = [
 
 NETWORK_DATA = {
     "resnet18": resnet18_data,
+    "resnet50": resnet50_data,
     "vgg13": vgg13_data,
     "vgg11": vgg11_data,
+    "lenet": lenet_data,
 }
 
 

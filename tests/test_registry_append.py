@@ -5,6 +5,7 @@ import pytest
 from functions.experiment_results import paired_report_for_masked
 from functions.io_utils import (
     baseline_key_from_args,
+    find_registry_entry,
     masked_key_from_args,
     seed_registry_entry_from_fallback,
     update_idlg_baseline,
@@ -137,6 +138,57 @@ def test_registry_seeds_v2_from_read_only_legacy_entry():
     assert legacy_registry == {"legacy-key": legacy_entry}
     assert list(writable_registry) == [key]
     assert writable_registry[key]["best_psnr_list"] == [1.0, 2.0, 3.0, 10.0, 11.0]
+
+
+def test_legacy_lookup_prefers_exact_requested_range():
+    key, args = baseline_key_from_args(_args(run_id=0, num_exp=3))
+    registry = {
+        "small": {
+            "args": baseline_key_from_args(_args(run_id=0, num_exp=3))[1],
+            "best_psnr_list": [1.0, 2.0, 3.0],
+        },
+        "large": {
+            "args": baseline_key_from_args(_args(run_id=0, num_exp=5))[1],
+            "best_psnr_list": [1.0, 2.0, 3.0, 4.0, 5.0],
+        },
+    }
+
+    stored_key, _ = find_registry_entry(registry, key, args)
+
+    assert stored_key == "small"
+
+
+def test_legacy_lookup_prefers_smallest_range_containing_requested_subset():
+    key, args = baseline_key_from_args(_args(run_id=2, num_exp=2))
+    registry = {
+        "large": {
+            "args": baseline_key_from_args(_args(run_id=0, num_exp=10))[1],
+            "best_psnr_list": list(range(10)),
+        },
+        "small": {
+            "args": baseline_key_from_args(_args(run_id=1, num_exp=4))[1],
+            "best_psnr_list": list(range(4)),
+        },
+    }
+
+    stored_key, _ = find_registry_entry(registry, key, args)
+
+    assert stored_key == "small"
+
+
+def test_legacy_lookup_rejects_single_entry_that_does_not_cover_requested_range():
+    key, args = baseline_key_from_args(_args(run_id=0, num_exp=5))
+    registry = {
+        "short": {
+            "args": baseline_key_from_args(_args(run_id=0, num_exp=3))[1],
+            "best_psnr_list": [1.0, 2.0, 3.0],
+        },
+    }
+
+    stored_key, entry = find_registry_entry(registry, key, args)
+
+    assert stored_key is None
+    assert entry is None
 
 
 def test_registry_replaces_read_only_legacy_range_in_v2_with_new_ssim():

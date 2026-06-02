@@ -393,8 +393,32 @@ def main():
             psnr_per_restart_idlg_all, psnr_per_restart_masked_all,
         )
 
-    # -------- Paired statistics --------
     baseline_key, comparable_args = baseline_key_from_args(args)
+    masked_key = None
+    masked_comparable_args = None
+
+    # Save completed masked metrics before optional paired statistics.
+    if METHODS in ["masked", "both"] and metric_accumulators["best_psnr_masked"]:
+        masked_registry = load_masked_registry(masked_registry_path)
+        legacy_masked_registry = load_masked_registry(legacy_masked_registry_path)
+        masked_key, masked_comparable_args = masked_key_from_args(args)
+        seed_registry_entry_from_fallback(
+            masked_registry, legacy_masked_registry, masked_key, masked_comparable_args
+        )
+        update_masked_registry(
+            masked_registry,
+            masked_key,
+            masked_comparable_args,
+            metric_accumulators["best_psnr_masked"],
+            metric_accumulators["best_mse_masked"],
+            metric_accumulators["best_ssim_masked"],
+        )
+        save_masked_registry(masked_registry_path, masked_registry)
+        print("\nSaved masked registry entry:")
+        print(f"masked_key: {masked_key}")
+        print(f"registry: {masked_registry_path}")
+
+    # -------- Paired statistics --------
     paired_report = empty_paired_report()
     if METHODS == "both":
         paired_report = paired_report_for_both(all_results_by_idx, tqdm.write)
@@ -402,22 +426,27 @@ def main():
     elif METHODS == "masked":
         registry = load_baseline_registry(baseline_registry_path)
         legacy_registry = load_baseline_registry(legacy_baseline_registry_path)
-        stored_baseline_key, baseline_entry = find_registry_entry(
-            registry, baseline_key, comparable_args
-        )
-        if baseline_entry is None:
+        try:
             stored_baseline_key, baseline_entry = find_registry_entry(
-                legacy_registry, baseline_key, comparable_args
+                registry, baseline_key, comparable_args
             )
+            if baseline_entry is None:
+                stored_baseline_key, baseline_entry = find_registry_entry(
+                    legacy_registry, baseline_key, comparable_args
+                )
 
-        if baseline_entry is None:
-            print("\nWARNING: No matching iDLG baseline found for this masked run.")
-            print("Run the same command with --methods idlg first, using the same non-mask arguments.")
-            print(f"Expected baseline key: {baseline_key}")
-        else:
-            if stored_baseline_key != baseline_key:
-                print(f"\nLoaded legacy iDLG baseline entry: {stored_baseline_key}")
-            paired_report = paired_report_for_masked(all_results_by_idx, baseline_entry, run_id)
+            if baseline_entry is None:
+                print("\nWARNING: No matching iDLG baseline found for this masked run.")
+                print("Run the same command with --methods idlg first, using the same non-mask arguments.")
+                print(f"Expected baseline key: {baseline_key}")
+            else:
+                if stored_baseline_key != baseline_key:
+                    print(f"\nLoaded legacy iDLG baseline entry: {stored_baseline_key}")
+                paired_report = paired_report_for_masked(
+                    all_results_by_idx, baseline_entry, run_id
+                )
+        except (KeyError, TypeError, ValueError) as exc:
+            print(f"\nWARNING: Skipping paired statistics for this masked run: {exc}")
 
     # -------- Compute statistics --------
     stats = compute_aggregate_stats(metric_accumulators)
@@ -449,28 +478,6 @@ def main():
         print(f"summary csv: {baseline_summary_csv_path}")
 
     write_sweep_mse_csv = MASK_MODE == "gradsize_topfrac_entries_layer" and METHODS in ["masked", "both"]
-    masked_key = None
-    masked_comparable_args = None
-
-    if METHODS in ["masked", "both"] and metric_accumulators["best_psnr_masked"]:
-        masked_registry = load_masked_registry(masked_registry_path)
-        legacy_masked_registry = load_masked_registry(legacy_masked_registry_path)
-        masked_key, masked_comparable_args = masked_key_from_args(args)
-        seed_registry_entry_from_fallback(
-            masked_registry, legacy_masked_registry, masked_key, masked_comparable_args
-        )
-        update_masked_registry(
-            masked_registry,
-            masked_key,
-            masked_comparable_args,
-            metric_accumulators["best_psnr_masked"],
-            metric_accumulators["best_mse_masked"],
-            metric_accumulators["best_ssim_masked"],
-        )
-        save_masked_registry(masked_registry_path, masked_registry)
-        print("\nSaved masked registry entry:")
-        print(f"masked_key: {masked_key}")
-        print(f"registry: {masked_registry_path}")
 
     csv_path = os.path.join(save_path, f"exp_results_{NETWORK_NAME}.csv")
 
