@@ -31,8 +31,8 @@ from torchvision import transforms
 import functions.consts as consts
 from functions.Dataset import load_dataset
 from functions.io_utils import resolve_storage_paths
-from functions.masking import _get_last_fc_param_indices
-from helper.metrics import compute_grad_match_loss, total_variation, compute_jacobian_rank
+from functions.masking import _get_last_fc_param_indices, flatten_observed_gradients
+from helper.metrics import compute_grad_match_loss, total_variation, compute_jacobian_rank, _layer_spread_non_fc
 from helper.Network import get_model, weights_init
 
 # ---------------------------------------------------------------------------
@@ -64,31 +64,58 @@ def _build_global_topk_masks(grads, budget):
     return entry_masks
 
 
-def _build_keepfc_masks(grads, fc_ids, non_fc_budget):
-    """FC params: all entries True. Non-FC: global top-k by |grad| True."""
-    non_fc_info = []
-    for i, g in enumerate(grads):
-        if g is None or i in fc_ids:
-            continue
-        non_fc_info.append((i, g.shape, g.detach().abs().reshape(-1)))
-
+def _build_keepfc_masks(grads, fc_ids, non_fc_budget, select_mode="topk_abs", net=None):
+    """FC params: all entries True. Non-FC: selected by select_mode (topk_abs or layer_spread)."""
     entry_masks = [None] * len(grads)
 
-    if non_fc_info and non_fc_budget > 0:
-        all_vals = torch.cat([v for _, _, v in non_fc_info])
-        k = min(int(non_fc_budget), all_vals.numel())
-        top_idx = torch.topk(all_vals, k=k, largest=True).indices
-        gmask = torch.zeros(all_vals.numel(), dtype=torch.bool, device=all_vals.device)
-        gmask[top_idx] = True
+    if select_mode == "layer_spread":
+        # Use the same layer_spread logic as the Jacobian sweep.
+        # _layer_spread_non_fc needs the full flat gradient vector (FC + non-FC)
+        # and returns flat indices into it for the selected non-FC entries.
+        g_obs_det = flatten_observed_gradients(grads, keep_ids=None, entry_masks=None).detach()
+        total = g_obs_det.numel()
+        non_fc_total = sum(g.numel() for i, g in enumerate(grads) if g is not None and i not in fc_ids)
+        k = min(int(non_fc_budget), non_fc_total)
+        selected_idx = _layer_spread_non_fc(
+            g_obs_det, k, grads, keep_ids=None, entry_masks=None,
+            fc_param_indices=fc_ids, net=net,
+        )
+        flat_mask = torch.zeros(total, dtype=torch.bool, device=g_obs_det.device)
+        if selected_idx.numel() > 0:
+            flat_mask[selected_idx] = True
         offset = 0
-        for i, shape, flat in non_fc_info:
-            n = flat.numel()
-            entry_masks[i] = gmask[offset:offset + n].reshape(shape)
+        for i, g in enumerate(grads):
+            if g is None:
+                continue
+            n = g.numel()
+            if i in fc_ids:
+                entry_masks[i] = torch.ones(g.shape, dtype=torch.bool, device=g.device)
+            else:
+                entry_masks[i] = flat_mask[offset:offset + n].reshape(g.shape)
             offset += n
 
-    for i, g in enumerate(grads):
-        if g is not None and i in fc_ids:
-            entry_masks[i] = torch.ones(g.shape, dtype=torch.bool, device=g.device)
+    else:  # topk_abs
+        non_fc_info = []
+        for i, g in enumerate(grads):
+            if g is None or i in fc_ids:
+                continue
+            non_fc_info.append((i, g.shape, g.detach().abs().reshape(-1)))
+
+        if non_fc_info and non_fc_budget > 0:
+            all_vals = torch.cat([v for _, _, v in non_fc_info])
+            k = min(int(non_fc_budget), all_vals.numel())
+            top_idx = torch.topk(all_vals, k=k, largest=True).indices
+            gmask = torch.zeros(all_vals.numel(), dtype=torch.bool, device=all_vals.device)
+            gmask[top_idx] = True
+            offset = 0
+            for i, shape, flat in non_fc_info:
+                n = flat.numel()
+                entry_masks[i] = gmask[offset:offset + n].reshape(shape)
+                offset += n
+
+        for i, g in enumerate(grads):
+            if g is not None and i in fc_ids:
+                entry_masks[i] = torch.ones(g.shape, dtype=torch.bool, device=g.device)
 
     return entry_masks
 
@@ -203,6 +230,8 @@ def main():
                         help="Comma-separated gradient budgets (total entries without --keep_fc; non-FC budget with --keep_fc).")
     parser.add_argument("--keep_fc",    action="store_true",
                         help="Force-keep all last-FC entries; row_counts then refers to non-FC budget.")
+    parser.add_argument("--select_mode", default="topk_abs", choices=["topk_abs", "layer_spread"],
+                        help="Non-FC entry selection strategy (only used with --keep_fc).")
     parser.add_argument("--n_iter",     type=int, default=300,
                         help="Reconstruction iterations (L-BFGS steps).")
     parser.add_argument("--lr",         type=float, default=1.0)
@@ -272,8 +301,9 @@ def main():
 
     for k in row_counts:
         if args.keep_fc:
-            print(f"\n=== non-FC budget = {k} ===")
-            entry_masks = _build_keepfc_masks(true_grads, fc_ids, k)
+            print(f"\n=== non-FC budget = {k} ({args.select_mode}) ===")
+            entry_masks = _build_keepfc_masks(true_grads, fc_ids, k,
+                                              select_mode=args.select_mode, net=net)
             total_kept = sum(int(m.sum().item()) for m in entry_masks if m is not None)
             print(f"  total entries in mask (non-FC={k} + FC={fc_size}): {total_kept}")
             budget_label = f"non-FC = {k:,}"
@@ -293,7 +323,7 @@ def main():
         rank, _, n_rows, unknowns = compute_jacobian_rank(
             net=net, x_norm=gt_norm.double(), y=gt_label, criterion=criterion,
             keep_ids=None, entry_masks=entry_masks,
-            max_entries=None, select_mode="topk_abs", device_for_J="cpu",
+            max_entries=None, select_mode=args.select_mode, device_for_J="cpu",
         )
         net.float()
         print(f"  rank = {rank} / {unknowns}")
@@ -338,7 +368,7 @@ def main():
         )
         ax.axis("off")
 
-    mode_str = "keep_fc" if args.keep_fc else "global topk"
+    mode_str = f"keep_fc, {args.select_mode}" if args.keep_fc else "global topk"
     fig.suptitle(
         f"{network_name} / {args.dataset} — reconstruction quality vs Jacobian rank  ({mode_str})",
         fontsize=9, y=1.02,
