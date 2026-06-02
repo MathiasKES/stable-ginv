@@ -567,10 +567,11 @@ def main():
                         "Series": qr_label,
                     })
 
+    import pandas as pd
     fig, ax = plt.subplots(figsize=(7, 5))
     if plot_rows:
         sns.lineplot(
-            data=plot_rows,
+            data=pd.DataFrame(plot_rows),
             x="Rows used",
             y="Jacobian rank",
             hue="Series",
