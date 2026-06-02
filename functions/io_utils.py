@@ -508,7 +508,7 @@ def _replace_ssim_range(entry, stored_start, stored_count, incoming_start,
 
 def _update_registry_entry(registry, key, comparable_args, best_psnr_list,
                            best_mse_list, best_ssim_list, label):
-    """Store metrics for a sample range, appending or replacing contained ranges."""
+    """Store metrics for a sample range, appending unseen suffixes or replacing contained ranges."""
     incoming = {
         "best_psnr_list": [float(v) for v in best_psnr_list],
         "best_mse_list": [float(v) for v in best_mse_list],
@@ -567,6 +567,18 @@ def _update_registry_entry(registry, key, comparable_args, best_psnr_list,
             f"run_id={incoming_start}..{incoming_end - 1}."
         )
         return entry
+    if stored_start <= incoming_start < expected_start < incoming_end:
+        overlap_count = expected_start - incoming_start
+        incoming_start = expected_start
+        incoming_count -= overlap_count
+        incoming = {
+            name: values[overlap_count:]
+            for name, values in incoming.items()
+        }
+        print(
+            f"\nSkipped {overlap_count} existing {label} sample(s) and will append "
+            f"run_id={incoming_start}..{incoming_end - 1}."
+        )
     if incoming_start != expected_start:
         raise ValueError(
             f"Cannot append {label} run_id={incoming_start}: stored samples cover "
