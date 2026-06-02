@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from functions.experiment_results import paired_report_for_masked
+from functions.experiment_results import ordered_masked_registry_lists, paired_report_for_masked
 from functions.io_utils import (
     baseline_key_from_args,
     find_registry_entry,
@@ -278,3 +278,17 @@ def test_masked_only_comparison_uses_sparse_future_ssim():
     report = paired_report_for_masked(results, baseline_entry, run_id=2)
 
     assert report["ssim_paired_stats"]["mean_diff"] == pytest.approx(0.015)
+
+
+def test_masked_registry_lists_are_ordered_by_experiment_index():
+    results = {
+        2: {"best_psnr_masked": 30.0, "best_mse_iDLG_masked": 0.3, "best_ssim_masked": 0.33},
+        0: {"best_psnr_masked": 10.0, "best_mse_iDLG_masked": 0.1, "best_ssim_masked": 0.11},
+        1: {"best_psnr_masked": 20.0, "best_mse_iDLG_masked": 0.2, "best_ssim_masked": 0.22},
+    }
+
+    psnr, mse, ssim = ordered_masked_registry_lists(results)
+
+    assert psnr == [10.0, 20.0, 30.0]
+    assert mse == [0.1, 0.2, 0.3]
+    assert ssim == [0.11, 0.22, 0.33]
