@@ -242,9 +242,9 @@ def _worker_core(args, sample_indices, device, row_counts, prefixes, prefix_laye
             print_svd_info=args.print_svd_info,
             j_progress_fn=progress_fn,
             rank_progress_fn=progress_fn,
-            independent=args.independent,
-            normalize_rows=not args.no_normalisation,
-            force_fc=args.keep_fc,
+            independent=not args.no_independent,
+            normalize_rows=args.normalise,
+            force_fc=False,
             fc_param_indices=fc_param_indices,
         )
         for rows in row_counts:
@@ -425,19 +425,16 @@ def main():
     parser.add_argument("--print_svd_info", action="store_true",
                         help="Print sigma_max, atol, and the 10 smallest singular values "
                              "of the Jacobian at each row count.")
-    parser.add_argument("--no_normalisation", action="store_true",
-                        help="Skip row normalisation before computing matrix_rank. "
-                             "The default relative threshold (max(M,N)*eps*sigma_max) "
-                             "then reflects actual gradient magnitudes rather than directions.")
-    parser.add_argument("--independent", action="store_true",
-                        help="Build J independently for each row count (max_entries=k per k). "
-                             "Theoretically correct: rank at k reflects exactly k gradient entries "
-                             "selected by --jacobian_select_mode. Costs len(row_counts)x more "
-                             "forward passes than the default pool-slice approach.")
+    parser.add_argument("--normalise", action="store_true",
+                        help="L2-normalise rows of J before computing matrix_rank. "
+                             "Default is no normalisation: the relative threshold reflects "
+                             "actual gradient magnitudes rather than directions.")
+    parser.add_argument("--no_independent", action="store_true",
+                        help="Use pool-slice mode: build J once at max(row_counts) and slice "
+                             "J[:k] for each k. Faster but rank at k depends on the pool composition. "
+                             "Default is independent mode (build J separately for each k).")
     parser.add_argument("--keep_fc", action="store_true",
-                        help="Mirror the reconstruction constraint: always include all FC gradient "
-                             "entries regardless of the mask. Lets you measure how many additional "
-                             "non-FC entries are needed to reach full rank when FC is force-kept.")
+                        help="Select from non-FC entries only; FC excluded from Jacobian rows.")
 
     args = parser.parse_args()
 
@@ -503,7 +500,7 @@ def main():
 
     # AD passes per sample: fwAD when unknowns < k (unknowns passes), else backward (k passes).
     rank_steps = len(row_counts) * (2 if args.qr_pivot else 1)
-    if args.independent:
+    if not args.no_independent:
         j_steps = sum(min(k, unknowns) for k in row_counts)
     else:
         j_steps = unknowns  # one build at max(row_counts), always fwAD when max > unknowns
@@ -537,7 +534,7 @@ def main():
             rank_results_qr = run["rank_results_qr"]
             for i, (x, m, s) in enumerate(zip(run["xs"], run["mean_ranks"], run["std_ranks"])):
                 ranks_str = ";".join(str(r) for r in rank_results[x])
-                row = [x, m, s, unknowns, args.num_samples, args.jacobian_select_mode, dtype_name, args.independent,
+                row = [x, m, s, unknowns, args.num_samples, args.jacobian_select_mode, dtype_name, not args.no_independent,
                        sample_indices_str, ranks_str]
                 if rank_results_qr is not None:
                     ranks_qr_str = ";".join(str(r) for r in rank_results_qr[x])

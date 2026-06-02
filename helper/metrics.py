@@ -484,8 +484,8 @@ def compute_jacobian_rank_sweep(
     print_svd_info=False,
     j_progress_fn=None,
     rank_progress_fn=None,
-    independent=False,
-    normalize_rows=True,
+    independent=True,
+    normalize_rows=False,
     force_fc=False,
     fc_param_indices=None,
 ):

@@ -79,13 +79,13 @@ flags, such as `--compute_jacobian_rank`, `--save_gif`, and `--methods`.
 ### `functions/jacobian_rank_sweep.py` — use for parameter sweeps of rank
 Iterates over a grid of masking parameters and logs rank results. Default numerical dtype is `float64`; pass `--dtype float32` to run in single precision, or `--both_dtypes` to run float32 and float64 back-to-back and plot both rank curves in one graph.
 
-**`--keep_fc`** mirrors the reconstruction constraint: the last FC layer's gradient entries are always included in the Jacobian rows regardless of `--jacobian_select_mode`. When set, `row_counts` become the non-FC budget — the actual total rows used is `row_count + FC_size`. Each row count prints:
+**Defaults:** independent mode (one J build per row count), no row normalisation, FC in the pool (not forced). Key flags to change defaults:
 
-```
-[keep_fc] non-FC=5000 + FC=76900 → total=81900
-```
+- `--no_independent` — use pool-slice mode (build J once at max budget, slice for each k). Faster but rank at k depends on pool composition.
+- `--normalise` — L2-normalise J rows before `matrix_rank`. Default off: threshold reflects actual gradient magnitudes.
+- `--keep_fc` — select from non-FC entries only; FC excluded from Jacobian rows entirely.
 
-The FC-forcing happens inside `_build_jacobian` in `helper/metrics.py` (via `_fc_flat_mask` and `_layer_spread_non_fc` helpers), not in `build_gradient_mask`. When `--keep_fc` is off, behavior is identical to before this flag was added.
+**`force_fc` is `False` by default** in `compute_jacobian_rank_sweep` (`helper/metrics.py`). FC entries compete naturally in the pool alongside all other gradient entries.
 
 The scripts under `archive/` are inactive reference material. Use
 `iDLG_mask.py` for experiments.
@@ -185,12 +185,12 @@ For each experiment, the flow is:
 - **HPC scripts:** `scripts/` targets the DTU HPC cluster (LSF job scheduler). The `init.sh` sets up the conda environment from `environment.yml`.
 - **`run_single_exp.py` is a worker module:** Run experiments through
   `iDLG_mask.py`; it builds the internal config dict and spawns workers.
-- **Last FC layer always unmasked:** `build_gradient_mask` preserves the last `nn.Linear` layer by default (`force_fc=True`), regardless of mask mode. This guarantees the iDLG label-recovery trick always has the gradient it needs. Pass `force_fc=False` only when you explicitly want to exclude FC from the mask — do not do this for reconstruction. The Jacobian sweep's `--keep_fc` flag is separate: it forces FC into the selected Jacobian rows at the `_build_jacobian` level (see entry point below), independent of this default.
+- **Last FC layer always unmasked in reconstruction:** `build_gradient_mask` preserves the last `nn.Linear` layer by default (`force_fc=True`), regardless of mask mode. This guarantees the iDLG label-recovery trick always has the gradient it needs. The Jacobian sweep and `rank_reconstruction_plot` do NOT force FC — all gradient entries (including FC) compete in the pool. Pass `--keep_fc` in those tools to explicitly exclude FC from the Jacobian rows.
 - **LFW normalization constants:** Computed manually in `archive/testing/compute_lfw_stats.py` and hardcoded in `functions/consts.py`. If you change the LFW preprocessing (resize, crop), recompute these.
 - **Masking sweep workflow:** Run normal `iDLG_mask.py` commands for each `--gradsize_topfrac`; all runs with the same config (same network/dataset/optimizer/lr/etc.) append to the same CSV in `results/masking_sweeps/` regardless of `--run_id` or `--num_exp`. Then call `helper/plot_masking_sweep_csv.py <sweep_csv>`; its default reconstruction threshold is `--threshold_mse 0.01`. The plot script includes the matching iDLG baseline as the 0% masked point when `results/baselines/idlg_baselines_registry.json` contains the corresponding baseline key.
 - **Jacobian dtype comparisons:** `functions/jacobian_rank_sweep.py --both_dtypes` executes the same sweep for `float32` and `float64`, writes one CSV with a `dtype` column, and saves one overlaid plot. If `--qr_pivot` is also enabled, the QR-pivot lines are dashed and use the same color as the corresponding dtype.
 - **VGG fraction sweeps:** For `gradsize_topfrac_entries_layer` on VGG, `classifier.0.*` and `classifier.3.*` are excluded automatically. `classifier.6.*` remains fully unmasked because the last-FC layer is required for iDLG label recovery. This substantially reduces VGG sweep runtime and memory use.
-- **Row normalisation in rank sweep:** By default, rows of J are L2-normalised before `matrix_rank` to prevent a monotonicity bug (rank decreasing with more rows). Pass `--no_normalisation` to skip this — the default relative threshold then reflects actual gradient magnitudes rather than directions. If using `--no_normalisation`, verify rank is non-decreasing across your row counts for a sanity check.
+- **Row normalisation in rank sweep:** Default is **no normalisation** — the relative threshold reflects actual gradient magnitudes. Pass `--normalise` to L2-normalise rows before `matrix_rank`. If you enable normalisation, verify rank is non-decreasing across row counts as a sanity check.
 - **SVD diagnostics:** `--print_svd_info` now prints `sigma_max`, the computed `atol`, whether normalisation was applied, and the bottom-10 singular values. Use this to check whether borderline singular values have comfortable margin above the threshold.
 
 ---
