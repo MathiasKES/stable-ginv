@@ -1,28 +1,100 @@
+# 28547751 python iDLG_mask.py --network vgg13 --methods both --mask_mode prefix_topfrac_entries_layer --prefixes features.0:0.02,features.2:0.05,features.5:0.25,features.7:0.75,features.10:1,features.12:1,features.15:0.5,features.17:0.25,features.20:0.1,features.22:0.1,classifier.6:1 --num_exp 30 --iteration 5000 --optimizer signed_adamw --lr 0.1 --grad_loss cos --num_restarts 5 --gamma 0.5 --dataset cifar100
+# 28547752 python iDLG_mask.py --network vgg13 --methods idlg --num_exp 100 --iteration 5000 --optimizer signed_adamw --lr 0.1 --grad_loss cos --num_restarts 1 --gamma 0.5 --dataset cifar100
 
-# Jacobian rank sweep — topk_abs, 30 samples, stepsize 500
-# CIFAR-100 (default dataset)
-python3 -m functions.jacobian_rank_sweep --network vgg11 --num_samples 30 --stepsize 500 --max_row_count 15000
-python3 -m functions.jacobian_rank_sweep --network vgg13 --num_samples 30 --stepsize 500 --max_row_count 15000
-python3 -m functions.jacobian_rank_sweep --network vgg16 --num_samples 30 --stepsize 500 --max_row_count 15000
-python3 -m functions.jacobian_rank_sweep --network resnet18 --num_samples 30 --stepsize 500 --max_row_count 15000
-python3 -m functions.jacobian_rank_sweep --network resnet50 --num_samples 30 --stepsize 500 --max_row_count 15000
-python3 -m functions.jacobian_rank_sweep --network resnet101 --num_samples 30 --stepsize 500 --max_row_count 50000
-# LFW
-python3 -m functions.jacobian_rank_sweep --network vgg11 --dataset lfw --num_samples 30 --stepsize 500 --max_row_count 15000
-python3 -m functions.jacobian_rank_sweep --network vgg13 --dataset lfw --num_samples 30 --stepsize 500 --max_row_count 15000
-python3 -m functions.jacobian_rank_sweep --network vgg16 --dataset lfw --num_samples 30 --stepsize 500 --max_row_count 15000
-python3 -m functions.jacobian_rank_sweep --network resnet18 --dataset lfw --num_samples 30 --stepsize 500 --max_row_count 15000
-python3 -m functions.jacobian_rank_sweep --network resnet50 --dataset lfw --num_samples 30 --stepsize 500 --max_row_count 15000
-python3 -m functions.jacobian_rank_sweep --network resnet101 --dataset lfw --num_samples 30 --stepsize 500 --max_row_count 50000
+# 28551942 python iDLG_mask.py --network vgg13 --methods masked  --num_exp 100 --iteration 5000 --optimizer signed_adamw --lr 0.1 --grad_loss cos --num_restarts 1 --gamma 0.5 --dataset cifar100 --mask_mode gradsize_topfrac_entries_layer --gradsize_topfrac 1.0
+# 28551943 python iDLG_mask.py --network vgg13 --methods masked  --num_exp 100 --iteration 5000 --optimizer signed_adamw --lr 0.1 --grad_loss cos --num_restarts 1 --gamma 0.5 --dataset cifar100 --mask_mode gradsize_topfrac_entries_layer --gradsize_topfrac 0.9
 
-# vgg13 gradsize_topfrac_entries_layer sweep (topfrac 0.00 → 1.00, step 0.05)
-python iDLG_mask.py --network vgg13 --methods masked --mask_mode gradsize_topfrac_entries_layer --gradsize_topfrac 0.10 --num_exp 30 --iteration 5000 --optimizer signed_adamw --lr 0.1 --grad_loss cos --num_restarts 1
-python iDLG_mask.py --network vgg13 --methods masked --mask_mode gradsize_topfrac_entries_layer --gradsize_topfrac 0.20 --num_exp 30 --iteration 5000 --optimizer signed_adamw --lr 0.1 --grad_loss cos --num_restarts 1
-python iDLG_mask.py --network vgg13 --methods masked --mask_mode gradsize_topfrac_entries_layer --gradsize_topfrac 0.30 --num_exp 30 --iteration 5000 --optimizer signed_adamw --lr 0.1 --grad_loss cos --num_restarts 1
-python iDLG_mask.py --network vgg13 --methods masked --mask_mode gradsize_topfrac_entries_layer --gradsize_topfrac 0.40 --num_exp 30 --iteration 5000 --optimizer signed_adamw --lr 0.1 --grad_loss cos --num_restarts 1
-python iDLG_mask.py --network vgg13 --methods masked --mask_mode gradsize_topfrac_entries_layer --gradsize_topfrac 0.50 --num_exp 30 --iteration 5000 --optimizer signed_adamw --lr 0.1 --grad_loss cos --num_restarts 1
-python iDLG_mask.py --network vgg13 --methods masked --mask_mode gradsize_topfrac_entries_layer --gradsize_topfrac 0.60 --num_exp 30 --iteration 5000 --optimizer signed_adamw --lr 0.1 --grad_loss cos --num_restarts 1
-python iDLG_mask.py --network vgg13 --methods masked --mask_mode gradsize_topfrac_entries_layer --gradsize_topfrac 0.70 --num_exp 30 --iteration 5000 --optimizer signed_adamw --lr 0.1 --grad_loss cos --num_restarts 1
-python iDLG_mask.py --network vgg13 --methods masked --mask_mode gradsize_topfrac_entries_layer --gradsize_topfrac 0.80 --num_exp 30 --iteration 5000 --optimizer signed_adamw --lr 0.1 --grad_loss cos --num_restarts 1
-python iDLG_mask.py --network vgg13 --methods masked --mask_mode gradsize_topfrac_entries_layer --gradsize_topfrac 0.90 --num_exp 30 --iteration 5000 --optimizer signed_adamw --lr 0.1 --grad_loss cos --num_restarts 1
-python iDLG_mask.py --network vgg13 --methods masked --mask_mode gradsize_topfrac_entries_layer --gradsize_topfrac 1.00 --num_exp 30 --iteration 5000 --optimizer signed_adamw --lr 0.1 --grad_loss cos --num_restarts 1
+# 28551945 python iDLG_mask.py --network vgg13 --methods masked  --num_exp 100 --iteration 5000 --optimizer signed_adamw --lr 0.1 --grad_loss cos --num_restarts 1 --gamma 0.5 --dataset cifar100 --mask_mode gradsize_topfrac_entries_layer --gradsize_topfrac 0.8
+
+# INTERACTIVE python iDLG_mask.py --network vgg13 --methods masked --mask_mode prefix_topfrac_entries_layer --prefixes "features.0:1,features.2:1,features.5:1,features.7:1,features.10:1,features.12:1,features.15:1,features.17:1,features.20:1,features.22:1,classifier.6:1" --num_exp 30 --iteration 300 --optimizer lbfgs --lr 1 --grad_loss l2 --num_restarts 1
+
+# 28553597 python iDLG_mask.py --network vgg13 --methods masked --mask_mode prefix_topfrac_entries_layer --prefixes "features.0:1,features.2:1,features.5:1,features.7:1,features.10:1,features.12:1,features.15:1,features.17:1,features.20:1,features.22:1,classifier.6:1" --num_exp 30 --iteration 300 --optimizer lbfgs --lr 1 --grad_loss l2 --num_restarts 1 --pretrained
+
+# 28554696 python iDLG_mask.py --network vgg13 --methods masked --mask_mode prefix_topfrac_entries_layer --prefixes "features.0:1,features.2:1,features.5:1,features.7:1,features.10:1,features.12:1,features.15:1,features.17:1,features.20:1,features.22:1,classifier.6:1" --num_exp 30 --iteration 5000 --optimizer signed_adamw --lr 0.1 --grad_loss cos --num_restarts 1
+
+# 28554697 python iDLG_mask.py --network vgg13 --methods masked --mask_mode prefix_topfrac_entries_layer --prefixes "features.0:1,features.2:1,features.5:1,features.7:1,features.10:1,features.12:1,features.15:1,features.17:1,features.20:1,features.22:1,classifier.6:1" --num_exp 30 --iteration 5000 --optimizer signed_adamw --lr 0.1 --grad_loss cos --num_restarts 1 --pretrained
+
+# INTERACTIVE python iDLG_mask.py --network vgg13 --methods masked --mask_mode prefix_topfrac_entries_layer --prefixes "features.0:1,features.2:1,features.5:1,features.7:1,features.10:1,features.15:1,features.17:1,features.20:1,features.22:1,classifier.6:1" --num_exp 30 --iteration 300 --optimizer lbfgs --lr 1 --grad_loss l2 --num_restarts 1 --pretrained
+
+# 28554698 python iDLG_mask.py --network vgg13 --methods masked --mask_mode prefix_topfrac_entries_layer --prefixes "features.0:1,features.2:1,features.5:1,features.7:1,features.10:1,features.12:1,features.17:1,features.20:1,features.22:1,classifier.6:1" --num_exp 30 --iteration 300 --optimizer lbfgs --lr 1 --grad_loss l2 --num_restarts 1 --pretrained
+
+# 28554699 python iDLG_mask.py --network vgg13 --methods masked --mask_mode prefix_topfrac_entries_layer --prefixes "features.0:1,features.2:1,features.5:1,features.7:1,features.10:1,features.12:1,features.15:1,features.20:1,features.22:1,classifier.6:1" --num_exp 30 --iteration 300 --optimizer lbfgs --lr 1 --grad_loss l2 --num_restarts 1 --pretrained
+
+# 28554700 python iDLG_mask.py --network vgg13 --methods masked --mask_mode prefix_topfrac_entries_layer --prefixes "features.0:1,features.2:1,features.5:1,features.7:1,features.10:1,features.12:1,features.15:1,features.17:1,features.22:1,classifier.6:1" --num_exp 30 --iteration 300 --optimizer lbfgs --lr 1 --grad_loss l2 --num_restarts 1 --pretrained
+
+# 28554701 python iDLG_mask.py --network vgg13 --methods masked --mask_mode prefix_topfrac_entries_layer --prefixes "features.0:1,features.2:1,features.5:1,features.7:1,features.10:1,features.12:1,features.15:1,features.17:1,features.20:1,classifier.6:1" --num_exp 30 --iteration 300 --optimizer lbfgs --lr 1 --grad_loss l2 --num_restarts 1 --pretrained
+
+# INTERACTIVE python iDLG_mask.py --network vgg13 --methods masked  --num_exp 100 --iteration 5000 --optimizer signed_adamw --lr 0.1 --grad_loss cos --num_restarts 1 --gamma 0.5 --dataset cifar100 --mask_mode gradsize_topfrac_entries_layer --gradsize_topfrac 0.7
+
+# vgg11
+
+# 28554899 python iDLG_mask.py --network vgg11 --methods masked --mask_mode prefix_topfrac_entries_layer --prefixes "features.3:1,features.6:1,features.8:1,features.11:1,features.13:1,features.16:1,classifier.6:1" --num_exp 30 --iteration 300 --optimizer lbfgs --lr 1 --grad_loss l2 --num_restarts 1 --pretrained
+
+# 28554900 python iDLG_mask.py --network vgg11 --methods masked --mask_mode prefix_topfrac_entries_layer --prefixes "features.0:1,features.6:1,features.8:1,features.11:1,features.13:1,features.16:1,classifier.6:1" --num_exp 30 --iteration 300 --optimizer lbfgs --lr 1 --grad_loss l2 --num_restarts 1 --pretrained
+
+# 28554901 python iDLG_mask.py --network vgg11 --methods masked --mask_mode prefix_topfrac_entries_layer --prefixes "features.0:1,features.3:1,features.6:1,features.8:1,features.11:1,features.13:1,features.16:1,classifier.6:1" --num_exp 30 --iteration 5000 --optimizer signed_adamw --lr 0.1 --grad_loss cos --num_restarts 1 --pretrained
+
+# 28555122 python iDLG_mask.py --network resnet18 --methods idlg  --num_exp 100 --iteration 5000 --optimizer signed_adamw --lr 0.1 --grad_loss cos --num_restarts 1 --gamma 0.5 --dataset cifar100
+
+# 28555123 python iDLG_mask.py --network resnet18 --methods masked  --num_exp 100 --iteration 5000 --optimizer signed_adamw --lr 0.1 --grad_loss cos --num_restarts 1 --gamma 0.5 --dataset cifar100 --mask_mode gradsize_topfrac_entries_layer --gradsize_topfrac 1.0
+
+# 28555124 python iDLG_mask.py --network resnet18 --methods masked  --num_exp 100 --iteration 5000 --optimizer signed_adamw --lr 0.1 --grad_loss cos --num_restarts 1 --gamma 0.5 --dataset cifar100 --mask_mode gradsize_topfrac_entries_layer --gradsize_topfrac 0.9
+
+# 28555125 python iDLG_mask.py --network resnet18 --methods masked  --num_exp 100 --iteration 5000 --optimizer signed_adamw --lr 0.1 --grad_loss cos --num_restarts 1 --gamma 0.5 --dataset cifar100 --mask_mode gradsize_topfrac_entries_layer --gradsize_topfrac 0.8
+
+# INTERACTIVE python iDLG_mask.py --network resnet18 --methods masked  --num_exp 100 --iteration 5000 --optimizer signed_adamw --lr 0.1 --grad_loss cos --num_restarts 1 --gamma 0.5 --dataset cifar100 --mask_mode gradsize_topfrac_entries_layer --gradsize_topfrac 0.7
+
+# 28555518 python iDLG_mask.py --network resnet18 --methods masked  --num_exp 100 --iteration 5000 --optimizer signed_adamw --lr 0.1 --grad_loss cos --num_restarts 1 --gamma 0.5 --dataset cifar100 --mask_mode gradsize_topfrac_entries_layer --gradsize_topfrac 0.6
+
+# 28555519 python iDLG_mask.py --network resnet18 --methods masked  --num_exp 100 --iteration 5000 --optimizer signed_adamw --lr 0.1 --grad_loss cos --num_restarts 1 --gamma 0.5 --dataset cifar100 --mask_mode gradsize_topfrac_entries_layer --gradsize_topfrac 0.5
+
+# 28555520 python iDLG_mask.py --network resnet18 --methods masked  --num_exp 100 --iteration 5000 --optimizer signed_adamw --lr 0.1 --grad_loss cos --num_restarts 1 --gamma 0.5 --dataset cifar100 --mask_mode gradsize_topfrac_entries_layer --gradsize_topfrac 0.4
+
+# 28555542 python iDLG_mask.py --network resnet18 --methods masked  --num_exp 100 --iteration 5000 --optimizer signed_adamw --lr 0.1 --grad_loss cos --num_restarts 1 --gamma 0.5 --dataset cifar100 --mask_mode gradsize_topfrac_entries_layer --gradsize_topfrac 0.3
+
+# 28555543 python iDLG_mask.py --network resnet18 --methods masked  --num_exp 100 --iteration 5000 --optimizer signed_adamw --lr 0.1 --grad_loss cos --num_restarts 1 --gamma 0.5 --dataset cifar100 --mask_mode gradsize_topfrac_entries_layer --gradsize_topfrac 0.2
+
+# INTERACTIVE python iDLG_mask.py --network resnet18 --methods masked  --num_exp 100 --iteration 5000 --optimizer signed_adamw --lr 0.1 --grad_loss cos --num_restarts 1 --gamma 0.5 --dataset cifar100 --mask_mode gradsize_topfrac_entries_layer --gradsize_topfrac 0.1
+
+# 28558882 python iDLG_mask.py --network resnet50 --methods masked  --num_exp 100 --iteration 5000 --optimizer signed_adamw --lr 0.1 --grad_loss cos --num_restarts 1 --gamma 0.5 --dataset cifar100 --mask_mode gradsize_topfrac_entries_layer --gradsize_topfrac 1.0
+
+# 28558883 python iDLG_mask.py --network resnet50 --methods masked  --num_exp 100 --iteration 5000 --optimizer signed_adamw --lr 0.1 --grad_loss cos --num_restarts 1 --gamma 0.5 --dataset cifar100 --mask_mode gradsize_topfrac_entries_layer --gradsize_topfrac 0.9
+
+# 28558884 python iDLG_mask.py --network resnet50 --methods masked  --num_exp 100 --iteration 5000 --optimizer signed_adamw --lr 0.1 --grad_loss cos --num_restarts 1 --gamma 0.5 --dataset cifar100 --mask_mode gradsize_topfrac_entries_layer --gradsize_topfrac 0.8
+
+# 28559011 python iDLG_mask.py --network vgg13 --methods both --mask_mode prefix_topfrac_entries_layer --prefixes features.0:0.01,features.2:0.03,features.5:0.15,features.7:0.75,features.10:1,features.12:1,features.15:0.75,features.17:0.25,features.20:0.05,features.22:0.05,classifier.6:1 --optimizer signed_adamw --lr 0.1 --num_exp 30 --num_restarts 1 --grad_loss cos --iteration 24000 --dataset lfw
+
+# ── Baselines (run first) ──────────────────────────────────────────────────────
+
+# ── Ablations — iDLG config ───────────────────────────────────────────────────
+
+# ── Ablations — invgrad config ────────────────────────────────────────────────
+
+# TOP FRAC SWEEP LeNet
+
+# DONE [0] (dur=6033s): python iDLG_mask.py --network LeNet --methods masked  --num_exp 100 --iteration 300 --optimizer lbfgs --lr 1 --grad_loss l2 --num_restarts 1 --dataset cifar100 --mask_mode gradsize_topfrac_entries_layer --gradsize_topfrac 1.0
+
+
+# TOP FRAC SWEEP LeNet inverting gradients
+
+# DONE [0] (dur=1782s): python iDLG_mask.py --network LeNet --methods idlg  --num_exp 100 --iteration 5000 --optimizer signed_adamw --lr 1 --grad_loss cos --num_restarts 1 --dataset cifar100 
+
+# DONE [0] (dur=4382s): python iDLG_mask.py --network LeNet --methods masked  --num_exp 100 --iteration 5000 --optimizer signed_adamw --lr 1 --grad_loss cos --num_restarts 1 --dataset cifar100 --mask_mode gradsize_topfrac_entries_layer --gradsize_topfrac 1.0
+
+# DONE [0] (dur=2519s): python iDLG_mask.py --network LeNet --methods masked  --num_exp 100 --iteration 5000 --optimizer signed_adamw --lr 1 --grad_loss cos --num_restarts 1 --dataset cifar100 --mask_mode gradsize_topfrac_entries_layer --gradsize_topfrac 0.9
+
+# DONE [0] (dur=2527s): python iDLG_mask.py --network LeNet --methods masked  --num_exp 100 --iteration 5000 --optimizer signed_adamw --lr 1 --grad_loss cos --num_restarts 1 --dataset cifar100 --mask_mode gradsize_topfrac_entries_layer --gradsize_topfrac 0.8
+
+# DONE [0] (dur=4439s): python iDLG_mask.py --network LeNet --methods masked  --num_exp 100 --iteration 5000 --optimizer signed_adamw --lr 1 --grad_loss cos --num_restarts 1 --dataset cifar100 --mask_mode gradsize_topfrac_entries_layer --gradsize_topfrac 0.7
+
+# DONE [0] (dur=1479s): python iDLG_mask.py --network LeNet --methods masked  --num_exp 100 --iteration 5000 --optimizer signed_adamw --lr 1 --grad_loss cos --num_restarts 1 --dataset cifar100 --mask_mode gradsize_topfrac_entries_layer --gradsize_topfrac 0.6
+
+# DONE [0] (dur=1473s): python iDLG_mask.py --network LeNet --methods masked  --num_exp 100 --iteration 5000 --optimizer signed_adamw --lr 1 --grad_loss cos --num_restarts 1 --dataset cifar100 --mask_mode gradsize_topfrac_entries_layer --gradsize_topfrac 0.5
+
+# DONE [0] (dur=1479s): python iDLG_mask.py --network LeNet --methods masked  --num_exp 100 --iteration 5000 --optimizer signed_adamw --lr 1 --grad_loss cos --num_restarts 1 --dataset cifar100 --mask_mode gradsize_topfrac_entries_layer --gradsize_topfrac 0.4
+
+# DONE [0] (dur=1269s): python iDLG_mask.py --network LeNet --methods masked  --num_exp 100 --iteration 5000 --optimizer signed_adamw --lr 1 --grad_loss cos --num_restarts 1 --dataset cifar100 --mask_mode gradsize_topfrac_entries_layer --gradsize_topfrac 0.3
+
+python iDLG_mask.py --network LeNet --methods masked  --num_exp 100 --iteration 5000 --optimizer signed_adamw --lr 1 --grad_loss cos --num_restarts 1 --dataset cifar100 --mask_mode gradsize_topfrac_entries_layer --gradsize_topfrac 0.2
+
+python iDLG_mask.py --network LeNet --methods masked  --num_exp 100 --iteration 5000 --optimizer signed_adamw --lr 1 --grad_loss cos --num_restarts 1 --dataset cifar100 --mask_mode gradsize_topfrac_entries_layer --gradsize_topfrac 0.1

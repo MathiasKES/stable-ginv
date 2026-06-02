@@ -1,0 +1,13 @@
+lfw root_path: .
+lfw data_path: /work3/s234843/bachelor/datasets
+lfw save_path: /work3/s234843/bachelor/results
+MSE sweep: gradsize_topfrac_entries_layer  10 fracs  (300 total runs)  GPUs=4  threshold=0.01  step=0.1
+Saving to: /work3/s234843/bachelor/results/sweep_vgg13_lfw_20260528_112606
+
+[1/10] topfrac=0.1  (90% masked)
+  -> 2/30 reconstructed  avg_mse=0.021763
+[2/10] topfrac=0.2  (80% masked)
+
+  WARNING: exp 2 failed: CUDA out of memory. Tried to allocate 368.00 MiB. GPU 2 has a total capacity of 31.73 GiB of which 340.75 MiB is free. Process 26074 has 23.09 GiB memory in use. Process 694162 has 3.23 GiB memory in use. Including non-PyTorch memory, this process has 5.07 GiB memory in use. Of the allocated memory 4.16 GiB is allocated by PyTorch, and 542.10 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://docs.pytorch.org/docs/stable/notes/cuda.html#optimizing-memory-usage-with-pytorch-cuda-alloc-conf)
+
+  WARNING: exp 4 failed: CUDA out of memory. Tried to allocate 368.00 MiB. GPU 2 has a total capacity of 31.73 GiB of which 340.75 MiB is free. Process 26074 has 23.09 GiB memory in use. Process 694162 has 3.23 GiB memory in use. Including non-PyTorch memory, this process has 5.07 GiB memory in use. Of the allocated memory 4.16 GiB is allocated by PyTorch, and 542.10 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://docs.pytorch.org/docs/stable/notes/cuda.html#optimizing-memory-usage-with-pytorch-cuda-alloc-conf)
