@@ -16,6 +16,7 @@ from functions.experiment_results import (
     grad_param_value,
     merge_restart_results,
     ordered_idlg_baseline_lists,
+    ordered_masked_registry_lists,
     paired_report_for_both,
     paired_report_for_masked,
     print_final_experiment_summary,
@@ -399,6 +400,9 @@ def main():
 
     # Save completed masked metrics before optional paired statistics.
     if METHODS in ["masked", "both"] and metric_accumulators["best_psnr_masked"]:
+        ordered_best_psnr_masked, ordered_best_mse_masked, ordered_best_ssim_masked = (
+            ordered_masked_registry_lists(all_results_by_idx)
+        )
         masked_registry = load_masked_registry(masked_registry_path)
         legacy_masked_registry = load_masked_registry(legacy_masked_registry_path)
         masked_key, masked_comparable_args = masked_key_from_args(args)
@@ -409,9 +413,9 @@ def main():
             masked_registry,
             masked_key,
             masked_comparable_args,
-            metric_accumulators["best_psnr_masked"],
-            metric_accumulators["best_mse_masked"],
-            metric_accumulators["best_ssim_masked"],
+            ordered_best_psnr_masked,
+            ordered_best_mse_masked,
+            ordered_best_ssim_masked,
         )
         save_masked_registry(masked_registry_path, masked_registry)
         print("\nSaved masked registry entry:")

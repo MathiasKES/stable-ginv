@@ -398,6 +398,28 @@ def ordered_idlg_baseline_lists(all_results_by_idx):
     return ordered_best_psnr_idlg, ordered_best_mse_idlg, ordered_best_ssim_idlg
 
 
+def ordered_masked_registry_lists(all_results_by_idx):
+    """Return masked PSNR, MSE, and SSIM lists ordered by experiment index."""
+    ordered_best_psnr_masked = []
+    ordered_best_mse_masked = []
+    ordered_best_ssim_masked = []
+
+    for idx in sorted(all_results_by_idx):
+        result = all_results_by_idx[idx]
+        psnr = result.get("best_psnr_masked")
+        mse = result.get("best_mse_iDLG_masked")
+        ssim = result.get("best_ssim_masked")
+
+        if psnr is None or mse is None or not np.isfinite(psnr) or not np.isfinite(mse):
+            raise ValueError(f"Missing or invalid masked result for experiment idx={idx}")
+
+        ordered_best_psnr_masked.append(float(psnr))
+        ordered_best_mse_masked.append(float(mse))
+        ordered_best_ssim_masked.append(float(ssim) if ssim is not None and np.isfinite(ssim) else float("nan"))
+
+    return ordered_best_psnr_masked, ordered_best_mse_masked, ordered_best_ssim_masked
+
+
 def grad_param_value(mask_mode, gradsize_topfrac, gradsize_topk):
     """Return the CSV grad_param value for the active mask mode."""
     if mask_mode in [

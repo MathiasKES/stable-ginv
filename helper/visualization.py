@@ -23,6 +23,7 @@ sns.set_theme(style="whitegrid")
 def create_panel_buffers():
     """Create named reconstruction-panel buffers."""
     return {
+        "exp_idx": [],
         "gt": [],
         "idlg": [],
         "masked": [],
@@ -38,6 +39,7 @@ def create_panel_buffers():
 def append_result_to_panel_buffers(result, buffers, to_pil, warn_fn):
     """Append one experiment result to panel buffers."""
     idx = result["idx_net"]
+    buffers["exp_idx"].append(idx)
     gt_pil = to_pil(torch.from_numpy(result["gt_data"])[0])
     buffers["gt"].append(gt_pil)
 
@@ -78,16 +80,22 @@ def flush_recon_panel(params, buffers, panel_png_paths, save_dir, block_idx,
     """Save current reconstruction panel buffers and clear them."""
     if len(buffers["gt"]) == 0:
         return block_idx
+    order = sorted(range(len(buffers["exp_idx"])), key=lambda i: buffers["exp_idx"][i])
+    ordered = {
+        name: [values[i] for i in order]
+        for name, values in buffers.items()
+    }
     panel_path = save_recon_panel(
-        params, buffers["gt"], buffers["idlg"], buffers["masked"],
+        params, ordered["gt"], ordered["idlg"], ordered["masked"],
         save_dir, block_idx, dataset, mask_desc, timestamp_str,
         methods=methods,
-        psnr_idlg=buffers["psnr_idlg"],
-        ssim_idlg=buffers["ssim_idlg"],
-        mse_idlg=buffers["mse_idlg"],
-        psnr_masked=buffers["psnr_masked"],
-        ssim_masked=buffers["ssim_masked"],
-        mse_masked=buffers["mse_masked"],
+        exp_indices=ordered["exp_idx"],
+        psnr_idlg=ordered["psnr_idlg"],
+        ssim_idlg=ordered["ssim_idlg"],
+        mse_idlg=ordered["mse_idlg"],
+        psnr_masked=ordered["psnr_masked"],
+        ssim_masked=ordered["ssim_masked"],
+        mse_masked=ordered["mse_masked"],
     )
     if panel_path:
         panel_png_paths.append(panel_path)
@@ -99,6 +107,7 @@ def flush_recon_panel(params, buffers, panel_png_paths, save_dir, block_idx,
 def save_recon_panel(params: dict, panel_gt_pil, panel_idlg_pil, panel_masked_pil,
                      save_dir, block_idx, dataset, mask_desc: str, timestamp_str: str,
                      methods: str = "both",
+                     exp_indices=None,
                      psnr_idlg=None, ssim_idlg=None, mse_idlg=None,
                      psnr_masked=None, ssim_masked=None, mse_masked=None):
     """Save a PNG reconstruction panel; rows adapt to which methods were run."""
@@ -126,7 +135,8 @@ def save_recon_panel(params: dict, panel_gt_pil, panel_idlg_pil, panel_masked_pi
             ax = plt.subplot(num_rows, n, r * n + 1 + j)
             ax.imshow(row_imgs[j], cmap='gray' if dataset == 'MNIST' else None)
             if r == 0:
-                ax.set_title(f"exp {j}", fontsize=8)
+                exp_idx = exp_indices[j] if exp_indices is not None else j
+                ax.set_title(f"exp {exp_idx}", fontsize=8)
 
             ax.axis('off')
             if row_psnr is not None or row_ssim is not None or row_mse is not None:

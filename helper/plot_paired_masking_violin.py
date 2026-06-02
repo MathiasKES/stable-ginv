@@ -7,6 +7,12 @@ Example:
         --masked_key b9473c4448bd3cec04ed9bfa37c34561 \
         --out_dir results
 
+For a corrected historical CSV:
+    python helper/plot_paired_masking_violin.py \
+        --paired_csv_path results/50_per_sample_corrected.csv \
+        --out_dir . \
+        --output_prefix corrected_50
+
 By default, entries are read from:
     <resolved results path>/baselines/idlg_baselines_registry[_v2].json
     <resolved results path>/baselines/masked_registry[_v2].json
@@ -64,32 +70,75 @@ def _load_default_registry(baseline_dir, name):
     return registry
 
 
+def _load_paired_rows(path):
+    with open(path, newline="") as f:
+        rows = list(csv.DictReader(f))
+    if not rows:
+        raise ValueError(f"No paired sample rows found in: {path}")
+    int_fields = {"run_id", "sample_index", "sample_number", "baseline_index", "masked_index"}
+    metric_fields = {
+        f"{prefix}_{metric}"
+        for prefix in ("baseline", "masked", "delta")
+        for metric, _ in METRICS
+    }
+    for row in rows:
+        for field in int_fields:
+            if field in row:
+                row[field] = int(row[field])
+        for field in metric_fields:
+            row[field] = float(row[field])
+    return rows
+
+
 def _paired_rows(baseline_entry, masked_entry):
     metric_values = {}
-    expected_count = None
+    baseline_count = None
+    masked_count = None
     for metric, _ in METRICS:
         baseline_values = baseline_entry.get(f"best_{metric}_list", [])
         masked_values = masked_entry.get(f"best_{metric}_list", [])
-        if len(baseline_values) != len(masked_values):
+        if baseline_count is None:
+            baseline_count = len(baseline_values)
+            masked_count = len(masked_values)
+        elif len(baseline_values) != baseline_count or len(masked_values) != masked_count:
             raise ValueError(
-                f"{metric.upper()} sample counts differ: "
-                f"baseline={len(baseline_values)}, masked={len(masked_values)}"
+                "PSNR, MSE, and SSIM lists must have consistent lengths "
+                "within each registry entry"
             )
-        if expected_count is None:
-            expected_count = len(baseline_values)
-        elif len(baseline_values) != expected_count:
-            raise ValueError("Metric lists do not all contain the same number of samples")
         metric_values[metric] = (baseline_values, masked_values)
 
+    baseline_start = int(baseline_entry.get("args", {}).get("run_id", 0))
+    masked_start = int(masked_entry.get("args", {}).get("run_id", 0))
+    overlap_start = max(baseline_start, masked_start)
+    overlap_end = min(baseline_start + baseline_count, masked_start + masked_count)
+    if overlap_start >= overlap_end:
+        raise ValueError(
+            "Baseline and masked registry entries do not cover any shared run_ids: "
+            f"baseline={baseline_start}..{baseline_start + baseline_count - 1}, "
+            f"masked={masked_start}..{masked_start + masked_count - 1}"
+        )
+    if baseline_count != masked_count or baseline_start != masked_start:
+        print(
+            "WARNING: Registry ranges differ; plotting only overlapping run_ids "
+            f"{overlap_start}..{overlap_end - 1}. "
+            f"Baseline range={baseline_start}..{baseline_start + baseline_count - 1}; "
+            f"masked range={masked_start}..{masked_start + masked_count - 1}."
+        )
+
     rows = []
-    for sample_index in range(expected_count or 0):
+    for run_id in range(overlap_start, overlap_end):
+        baseline_index = run_id - baseline_start
+        masked_index = run_id - masked_start
         row = {
-            "sample_index": sample_index,
-            "sample_number": sample_index + 1,
+            "run_id": run_id,
+            "sample_index": run_id,
+            "sample_number": run_id + 1,
+            "baseline_index": baseline_index,
+            "masked_index": masked_index,
         }
         for metric, _ in METRICS:
-            baseline_value = float(metric_values[metric][0][sample_index])
-            masked_value = float(metric_values[metric][1][sample_index])
+            baseline_value = float(metric_values[metric][0][baseline_index])
+            masked_value = float(metric_values[metric][1][masked_index])
             row[f"baseline_{metric}"] = baseline_value
             row[f"masked_{metric}"] = masked_value
             row[f"delta_{metric}"] = masked_value - baseline_value
@@ -113,8 +162,11 @@ def _long_dataframe(rows):
 
 def _write_rows(rows, path):
     fieldnames = list(rows[0]) if rows else [
+        "run_id",
         "sample_index",
         "sample_number",
+        "baseline_index",
+        "masked_index",
         "baseline_psnr",
         "masked_psnr",
         "delta_psnr",
@@ -226,6 +278,8 @@ def _print_extremes(rows):
         print(
             f"{label}: sample_index={row['sample_index']}, "
             f"sample_number={row['sample_number']}, "
+            f"baseline_index={row['baseline_index']}, "
+            f"masked_index={row['masked_index']}, "
             f"baseline_psnr={row['baseline_psnr']:.6f}, "
             f"masked_psnr={row['masked_psnr']:.6f}, "
             f"delta_psnr={row['delta_psnr']:+.6f} dB"
@@ -251,30 +305,42 @@ def main():
         default=None,
         help="Optional masked registry JSON override. Ignored when registry_path is provided.",
     )
-    parser.add_argument("--baseline_key", required=True)
-    parser.add_argument("--masked_key", required=True)
+    parser.add_argument(
+        "--paired_csv_path",
+        default=None,
+        help="Corrected per-sample CSV. When set, bypasses registry loading.",
+    )
+    parser.add_argument("--baseline_key")
+    parser.add_argument("--masked_key")
     parser.add_argument("--out_dir", default="results")
     parser.add_argument("--output_prefix", default="paired_masking")
+    parser.add_argument("--title", default=None)
     args = parser.parse_args()
 
-    if args.registry_path:
-        baseline_registry = masked_registry = _load_registry(args.registry_path)
+    baseline_entry = None
+    if args.paired_csv_path:
+        rows = _load_paired_rows(args.paired_csv_path)
     else:
-        _, save_path = resolve_storage_paths(".")
-        baseline_dir = os.path.join(save_path, "baselines")
-        baseline_registry = (
-            _load_registry(args.baseline_registry_path)
-            if args.baseline_registry_path
-            else _load_default_registry(baseline_dir, "idlg_baselines_registry")
-        )
-        masked_registry = (
-            _load_registry(args.masked_registry_path)
-            if args.masked_registry_path
-            else _load_default_registry(baseline_dir, "masked_registry")
-        )
-    baseline_entry = _load_entry(baseline_registry, args.baseline_key, "Baseline")
-    masked_entry = _load_entry(masked_registry, args.masked_key, "Masked")
-    rows = _paired_rows(baseline_entry, masked_entry)
+        if not args.baseline_key or not args.masked_key:
+            parser.error("--baseline_key and --masked_key are required unless --paired_csv_path is set")
+        if args.registry_path:
+            baseline_registry = masked_registry = _load_registry(args.registry_path)
+        else:
+            _, save_path = resolve_storage_paths(".")
+            baseline_dir = os.path.join(save_path, "baselines")
+            baseline_registry = (
+                _load_registry(args.baseline_registry_path)
+                if args.baseline_registry_path
+                else _load_default_registry(baseline_dir, "idlg_baselines_registry")
+            )
+            masked_registry = (
+                _load_registry(args.masked_registry_path)
+                if args.masked_registry_path
+                else _load_default_registry(baseline_dir, "masked_registry")
+            )
+        baseline_entry = _load_entry(baseline_registry, args.baseline_key, "Baseline")
+        masked_entry = _load_entry(masked_registry, args.masked_key, "Masked")
+        rows = _paired_rows(baseline_entry, masked_entry)
 
     if not safe_makedirs(args.out_dir):
         return
@@ -282,8 +348,8 @@ def main():
     plot_path = os.path.join(args.out_dir, f"{args.output_prefix}_violin.png")
     delta_plot_path = os.path.join(args.out_dir, f"{args.output_prefix}_delta_violin.png")
     _write_rows(rows, csv_path)
-    baseline_args = baseline_entry.get("args", {})
-    title = (
+    baseline_args = baseline_entry.get("args", {}) if baseline_entry else {}
+    title = args.title or (
         f"Baseline vs masked reconstruction: "
         f"{baseline_args.get('network', 'unknown')} / "
         f"{baseline_args.get('dataset', 'unknown')}"
