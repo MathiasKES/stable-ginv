@@ -1,19 +1,26 @@
 """
-Visualise how reconstruction quality tracks Jacobian rank as the non-FC
-gradient budget grows.
+Visualise how reconstruction quality tracks Jacobian rank as the gradient
+budget grows.
 
-For each non-FC budget k the script:
-  1. Builds an entry mask  : all last-FC entries kept + top-k non-FC by |grad|
+For each budget k the script:
+  1. Builds an entry mask  : global top-k entries by |grad|
+                             (with --keep_fc: all last-FC entries + top-k non-FC)
   2. Runs reconstruction   : L-BFGS + L2 loss, 300 iterations, lr=1
   3. Computes Jacobian rank: with that exact entry mask
 
 Produces a figure:  GT | k=k1,rank=r1 | k=k2,rank=r2 | ...
 
-Run example (LeNet / CIFAR-100):
+Run example (LeNet / CIFAR-100, no keep_fc):
   python3 -m functions.rank_reconstruction_plot \
     --network lenet --dataset cifar100 \
     --row_counts 3072,4000,5000,6000 \
-    --sample_idx 0 --n_iter 5000 --output rank_recon.png
+    --sample_idx 0 --n_iter 300 --output rank_recon.png
+
+With keep_fc (row_counts = non-FC budget on top of FC):
+  python3 -m functions.rank_reconstruction_plot \
+    --network lenet --dataset cifar100 \
+    --row_counts 3072,4000,5000,6000 \
+    --keep_fc --sample_idx 0 --n_iter 300 --output rank_recon_keepfc.png
 """
 
 import argparse
@@ -35,6 +42,31 @@ from helper.Network import get_model, weights_init
 # ---------------------------------------------------------------------------
 # mask helpers
 # ---------------------------------------------------------------------------
+
+def _build_global_topk_masks(grads, budget):
+    """Global top-k entries by |grad| across all parameters."""
+    all_info = []
+    for i, g in enumerate(grads):
+        if g is None:
+            continue
+        all_info.append((i, g.shape, g.detach().abs().reshape(-1)))
+
+    entry_masks = [None] * len(grads)
+
+    if all_info and budget > 0:
+        all_vals = torch.cat([v for _, _, v in all_info])
+        k = min(int(budget), all_vals.numel())
+        top_idx = torch.topk(all_vals, k=k, largest=True).indices
+        gmask = torch.zeros(all_vals.numel(), dtype=torch.bool, device=all_vals.device)
+        gmask[top_idx] = True
+        offset = 0
+        for i, shape, flat in all_info:
+            n = flat.numel()
+            entry_masks[i] = gmask[offset:offset + n].reshape(shape)
+            offset += n
+
+    return entry_masks
+
 
 def _build_keepfc_masks(grads, fc_ids, non_fc_budget):
     """FC params: all entries True. Non-FC: global top-k by |grad| True."""
@@ -152,7 +184,9 @@ def main():
     parser.add_argument("--sample_idx", type=int, default=0,
                         help="Index into the dataset (deterministic).")
     parser.add_argument("--row_counts", default="3072,4000,5000,6000",
-                        help="Comma-separated non-FC gradient budgets.")
+                        help="Comma-separated gradient budgets (total entries without --keep_fc; non-FC budget with --keep_fc).")
+    parser.add_argument("--keep_fc",    action="store_true",
+                        help="Force-keep all last-FC entries; row_counts then refers to non-FC budget.")
     parser.add_argument("--n_iter",     type=int, default=300,
                         help="Reconstruction iterations (L-BFGS steps).")
     parser.add_argument("--lr",         type=float, default=1.0)
@@ -213,18 +247,25 @@ def main():
 
     fc_ids = _get_last_fc_param_indices(net)
     fc_size = sum(true_grads[i].numel() for i in fc_ids)
-    print(f"FC entries (force-kept): {fc_size}")
+    if args.keep_fc:
+        print(f"FC entries (force-kept): {fc_size}")
 
     # ---- per-budget loop ---------------------------------------------------
-    results = []  # list of (non_fc_budget, total_entries, rank, recon_img_np)
+    results = []
 
     for k in row_counts:
-        print(f"\n=== non-FC budget = {k} ===")
-        entry_masks = _build_keepfc_masks(true_grads, fc_ids, k)
-        total_kept = sum(
-            int(m.sum().item()) for m in entry_masks if m is not None
-        )
-        print(f"  total entries in mask (non-FC={k} + FC={fc_size}): {total_kept}")
+        if args.keep_fc:
+            print(f"\n=== non-FC budget = {k} ===")
+            entry_masks = _build_keepfc_masks(true_grads, fc_ids, k)
+            total_kept = sum(int(m.sum().item()) for m in entry_masks if m is not None)
+            print(f"  total entries in mask (non-FC={k} + FC={fc_size}): {total_kept}")
+            budget_label = f"non-FC = {k:,}"
+        else:
+            print(f"\n=== total budget = {k} ===")
+            entry_masks = _build_global_topk_masks(true_grads, k)
+            total_kept = sum(int(m.sum().item()) for m in entry_masks if m is not None)
+            print(f"  total entries in mask: {total_kept}")
+            budget_label = f"entries = {k:,}"
 
         # Jacobian rank — use float64 to avoid rank underestimation from float32 eps
         print(f"  computing Jacobian rank ...")
@@ -252,7 +293,7 @@ def main():
         psnr = -10 * np.log10(mse) if mse > 0 else float("inf")
         print(f"  MSE={mse:.4f}  PSNR={psnr:.2f} dB")
 
-        results.append((k, total_kept, rank, unknowns, recon_np))
+        results.append((budget_label, total_kept, rank, unknowns, recon_np))
 
     # ---- figure ------------------------------------------------------------
     n_panels = 1 + len(results)
@@ -262,7 +303,7 @@ def main():
     axes[0].set_title("Ground truth", fontsize=9, fontweight="bold")
     axes[0].axis("off")
 
-    for ax, (k, total, rank, unknowns, img) in zip(axes[1:], results):
+    for ax, (label, total, rank, unknowns, img) in zip(axes[1:], results):
         ax.imshow(img)
         full = rank == unknowns
         rank_str = f"rank = {rank}/{unknowns}"
@@ -270,15 +311,16 @@ def main():
         psnr = -10 * np.log10(mse) if mse > 0 else float("inf")
         color = "#1a7f1a" if full else "#c0392b"
         ax.set_title(
-            f"non-FC = {k:,}\n{rank_str}\nPSNR = {psnr:.1f} dB",
+            f"{label}\n{rank_str}\nPSNR = {psnr:.1f} dB",
             fontsize=8,
             color=color,
             fontweight="bold" if full else "normal",
         )
         ax.axis("off")
 
+    mode_str = "keep_fc" if args.keep_fc else "global topk"
     fig.suptitle(
-        f"{network_name} / {args.dataset} — reconstruction quality vs Jacobian rank  (keep_fc)",
+        f"{network_name} / {args.dataset} — reconstruction quality vs Jacobian rank  ({mode_str})",
         fontsize=9, y=1.02,
     )
     plt.tight_layout()
