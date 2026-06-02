@@ -2,7 +2,7 @@
 
 **Audience:** A developer or researcher who is continuing active work on this codebase — adding new masking modes, running new experiments, debugging, or extending the pipeline.
 
-**Last updated:** 2026-05-31
+**Last updated:** 2026-06-02
 
 ---
 
@@ -78,6 +78,14 @@ flags, such as `--compute_jacobian_rank`, `--save_gif`, and `--methods`.
 
 ### `functions/jacobian_rank_sweep.py` — use for parameter sweeps of rank
 Iterates over a grid of masking parameters and logs rank results. Default numerical dtype is `float64`; pass `--dtype float32` to run in single precision, or `--both_dtypes` to run float32 and float64 back-to-back and plot both rank curves in one graph.
+
+**`--keep_fc`** mirrors the reconstruction constraint: the last FC layer's gradient entries are always included in the Jacobian rows regardless of `--jacobian_select_mode`. When set, `row_counts` become the non-FC budget — the actual total rows used is `row_count + FC_size`. Each row count prints:
+
+```
+[keep_fc] non-FC=5000 + FC=76900 → total=81900
+```
+
+The FC-forcing happens inside `_build_jacobian` in `helper/metrics.py` (via `_fc_flat_mask` and `_layer_spread_non_fc` helpers), not in `build_gradient_mask`. When `--keep_fc` is off, behavior is identical to before this flag was added.
 
 The scripts under `archive/` are inactive reference material. Use
 `iDLG_mask.py` for experiments.
@@ -177,7 +185,7 @@ For each experiment, the flow is:
 - **HPC scripts:** `scripts/` targets the DTU HPC cluster (LSF job scheduler). The `init.sh` sets up the conda environment from `environment.yml`.
 - **`run_single_exp.py` is a worker module:** Run experiments through
   `iDLG_mask.py`; it builds the internal config dict and spawns workers.
-- **Last FC layer always unmasked:** `build_gradient_mask` unconditionally preserves the last `nn.Linear` layer regardless of mask mode. This is intentional — it guarantees the iDLG label-recovery trick always has the gradient it needs. Do not bypass this by calling the individual masking functions directly.
+- **Last FC layer always unmasked:** `build_gradient_mask` preserves the last `nn.Linear` layer by default (`force_fc=True`), regardless of mask mode. This guarantees the iDLG label-recovery trick always has the gradient it needs. Pass `force_fc=False` only when you explicitly want to exclude FC from the mask — do not do this for reconstruction. The Jacobian sweep's `--keep_fc` flag is separate: it forces FC into the selected Jacobian rows at the `_build_jacobian` level (see entry point below), independent of this default.
 - **LFW normalization constants:** Computed manually in `archive/testing/compute_lfw_stats.py` and hardcoded in `functions/consts.py`. If you change the LFW preprocessing (resize, crop), recompute these.
 - **Masking sweep workflow:** Run normal `iDLG_mask.py` commands for each `--gradsize_topfrac`; all runs with the same config (same network/dataset/optimizer/lr/etc.) append to the same CSV in `results/masking_sweeps/` regardless of `--run_id` or `--num_exp`. Then call `helper/plot_masking_sweep_csv.py <sweep_csv>`; its default reconstruction threshold is `--threshold_mse 0.01`. The plot script includes the matching iDLG baseline as the 0% masked point when `results/baselines/idlg_baselines_registry.json` contains the corresponding baseline key.
 - **Jacobian dtype comparisons:** `functions/jacobian_rank_sweep.py --both_dtypes` executes the same sweep for `float32` and `float64`, writes one CSV with a `dtype` column, and saves one overlaid plot. If `--qr_pivot` is also enabled, the QR-pivot lines are dashed and use the same color as the corresponding dtype.

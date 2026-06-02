@@ -171,6 +171,7 @@ def _run_inner(idx_net, device_id, dst, dataset_name, config, result_queue):
             gradsize_topk=GRADSIZE_TOPK,
             gradsize_topfrac=GRADSIZE_TOPFRAC,
             gradsize_metric=GRADSIZE_METRIC,
+            force_fc=True,
         )
 
         if entry_masks is not None:

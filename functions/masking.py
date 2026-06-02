@@ -317,6 +317,7 @@ def build_gradient_mask(
     gradsize_topk=20,
     gradsize_topfrac=0.5,
     gradsize_metric="l2",
+    force_fc=True,
 ):
     """Dispatch to the appropriate masking strategy; returns (keep_ids, entry_masks), exactly one None."""
     candidate_ids = None
@@ -416,7 +417,10 @@ def build_gradient_mask(
     else:
         keep_ids = get_keep_ids(mask_mode, net=net)
 
-    # Always preserve the last FC layer so iDLG label inference is never blocked.
+    if not force_fc:
+        return keep_ids, entry_masks
+
+    # Preserve the last FC layer so iDLG label inference is never blocked.
     last_fc_ids = _get_last_fc_param_indices(net)
     if keep_ids is not None:
         keep_ids = set(keep_ids) | last_fc_ids
