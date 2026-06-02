@@ -170,12 +170,17 @@ def main():
     row_counts = [int(x) for x in args.row_counts.split(",")]
     device = torch.device(args.device)
 
+    # get_model expects exact casing for custom nets
+    _name_map = {"lenet": "LeNet", "lenet_bigger": "LeNet_bigger",
+                 "mediumcnn": "MediumCNN", "biggercnn": "BiggerCNN"}
+    network_name = _name_map.get(args.network.lower(), args.network)
+
     data_path = args.data_path or resolve_storage_paths(".")[0]
     dst, channel, num_classes, shape_img = load_dataset(args.dataset, data_path)
 
-    net = get_model(args.network, channel=channel, num_classes=num_classes,
+    net = get_model(network_name, channel=channel, num_classes=num_classes,
                     input_size=shape_img)
-    net_name_lower = args.network.lower()
+    net_name_lower = network_name.lower()
     if net_name_lower in {"lenet", "lenet_bigger"}:
         net.apply(weights_init)
     net = net.to(device).eval()
@@ -270,7 +275,7 @@ def main():
         ax.axis("off")
 
     fig.suptitle(
-        f"{args.network.upper()} / {args.dataset} — reconstruction quality vs Jacobian rank  (keep_fc)",
+        f"{network_name} / {args.dataset} — reconstruction quality vs Jacobian rank  (keep_fc)",
         fontsize=9, y=1.02,
     )
     plt.tight_layout()
