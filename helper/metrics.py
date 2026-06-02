@@ -112,8 +112,111 @@ def _layer_info(grads, keep_ids, entry_masks):
     return sizes, ndims
 
 
+def _fc_flat_mask(grads, keep_ids, entry_masks, fc_param_indices, device):
+    """Boolean mask over flatten_observed_gradients output; True where entry belongs to an FC param."""
+    parts = []
+    for i, g in enumerate(grads):
+        if g is None:
+            continue
+        if entry_masks is not None:
+            m = entry_masks[i]
+            if m is None:
+                continue
+            n = int(m.reshape(-1).sum().item())
+        else:
+            if keep_ids is not None and i not in keep_ids:
+                continue
+            n = g.numel()
+        parts.append(torch.full((n,), fill_value=(i in fc_param_indices), dtype=torch.bool, device=device))
+    if not parts:
+        return torch.zeros(0, dtype=torch.bool, device=device)
+    return torch.cat(parts)
+
+
+def _layer_spread_non_fc(g_obs_det, budget, grads, keep_ids, entry_masks, fc_param_indices, net):
+    """layer_spread entry selection on non-FC params only; returns global flat indices into g_obs_det."""
+    named_params = list(net.named_parameters())
+    param_to_group = _get_layer_groups(net)
+
+    group_totals = {}
+    group_slices = {}
+    group_order = []
+    seen = set()
+    global_offset = 0
+
+    for i, (name, _) in enumerate(named_params):
+        g = grads[i]
+        if g is None:
+            continue
+        if entry_masks is not None:
+            m = entry_masks[i]
+            if m is None:
+                continue
+            n = int(m.reshape(-1).sum().item())
+        else:
+            if keep_ids is not None and i not in keep_ids:
+                continue
+            n = g.numel()
+
+        if i not in fc_param_indices:
+            grp = param_to_group.get(name, name.split('.')[0])
+            if grp not in seen:
+                group_order.append(grp)
+                seen.add(grp)
+                group_totals[grp] = 0
+                group_slices[grp] = []
+            group_totals[grp] += n
+            group_slices[grp].append((global_offset, n))
+
+        global_offset += n
+
+    if not group_order:
+        return torch.tensor([], dtype=torch.long, device=g_obs_det.device)
+
+    k = budget
+    num_groups = len(group_order)
+    base = k // num_groups
+    remainder = k % num_groups
+    order = sorted(group_order, key=lambda grp: group_totals[grp], reverse=True)
+    per_group = {grp: base for grp in group_order}
+    for idx in range(remainder):
+        per_group[order[idx]] += 1
+    per_group = {grp: min(per_group[grp], group_totals[grp]) for grp in group_order}
+
+    leftover = k - sum(per_group.values())
+    if leftover > 0:
+        for grp in order:
+            if per_group[grp] < group_totals[grp]:
+                give = min(leftover, group_totals[grp] - per_group[grp])
+                per_group[grp] += give
+                leftover -= give
+                if leftover == 0:
+                    break
+
+    indices = []
+    for grp in group_order:
+        n = per_group[grp]
+        slices = group_slices[grp]
+        if n <= 0 or not slices:
+            continue
+        if n >= group_totals[grp]:
+            for off, sz in slices:
+                indices.append(torch.arange(sz, device=g_obs_det.device) + off)
+        else:
+            grp_vals = torch.cat([g_obs_det[off:off + sz] for off, sz in slices])
+            top_local = torch.topk(grp_vals.abs(), k=n, largest=True).indices
+            local_to_global = torch.cat([
+                torch.arange(sz, device=g_obs_det.device) + off
+                for off, sz in slices
+            ])
+            indices.append(local_to_global[top_local])
+
+    return torch.cat(indices) if indices else torch.tensor([], dtype=torch.long, device=g_obs_det.device)
+
+
 def _build_jacobian(net, x_norm, y, criterion, keep_ids, entry_masks,
-                    max_entries, select_mode, device_for_J, progress_fn=None):
+                    max_entries, select_mode, device_for_J, progress_fn=None,
+                    force_fc=False, fc_param_indices=None):
     """Forward pass + row selection + J construction.
 
     Automatically chooses the cheaper direction:
@@ -135,7 +238,34 @@ def _build_jacobian(net, x_norm, y, criterion, keep_ids, entry_masks,
     g_obs_det = flatten_observed_gradients(grads, keep_ids=keep_ids, entry_masks=entry_masks).detach()
     total_entries = g_obs_det.numel()
 
-    if max_entries is None or max_entries >= total_entries:
+    if force_fc and fc_param_indices:
+        fc_bool = _fc_flat_mask(grads, keep_ids, entry_masks, fc_param_indices, g_obs_det.device)
+        fc_idx = fc_bool.nonzero(as_tuple=True)[0]
+        non_fc_idx = (~fc_bool).nonzero(as_tuple=True)[0]
+        fc_size = fc_idx.numel()
+        non_fc_total = non_fc_idx.numel()
+        non_fc_k = non_fc_total if (max_entries is None or int(max_entries) >= non_fc_total) else int(max_entries)
+
+        if non_fc_k == non_fc_total or non_fc_total == 0:
+            non_fc_sel = non_fc_idx
+        elif select_mode == "topk_abs":
+            non_fc_sel = non_fc_idx[torch.topk(g_obs_det[non_fc_idx].abs(), k=non_fc_k, largest=True).indices]
+        elif select_mode == "first":
+            non_fc_sel = non_fc_idx[:non_fc_k]
+        elif select_mode == "random":
+            perm = torch.randperm(non_fc_total, device=g_obs_det.device)
+            non_fc_sel = non_fc_idx[perm[:non_fc_k]]
+        elif select_mode == "layer_spread":
+            non_fc_sel = _layer_spread_non_fc(
+                g_obs_det, non_fc_k, grads, keep_ids, entry_masks, fc_param_indices, net
+            )
+        else:
+            raise ValueError(f"Unknown select_mode: {select_mode}")
+
+        selected_idx = torch.cat([fc_idx, non_fc_sel])
+        print(f"[keep_fc] non-FC={non_fc_k} + FC={fc_size} → total={selected_idx.numel()}")
+
+    elif max_entries is None or max_entries >= total_entries:
         selected_idx = torch.arange(total_entries, device=g_obs_det.device)
     else:
         k = int(max_entries)
@@ -356,6 +486,8 @@ def compute_jacobian_rank_sweep(
     rank_progress_fn=None,
     independent=False,
     normalize_rows=True,
+    force_fc=False,
+    fc_param_indices=None,
 ):
     """Rank of J for multiple row counts.
 
@@ -388,6 +520,7 @@ def compute_jacobian_rank_sweep(
             J_k, _, unknowns = _build_jacobian(
                 net, x_norm, y, criterion, keep_ids, entry_masks,
                 k, select_mode, device_for_J, progress_fn=j_progress_fn,
+                force_fc=force_fc, fc_param_indices=fc_param_indices,
             )
             rank = _rank_of_J(J_k, print_svd_info=print_svd_info, normalize_rows=normalize_rows)
             results[k] = (rank, tuple(J_k.shape), J_k.shape[0], unknowns)
@@ -405,7 +538,7 @@ def compute_jacobian_rank_sweep(
     # --- build-once (pool-slice) mode ---
     J_max, total_entries, unknowns = _build_jacobian(
         net, x_norm, y, criterion, keep_ids, entry_masks, max(row_counts), select_mode, device_for_J,
-        progress_fn=j_progress_fn,
+        progress_fn=j_progress_fn, force_fc=force_fc, fc_param_indices=fc_param_indices,
     )
 
     results = {}
