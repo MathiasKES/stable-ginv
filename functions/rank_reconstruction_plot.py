@@ -226,13 +226,15 @@ def main():
         )
         print(f"  total entries in mask (non-FC={k} + FC={fc_size}): {total_kept}")
 
-        # Jacobian rank
+        # Jacobian rank — use float64 to avoid rank underestimation from float32 eps
         print(f"  computing Jacobian rank ...")
+        net.double()
         rank, _, n_rows, unknowns = compute_jacobian_rank(
-            net=net, x_norm=gt_norm, y=gt_label, criterion=criterion,
+            net=net, x_norm=gt_norm.double(), y=gt_label, criterion=criterion,
             keep_ids=None, entry_masks=entry_masks,
             max_entries=None, select_mode="topk_abs", device_for_J="cpu",
         )
+        net.float()
         print(f"  rank = {rank} / {unknowns}")
 
         # Reconstruction
