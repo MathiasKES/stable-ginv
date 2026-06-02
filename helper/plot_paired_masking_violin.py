@@ -66,30 +66,53 @@ def _load_default_registry(baseline_dir, name):
 
 def _paired_rows(baseline_entry, masked_entry):
     metric_values = {}
-    expected_count = None
+    baseline_count = None
+    masked_count = None
     for metric, _ in METRICS:
         baseline_values = baseline_entry.get(f"best_{metric}_list", [])
         masked_values = masked_entry.get(f"best_{metric}_list", [])
-        if len(baseline_values) != len(masked_values):
+        if baseline_count is None:
+            baseline_count = len(baseline_values)
+            masked_count = len(masked_values)
+        elif len(baseline_values) != baseline_count or len(masked_values) != masked_count:
             raise ValueError(
-                f"{metric.upper()} sample counts differ: "
-                f"baseline={len(baseline_values)}, masked={len(masked_values)}"
+                "PSNR, MSE, and SSIM lists must have consistent lengths "
+                "within each registry entry"
             )
-        if expected_count is None:
-            expected_count = len(baseline_values)
-        elif len(baseline_values) != expected_count:
-            raise ValueError("Metric lists do not all contain the same number of samples")
         metric_values[metric] = (baseline_values, masked_values)
 
+    baseline_start = int(baseline_entry.get("args", {}).get("run_id", 0))
+    masked_start = int(masked_entry.get("args", {}).get("run_id", 0))
+    overlap_start = max(baseline_start, masked_start)
+    overlap_end = min(baseline_start + baseline_count, masked_start + masked_count)
+    if overlap_start >= overlap_end:
+        raise ValueError(
+            "Baseline and masked registry entries do not cover any shared run_ids: "
+            f"baseline={baseline_start}..{baseline_start + baseline_count - 1}, "
+            f"masked={masked_start}..{masked_start + masked_count - 1}"
+        )
+    if baseline_count != masked_count or baseline_start != masked_start:
+        print(
+            "WARNING: Registry ranges differ; plotting only overlapping run_ids "
+            f"{overlap_start}..{overlap_end - 1}. "
+            f"Baseline range={baseline_start}..{baseline_start + baseline_count - 1}; "
+            f"masked range={masked_start}..{masked_start + masked_count - 1}."
+        )
+
     rows = []
-    for sample_index in range(expected_count or 0):
+    for run_id in range(overlap_start, overlap_end):
+        baseline_index = run_id - baseline_start
+        masked_index = run_id - masked_start
         row = {
-            "sample_index": sample_index,
-            "sample_number": sample_index + 1,
+            "run_id": run_id,
+            "sample_index": run_id,
+            "sample_number": run_id + 1,
+            "baseline_index": baseline_index,
+            "masked_index": masked_index,
         }
         for metric, _ in METRICS:
-            baseline_value = float(metric_values[metric][0][sample_index])
-            masked_value = float(metric_values[metric][1][sample_index])
+            baseline_value = float(metric_values[metric][0][baseline_index])
+            masked_value = float(metric_values[metric][1][masked_index])
             row[f"baseline_{metric}"] = baseline_value
             row[f"masked_{metric}"] = masked_value
             row[f"delta_{metric}"] = masked_value - baseline_value
@@ -113,8 +136,11 @@ def _long_dataframe(rows):
 
 def _write_rows(rows, path):
     fieldnames = list(rows[0]) if rows else [
+        "run_id",
         "sample_index",
         "sample_number",
+        "baseline_index",
+        "masked_index",
         "baseline_psnr",
         "masked_psnr",
         "delta_psnr",
@@ -226,6 +252,8 @@ def _print_extremes(rows):
         print(
             f"{label}: sample_index={row['sample_index']}, "
             f"sample_number={row['sample_number']}, "
+            f"baseline_index={row['baseline_index']}, "
+            f"masked_index={row['masked_index']}, "
             f"baseline_psnr={row['baseline_psnr']:.6f}, "
             f"masked_psnr={row['masked_psnr']:.6f}, "
             f"delta_psnr={row['delta_psnr']:+.6f} dB"
