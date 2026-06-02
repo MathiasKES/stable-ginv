@@ -130,6 +130,8 @@ def _baseline_row(rows, baseline_registry):
             'num_restarts',
             'max_iteration',
             'history_size',
+            'num_exp',
+            'run_id',
         ]
         if key in masked_args
     }
