@@ -17,6 +17,19 @@ def _get_last_fc_param_indices(net):
     return indices
 
 
+def _last_fc_explicitly_disabled(net, prefix_layer_fracs):
+    """Return True when a zero-valued prefix explicitly matches the last FC layer."""
+    last_fc_ids = _get_last_fc_param_indices(net)
+    named_params = list(net.named_parameters())
+    return any(
+        frac == 0 and any(
+            idx in last_fc_ids and (name == prefix or name.startswith(prefix + "."))
+            for idx, (name, _) in enumerate(named_params)
+        )
+        for prefix, frac in prefix_layer_fracs.items()
+    )
+
+
 def _is_vgg(net):
     return net.__class__.__name__.lower() == "vgg"
 
@@ -194,6 +207,8 @@ def get_entry_masks_by_prefix_group(
             local_top_frac = prefix_top_fracs.get(prefix, top_frac)
             if local_top_frac is None:
                 raise ValueError("top_frac must be set for mode='topfrac_entries'")
+            if local_top_frac == 0:
+                continue
             k = max(1, min(int(round(local_top_frac * n)), n))
         else:
             raise ValueError(f"Unknown mode: {mode}")
@@ -267,7 +282,10 @@ def get_keep_ids_by_prefix_group(
             local_top_frac = prefix_top_fracs.get(prefix, top_frac)
             if local_top_frac is None:
                 raise ValueError("top_frac must be set for mode='topfrac'")
-            k = max(1, min(int(round(local_top_frac * len(sizes_sorted))), len(sizes_sorted)))
+            if local_top_frac == 0:
+                k = 0
+            else:
+                k = max(1, min(int(round(local_top_frac * len(sizes_sorted))), len(sizes_sorted)))
 
         else:
             raise ValueError(f"Unknown mode: {mode}")
@@ -417,7 +435,10 @@ def build_gradient_mask(
     else:
         keep_ids = get_keep_ids(mask_mode, net=net)
 
-    if not force_fc:
+    if not force_fc or (
+        mask_mode.startswith("prefix_")
+        and _last_fc_explicitly_disabled(net, prefix_layer_fracs)
+    ):
         return keep_ids, entry_masks
 
     # Preserve the last FC layer so iDLG label inference is never blocked.

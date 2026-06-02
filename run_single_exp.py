@@ -6,7 +6,11 @@ import torch.nn as nn
 from torchvision import transforms
 import functions.consts as consts
 
-from functions.masking import build_gradient_mask, _get_last_fc_param_indices
+from functions.masking import (
+    build_gradient_mask,
+    _get_last_fc_param_indices,
+    _last_fc_explicitly_disabled,
+)
 from helper.metrics import (compute_psnr_from_mse, compute_jacobian_rank, total_variation,
     compute_grad_match_loss, compute_ssim_batch)
 from helper.Network import get_model, weights_init
@@ -184,6 +188,10 @@ def _run_inner(idx_net, device_id, dst, dataset_name, config, result_queue):
 
         _named_params_list = list(net.named_parameters())
         _last_fc_ids = _get_last_fc_param_indices(net)
+        _fc_disabled_for_loss = (
+            MASK_MODE.startswith("prefix_")
+            and _last_fc_explicitly_disabled(net, PREFIX_LAYER_FRACS)
+        )
         final_weight_idx = next(
             i for i in sorted(_last_fc_ids) if _named_params_list[i][0].endswith('.weight')
         )
@@ -192,6 +200,11 @@ def _run_inner(idx_net, device_id, dst, dataset_name, config, result_queue):
         label_inference_available = False
 
         if method == "iDLG":
+            label_pred = torch.argmin(torch.sum(original_dy_dx[final_weight_idx], dim=-1), dim=-1).detach().reshape((1,))
+            label_inference_available = True
+        elif _fc_disabled_for_loss:
+            # Explicit prefix fraction zero omits FC from matching, but the
+            # observed gradient remains available for one-time label inference.
             label_pred = torch.argmin(torch.sum(original_dy_dx[final_weight_idx], dim=-1), dim=-1).detach().reshape((1,))
             label_inference_available = True
         else:

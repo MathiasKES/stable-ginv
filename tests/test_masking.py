@@ -7,6 +7,7 @@ from functions.masking import (
     get_keep_ids_by_gradsize,
     get_entry_masks_by_gradsize,
     build_gradient_mask,
+    _last_fc_explicitly_disabled,
 )
 
 
@@ -214,6 +215,26 @@ def test_last_fc_always_preserved_in_entry_masks():
     # indices 2 and 3 are last FC — their masks must be all True
     assert entry_masks[2].all()
     assert entry_masks[3].all()
+
+
+def test_prefix_zero_fraction_excludes_last_fc_from_entry_mask():
+    net = small_net()
+    grads = [torch.ones(12), torch.ones(3), torch.ones(6), torch.ones(2)]
+
+    _, entry_masks = build_gradient_mask(
+        "masked",
+        "prefix_topfrac_entries_layer",
+        net,
+        grads,
+        prefixes=("0", "1"),
+        prefix_layer_fracs={"0": 1.0, "1": 0.0},
+    )
+
+    assert entry_masks[0].all()
+    assert entry_masks[1].all()
+    assert entry_masks[2] is None
+    assert entry_masks[3] is None
+    assert _last_fc_explicitly_disabled(net, {"1": 0.0})
 
 
 # ── gradsize_topfrac_entries_layer / gradsize_topk_entries_layer ──────────────
