@@ -4,7 +4,7 @@ gradient budget grows.
 
 For each non-FC budget k the script:
   1. Builds an entry mask  : all last-FC entries kept + top-k non-FC by |grad|
-  2. Runs reconstruction   : signed AdamW + cosine loss (same as main experiments)
+  2. Runs reconstruction   : L-BFGS + L2 loss, 300 iterations, lr=1
   3. Computes Jacobian rank: with that exact entry mask
 
 Produces a figure:  GT | k=k1,rank=r1 | k=k2,rank=r2 | ...
@@ -31,8 +31,6 @@ from functions.io_utils import resolve_storage_paths
 from functions.masking import _get_last_fc_param_indices
 from helper.metrics import compute_grad_match_loss, total_variation, compute_jacobian_rank
 from helper.Network import get_model, weights_init
-from helper.training_utils import make_scheduler
-
 
 # ---------------------------------------------------------------------------
 # mask helpers
@@ -73,8 +71,8 @@ def _build_keepfc_masks(grads, fc_ids, non_fc_budget):
 
 def _reconstruct(net, gt_data, gt_label, criterion, entry_masks,
                  dm, ds, lower_bound, upper_bound,
-                 n_iter, lr, gamma, tv_weight, device, seed):
-    """Signed AdamW + cosine loss reconstruction with the given entry mask."""
+                 n_iter, lr, tv_weight, net_name_lower, device, seed):
+    """L-BFGS + L2 loss reconstruction with the given entry mask."""
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
     np.random.seed(seed)
@@ -103,35 +101,37 @@ def _reconstruct(net, gt_data, gt_label, criterion, entry_masks,
     ).detach().reshape((1,))
 
     dummy_data = torch.randn(gt_data.size(), device=device).requires_grad_(True)
-    optimizer = torch.optim.AdamW([dummy_data], lr=lr, weight_decay=1e-5)
-    scheduler = make_scheduler(optimizer, n_iter, gamma)
+    optimizer = torch.optim.LBFGS([dummy_data], lr=lr, max_iter=20, history_size=100)
+
+    # LeNet uses sigmoid activations on raw [0,1] inputs — clamping between
+    # L-BFGS steps corrupts the Hessian approximation and causes divergence.
+    clamp_after_step = net_name_lower not in {"lenet", "lenet_bigger"}
 
     best_loss = float("inf")
     best_img = (dummy_data.detach() * ds + dm).clamp(0.0, 1.0)
 
     for _ in range(n_iter):
-        optimizer.zero_grad()
-        pred = net(dummy_data)
-        dummy_loss = criterion(pred, label_pred)
-        dummy_grads = torch.autograd.grad(dummy_loss, selected_params, create_graph=True)
-        grad_diff, _ = compute_grad_match_loss(
-            dummy_grads, selected_original,
-            selected_entry_masks=selected_entry_masks, grad_loss="cos",
-        )
-        tv = total_variation(dummy_data)
-        total = grad_diff + tv_weight * tv
-        total.backward()
+        def closure():
+            optimizer.zero_grad()
+            pred = net(dummy_data)
+            dummy_loss = criterion(pred, label_pred)
+            dummy_grads = torch.autograd.grad(dummy_loss, selected_params, create_graph=True)
+            grad_diff, _ = compute_grad_match_loss(
+                dummy_grads, selected_original,
+                selected_entry_masks=selected_entry_masks, grad_loss="l2",
+            )
+            tv = total_variation(dummy_data)
+            total = grad_diff + tv_weight * tv
+            total.backward()
+            return total
 
-        if dummy_data.grad is not None:
+        optimizer.step(closure)
+
+        if clamp_after_step:
             with torch.no_grad():
-                dummy_data.grad.sign_()
+                dummy_data.clamp_(lower_bound, upper_bound)
 
-        optimizer.step()
-        with torch.no_grad():
-            dummy_data.clamp_(lower_bound, upper_bound)
-        scheduler.step()
-
-        loss_val = total.item()
+        loss_val = closure().item()
         if np.isfinite(loss_val) and loss_val < best_loss:
             best_loss = loss_val
             current_x = (dummy_data.detach() * ds + dm).clamp(0.0, 1.0)
@@ -153,11 +153,9 @@ def main():
                         help="Index into the dataset (deterministic).")
     parser.add_argument("--row_counts", default="3072,4000,5000,6000",
                         help="Comma-separated non-FC gradient budgets.")
-    parser.add_argument("--n_iter",     type=int, default=5000,
-                        help="Reconstruction iterations per budget.")
-    parser.add_argument("--lr",         type=float, default=0.1)
-    parser.add_argument("--gamma",      type=float, default=0.1,
-                        help="LR decay factor for MultiStepLR scheduler.")
+    parser.add_argument("--n_iter",     type=int, default=300,
+                        help="Reconstruction iterations (L-BFGS steps).")
+    parser.add_argument("--lr",         type=float, default=1.0)
     parser.add_argument("--tv_weight",  type=float, default=0.0,
                         help="Total variation regularisation weight (default 0.0 matches main experiments).")
     parser.add_argument("--seed",       type=int, default=42)
@@ -243,8 +241,9 @@ def main():
             net=net, gt_data=gt_raw, gt_label=gt_label, criterion=criterion,
             entry_masks=entry_masks, dm=dm, ds=ds,
             lower_bound=lower_bound, upper_bound=upper_bound,
-            n_iter=args.n_iter, lr=args.lr, gamma=args.gamma,
-            tv_weight=args.tv_weight, device=device, seed=args.seed,
+            n_iter=args.n_iter, lr=args.lr,
+            tv_weight=args.tv_weight, net_name_lower=net_name_lower,
+            device=device, seed=args.seed,
         )
         recon_np = recon.squeeze(0).permute(1, 2, 0).cpu().numpy().clip(0, 1)
         mse = float(np.mean((recon_np - gt_display) ** 2))
