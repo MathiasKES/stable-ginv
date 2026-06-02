@@ -7,6 +7,12 @@ Example:
         --masked_key b9473c4448bd3cec04ed9bfa37c34561 \
         --out_dir results
 
+For a corrected historical CSV:
+    python helper/plot_paired_masking_violin.py \
+        --paired_csv_path results/50_per_sample_corrected.csv \
+        --out_dir . \
+        --output_prefix corrected_50
+
 By default, entries are read from:
     <resolved results path>/baselines/idlg_baselines_registry[_v2].json
     <resolved results path>/baselines/masked_registry[_v2].json
@@ -62,6 +68,26 @@ def _load_default_registry(baseline_dir, name):
         )
     print(f"Loaded: {', '.join(found_paths)}")
     return registry
+
+
+def _load_paired_rows(path):
+    with open(path, newline="") as f:
+        rows = list(csv.DictReader(f))
+    if not rows:
+        raise ValueError(f"No paired sample rows found in: {path}")
+    int_fields = {"run_id", "sample_index", "sample_number", "baseline_index", "masked_index"}
+    metric_fields = {
+        f"{prefix}_{metric}"
+        for prefix in ("baseline", "masked", "delta")
+        for metric, _ in METRICS
+    }
+    for row in rows:
+        for field in int_fields:
+            if field in row:
+                row[field] = int(row[field])
+        for field in metric_fields:
+            row[field] = float(row[field])
+    return rows
 
 
 def _paired_rows(baseline_entry, masked_entry):
@@ -279,30 +305,42 @@ def main():
         default=None,
         help="Optional masked registry JSON override. Ignored when registry_path is provided.",
     )
-    parser.add_argument("--baseline_key", required=True)
-    parser.add_argument("--masked_key", required=True)
+    parser.add_argument(
+        "--paired_csv_path",
+        default=None,
+        help="Corrected per-sample CSV. When set, bypasses registry loading.",
+    )
+    parser.add_argument("--baseline_key")
+    parser.add_argument("--masked_key")
     parser.add_argument("--out_dir", default="results")
     parser.add_argument("--output_prefix", default="paired_masking")
+    parser.add_argument("--title", default=None)
     args = parser.parse_args()
 
-    if args.registry_path:
-        baseline_registry = masked_registry = _load_registry(args.registry_path)
+    baseline_entry = None
+    if args.paired_csv_path:
+        rows = _load_paired_rows(args.paired_csv_path)
     else:
-        _, save_path = resolve_storage_paths(".")
-        baseline_dir = os.path.join(save_path, "baselines")
-        baseline_registry = (
-            _load_registry(args.baseline_registry_path)
-            if args.baseline_registry_path
-            else _load_default_registry(baseline_dir, "idlg_baselines_registry")
-        )
-        masked_registry = (
-            _load_registry(args.masked_registry_path)
-            if args.masked_registry_path
-            else _load_default_registry(baseline_dir, "masked_registry")
-        )
-    baseline_entry = _load_entry(baseline_registry, args.baseline_key, "Baseline")
-    masked_entry = _load_entry(masked_registry, args.masked_key, "Masked")
-    rows = _paired_rows(baseline_entry, masked_entry)
+        if not args.baseline_key or not args.masked_key:
+            parser.error("--baseline_key and --masked_key are required unless --paired_csv_path is set")
+        if args.registry_path:
+            baseline_registry = masked_registry = _load_registry(args.registry_path)
+        else:
+            _, save_path = resolve_storage_paths(".")
+            baseline_dir = os.path.join(save_path, "baselines")
+            baseline_registry = (
+                _load_registry(args.baseline_registry_path)
+                if args.baseline_registry_path
+                else _load_default_registry(baseline_dir, "idlg_baselines_registry")
+            )
+            masked_registry = (
+                _load_registry(args.masked_registry_path)
+                if args.masked_registry_path
+                else _load_default_registry(baseline_dir, "masked_registry")
+            )
+        baseline_entry = _load_entry(baseline_registry, args.baseline_key, "Baseline")
+        masked_entry = _load_entry(masked_registry, args.masked_key, "Masked")
+        rows = _paired_rows(baseline_entry, masked_entry)
 
     if not safe_makedirs(args.out_dir):
         return
@@ -310,8 +348,8 @@ def main():
     plot_path = os.path.join(args.out_dir, f"{args.output_prefix}_violin.png")
     delta_plot_path = os.path.join(args.out_dir, f"{args.output_prefix}_delta_violin.png")
     _write_rows(rows, csv_path)
-    baseline_args = baseline_entry.get("args", {})
-    title = (
+    baseline_args = baseline_entry.get("args", {}) if baseline_entry else {}
+    title = args.title or (
         f"Baseline vs masked reconstruction: "
         f"{baseline_args.get('network', 'unknown')} / "
         f"{baseline_args.get('dataset', 'unknown')}"
