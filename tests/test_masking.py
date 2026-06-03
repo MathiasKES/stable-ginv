@@ -7,7 +7,6 @@ from functions.masking import (
     get_keep_ids_by_gradsize,
     get_entry_masks_by_gradsize,
     build_gradient_mask,
-    _last_fc_explicitly_disabled,
 )
 
 
@@ -156,9 +155,7 @@ def test_gradsize_topk_returns_keep_ids_not_entry_masks():
         "masked", "gradsize_topk", net, grads, gradsize_topk=2
     )
     assert entry_masks is None
-    assert len(keep_ids) >= 2
-    # last FC layer (layer "1", indices 2 and 3) must always be present
-    assert {2, 3}.issubset(keep_ids)
+    assert set(keep_ids) == {1, 3}
 
 
 def test_gradsize_topfrac_returns_keep_ids():
@@ -190,31 +187,34 @@ def test_prefix_mode_keeps_only_matching_layer():
         "masked", "prefix", net, grads, prefixes=("0",)
     )
     assert entry_masks is None
-    # prefix "0" selects {0, 1}; last FC (layer "1", indices 2, 3) always force-included
-    assert keep_ids == {0, 1, 2, 3}
+    assert keep_ids == {0, 1}
 
 
-def test_last_fc_always_preserved_in_topk():
-    """Last FC layer must appear in keep_ids even when topk would exclude it."""
+def test_last_fc_not_forced_in_topk():
+    """Last FC layer is not added unless the mask selects it."""
     net = small_net()
-    # Give layer "1" (last FC, indices 2,3) the lowest norms so topk=1 would normally exclude it
+    # Give layer "1" (last FC, indices 2,3) the lowest norms so topk excludes it.
     grads = [torch.full((1,), 10.0), torch.full((1,), 9.0),   # layer 0: high norms
              torch.full((1,), 0.1),  torch.full((1,), 0.1)]   # layer 1 (last FC): low norms
     keep_ids, _ = build_gradient_mask("masked", "gradsize_topk", net, grads, gradsize_topk=1)
-    assert {2, 3}.issubset(keep_ids)  # last FC forced in despite low norm
+    assert set(keep_ids) == {0}
 
 
-def test_last_fc_always_preserved_in_entry_masks():
-    """Last FC layer must be fully unmasked (all-True) even in entry-wise masking."""
+def test_last_fc_not_forced_in_entry_masks():
+    """Last FC entries are not added unless the entry mask selects them."""
     net = small_net()
-    grads = [torch.ones(12), torch.ones(3), torch.ones(6), torch.ones(2)]
+    grads = [
+        torch.arange(1, 13, dtype=torch.float),
+        torch.arange(1, 4, dtype=torch.float),
+        torch.full((6,), 0.1),
+        torch.full((2,), 0.1),
+    ]
     _, entry_masks = build_gradient_mask(
         "masked", "gradsize_topfrac_entries", net, grads, gradsize_topfrac=0.1
     )
     assert entry_masks is not None
-    # indices 2 and 3 are last FC — their masks must be all True
-    assert entry_masks[2].all()
-    assert entry_masks[3].all()
+    assert entry_masks[2].sum().item() == 0
+    assert entry_masks[3].sum().item() == 0
 
 
 def test_prefix_zero_fraction_excludes_last_fc_from_entry_mask():
@@ -234,7 +234,6 @@ def test_prefix_zero_fraction_excludes_last_fc_from_entry_mask():
     assert entry_masks[1].all()
     assert entry_masks[2] is None
     assert entry_masks[3] is None
-    assert _last_fc_explicitly_disabled(net, {"1": 0.0})
 
 
 # ── gradsize_topfrac_entries_layer / gradsize_topk_entries_layer ──────────────
@@ -251,8 +250,8 @@ def test_per_layer_topfrac_keeps_correct_fraction_each_layer():
     _, masks = build_gradient_mask("masked", "gradsize_topfrac_entries_layer", net, grads, gradsize_topfrac=0.5)
     assert masks[0].sum().item() == 6   # 50% of 12
     assert masks[1].sum().item() == 2   # 50% of 3 (rounds to 2)
-    assert masks[2].all()               # last FC — always fully unmasked
-    assert masks[3].all()               # last FC — always fully unmasked
+    assert masks[2].sum().item() == 3   # 50% of 6
+    assert masks[3].sum().item() == 1   # 50% of 2
 
 
 def test_per_layer_each_layer_independent():
@@ -266,8 +265,8 @@ def test_per_layer_each_layer_independent():
     _, masks = build_gradient_mask("masked", "gradsize_topfrac_entries_layer", net, grads, gradsize_topfrac=0.5)
     assert masks[0].sum().item() == 6   # 50% of tiny layer still kept
     assert masks[1].sum().item() == 2   # 50% of tiny layer still kept
-    assert masks[2].all()
-    assert masks[3].all()
+    assert masks[2].sum().item() == 3
+    assert masks[3].sum().item() == 1
 
 
 def test_per_layer_shape_preserved():
@@ -301,11 +300,14 @@ def test_per_layer_mode_via_build_gradient_mask():
     # Each layer keeps 50% of its own entries
     assert entry_masks[0].sum().item() == 6   # 50% of 12
     assert entry_masks[1].sum().item() == 2   # 50% of 3 (rounded up from 1.5)
-    assert entry_masks[2].all()               # last FC — always fully unmasked
-    assert entry_masks[3].all()               # last FC — always fully unmasked
+    assert entry_masks[2].sum().item() == 3   # 50% of 6 — last FC masked like any layer
+    assert entry_masks[3].sum().item() == 1   # 50% of 2 — last FC masked like any layer
 
 
-def test_vgg_per_layer_topfrac_excludes_classifier_except_last_fc():
+def test_vgg_per_layer_topfrac_excludes_all_classifier_layers():
+    """Global per-layer mode excludes every classifier.* layer for VGG, including
+    the last FC. Label inference reads the original (unmasked) FC gradient, so the
+    last FC no longer needs to be forced into the reconstruction mask."""
     net = VGG()
     grads = [torch.ones_like(p) for p in net.parameters()]
     names = [name for name, _ in net.named_parameters()]
@@ -321,5 +323,29 @@ def test_vgg_per_layer_topfrac_excludes_classifier_except_last_fc():
     assert by_name["classifier.0.bias"] is None
     assert by_name["classifier.3.weight"] is None
     assert by_name["classifier.3.bias"] is None
-    assert by_name["classifier.6.weight"].all()
-    assert by_name["classifier.6.bias"].all()
+    assert by_name["classifier.6.weight"] is None
+    assert by_name["classifier.6.bias"] is None
+
+
+def test_prefix_mode_is_a_pure_whitelist_for_vgg_classifier():
+    """A specified classifier sub-layer is kept; an unspecified one (including the
+    last FC) is excluded. Guards against the last-FC layer ever being force-added
+    back into the reconstruction mask."""
+    net = VGG()
+    grads = [torch.ones_like(p) for p in net.parameters()]
+    names = [name for name, _ in net.named_parameters()]
+
+    _, masks = build_gradient_mask(
+        "masked", "prefix_topfrac_entries_layer", net, grads,
+        prefixes=("classifier.0",), gradsize_topfrac=1.0,
+    )
+
+    by_name = dict(zip(names, masks))
+    # Specified → kept.
+    assert by_name["classifier.0.weight"] is not None
+    assert by_name["classifier.0.bias"] is not None
+    # Not specified → excluded, including the last FC (classifier.6).
+    assert by_name["features.0.weight"] is None
+    assert by_name["classifier.3.weight"] is None
+    assert by_name["classifier.6.weight"] is None
+    assert by_name["classifier.6.bias"] is None
