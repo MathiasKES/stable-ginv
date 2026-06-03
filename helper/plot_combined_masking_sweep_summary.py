@@ -16,6 +16,7 @@ import sys
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+import numpy as np
 import seaborn as sns
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -61,44 +62,47 @@ def _plot(rows, out_path, include_baseline):
     datasets = sorted({row["dataset"] for row in rows})
     n_total_values = sorted({row["n_total"] for row in rows})
 
-    fig, ax = plt.subplots(figsize=(8, 4.8))
+    fig, ax = plt.subplots(figsize=(12, 5))
 
-    for network in networks:
-        network_rows = sorted(
-            [row for row in masked_rows if row["network"] == network],
-            key=lambda row: row["pct_masked"],
-        )
-        ax.plot(
-            [row["pct_masked"] for row in network_rows],
-            [row["n_reconstructed"] for row in network_rows],
-            marker="o",
-            linewidth=2,
-            color=palette[network],
-            label=_network_label(network),
-        )
+    plot_rows = sorted(masked_rows, key=lambda row: (row["network"].lower(), row["pct_masked"]))
+    sns.lineplot(
+        x=[row["pct_masked"] for row in plot_rows],
+        y=[row["n_reconstructed"] for row in plot_rows],
+        hue=[_network_label(row["network"]) for row in plot_rows],
+        marker="o",
+        linewidth=1.8,
+        palette={_network_label(network): palette[network] for network in networks},
+        ax=ax,
+    )
 
-        if include_baseline:
-            for row in baseline_rows:
-                if row["network"] != network:
-                    continue
-                ax.scatter(
-                    row["pct_masked"],
-                    row["n_reconstructed"],
-                    marker="D",
-                    s=55,
-                    facecolors="white",
-                    edgecolors=palette[network],
-                    linewidths=1.6,
-                    zorder=5,
-                )
+    if include_baseline:
+        for network in networks:
+            network_rows = [row for row in baseline_rows if row["network"] == network]
+            if not network_rows:
+                continue
+            ax.scatter(
+                [row["pct_masked"] for row in network_rows],
+                [row["n_reconstructed"] for row in network_rows],
+                marker="D",
+                s=55,
+                facecolors="white",
+                edgecolors=palette[network],
+                linewidths=1.6,
+                zorder=5,
+            )
 
     dataset_label = datasets[0] if len(datasets) == 1 else "mixed datasets"
     n_total_label = n_total_values[0] if len(n_total_values) == 1 else max(n_total_values)
     ax.set_title(f"Masking sweep comparison: {dataset_label}")
     ax.set_xlabel("Gradient entries masked (%)")
     ax.set_ylabel("Images reconstructed (MSE <= 0.01)")
-    ax.set_ylim(-0.5, n_total_label + 0.5)
-    ax.set_xlim(left=-2)
+    max_pct = max(row["pct_masked"] for row in rows)
+    x_max = max(100, int(np.ceil(max_pct / 10.0) * 10))
+    y_max = int(np.ceil(n_total_label / 10.0) * 10)
+    ax.set_ylim(-0.5, y_max + 0.5)
+    ax.set_xlim(left=-2, right=x_max + 2)
+    ax.set_xticks(np.arange(0, x_max + 1, 10))
+    ax.set_yticks(np.arange(0, y_max + 1, 10))
     ax.legend(title="Network")
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
@@ -106,7 +110,7 @@ def _plot(rows, out_path, include_baseline):
     out_dir = os.path.dirname(os.path.abspath(out_path))
     if out_dir and not safe_makedirs(out_dir):
         return
-    if safe_savefig(fig, out_path, dpi=200):
+    if safe_savefig(fig, out_path, dpi=150):
         print(f"Saved: {out_path}")
     plt.close(fig)
 
