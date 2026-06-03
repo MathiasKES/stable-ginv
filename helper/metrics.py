@@ -6,13 +6,32 @@ import torch.nn.functional as F
 import torch.autograd.forward_ad as fwAD
 from skimage.metrics import structural_similarity as ssim
 
-try:
-    import scipy.linalg as _scipy_linalg
-    _SCIPY_AVAILABLE = True
-except ImportError:
-    _SCIPY_AVAILABLE = False
-
 from functions.masking import flatten_observed_gradients
+
+_SCIPY_LINALG = None
+_SCIPY_LINALG_IMPORT_ERROR = None
+
+
+def _load_scipy_linalg():
+    """Import scipy.linalg only when QR pivoting is requested; return None if unavailable.
+
+    Mirrors the lazy scipy.stats loader in functions/io_utils.py. Normal
+    reconstruction runs never need QR pivoting, so deferring this import keeps
+    scipy.linalg out of worker startup, where an older system C++ runtime can
+    make the import fail.
+    """
+    global _SCIPY_LINALG, _SCIPY_LINALG_IMPORT_ERROR
+    if _SCIPY_LINALG is not None:
+        return _SCIPY_LINALG
+    if _SCIPY_LINALG_IMPORT_ERROR is not None:
+        return None
+    try:
+        import scipy.linalg as scipy_linalg
+    except Exception as exc:
+        _SCIPY_LINALG_IMPORT_ERROR = exc
+        return None
+    _SCIPY_LINALG = scipy_linalg
+    return _SCIPY_LINALG
 
 
 def compute_psnr_from_mse(mse: float, max_val: float = 1.0, eps: float = 1e-12) -> float:
@@ -464,9 +483,10 @@ def compute_jacobian_rank(
 
 def _qr_pivot_rows(J):
     """Return J reordered by QR column pivoting on J^T."""
-    if not _SCIPY_AVAILABLE:
+    scipy_linalg = _load_scipy_linalg()
+    if scipy_linalg is None:
         raise ImportError("qr_pivot requires scipy. Install with: pip install scipy")
-    _, _, pivots = _scipy_linalg.qr(J.cpu().numpy().T, pivoting=True, mode="economic")
+    _, _, pivots = scipy_linalg.qr(J.cpu().numpy().T, pivoting=True, mode="economic")
     return J[torch.from_numpy(pivots.astype(np.int64))]
 
 
