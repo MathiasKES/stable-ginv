@@ -328,6 +328,15 @@ def paired_metric_summaries(paired_values):
     return out
 
 
+def _registry_key_hash(comparable):
+    """MD5 of the comparable-args dict with stable key ordering.
+
+    Call before num_exp/run_id are added so appendable runs share one key.
+    """
+    key_json = json.dumps(comparable, sort_keys=True)
+    return hashlib.md5(key_json.encode("utf-8")).hexdigest()
+
+
 def masked_key_from_args(args):
     """Hash of masking hyperparameters, excluding the sample range for appendable runs."""
     comparable = {
@@ -350,8 +359,7 @@ def masked_key_from_args(args):
         "gradsize_metric": args.gradsize_metric,
         "prefixes": args.prefixes,
     }
-    key_json = json.dumps(comparable, sort_keys=True)
-    key_hash = hashlib.md5(key_json.encode("utf-8")).hexdigest()
+    key_hash = _registry_key_hash(comparable)
     comparable["num_exp"] = args.num_exp
     comparable["run_id"] = args.run_id
     return key_hash, comparable
@@ -630,8 +638,7 @@ def baseline_key_from_args(args):
         "history_size": args.history_size,
     }
 
-    key_json = json.dumps(comparable, sort_keys=True)
-    key_hash = hashlib.md5(key_json.encode("utf-8")).hexdigest()
+    key_hash = _registry_key_hash(comparable)
     comparable["num_exp"] = args.num_exp
     comparable["run_id"] = args.run_id
     return key_hash, comparable
