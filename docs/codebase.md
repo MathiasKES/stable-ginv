@@ -49,7 +49,7 @@ Paths: data → `./data` or `/work3/s234843/bachelor/datasets`; results → `./r
 3. Apply mask → g_public  (subset of g_obs, same mask applied every step)
 4. Init dummy x_d ~ N(0,1)  [in normalized space]
 5. Optimize:  min_{x_d}  ||mask(∇_θ CE(net(x_d), label_pred)) - g_public||² + λ·TV(x_d)
-6. label_pred inferred from final FC layer gradient (iDLG trick); last FC is never masked (enforced by build_gradient_mask)
+6. label_pred inferred once from the original (unmasked) final FC weight gradient (iDLG trick); the mask then decides whether the FC gradient is also used in the reconstruction loss
 ```
 
 Restarts: repeat step 4–5 `NUM_RESTARTS` times. Reconstruction snapshots are
@@ -94,8 +94,9 @@ build_gradient_mask(method, mask_mode, net, original_dy_dx,
                     gradsize_metric='l2')
   -> (keep_ids: set|None, entry_masks: list[bool_tensor]|None)
 # Central dispatcher. method='idlg' → keep_ids=all, no entry_masks.
-# Invariant: last FC layer is ALWAYS included regardless of mask_mode —
-# tensor-wise via keep_ids union, entry-wise via all-True mask override.
+# The last FC layer is NOT force-included: it appears in the mask only if the
+# selected mode/prefixes select it. Label inference uses the original unmasked
+# FC gradient (in run_single_exp), so it works regardless of the mask.
 
 get_keep_ids_by_gradsize(original_dy_dx, mode, topk, top_frac,
                          metric, candidate_ids=None)
@@ -296,7 +297,7 @@ registry_key`
 - **`prefix_topfrac` uses per-prefix ranking** — consistent with `prefix_topk`.
 - **Masked registry** — `results/baselines/masked_registry.json` stores per-experiment PSNR, MSE, and SSIM lists for masked runs, keyed by MD5 hash of all reconstruction + masking hyperparameters. Saved automatically by `iDLG_mask.py` at end of run. Overwriting an existing key prints a warning. Shapiro-Wilk normality test results are printed to stdout and saved in the normality CSV columns.
 - **TV normalization** — TV is computed on `dummy_data` (normalized space, same as the network input), not on the de-normalized [0,1] image. This matches Geiping et al. Use `--tv_weight 0.01` for single-image trained-network experiments (paper value); default `0.0` means no TV.
-- **Last FC invariant** — `build_gradient_mask()` always preserves the final fully connected layer so iDLG label inference remains available.
+- **FC / label-inference separation** — `build_gradient_mask()` does NOT force the final fully connected layer into the mask. The last FC gradient is used only for one-time label inference (`run_single_exp.py` reads the original unmasked FC weight gradient before masking). It enters the reconstruction loss only when the chosen mask mode/prefixes actually select it, so FC/classifier ablations are meaningful.
 - **`iters` scoping** — after early stop `break`, `iters` holds the break iteration. Final GIF frame is captured there if `_last_gif_iter != iters`.
 - **Jacobian OOM** — `jacobian_max_entries` caps the row count; rows are built one at a time.
 - **`gradsize_topk_entries` vs `gradsize_topk`** — former keeps top-K *scalar* entries; latter keeps top-K *tensors* (whole layers).

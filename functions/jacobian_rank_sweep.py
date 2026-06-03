@@ -234,7 +234,6 @@ def _worker_core(args, sample_indices, device, row_counts, prefixes, prefix_laye
             gradsize_topk=args.gradsize_topk,
             gradsize_topfrac=args.gradsize_topfrac,
             gradsize_metric="l2",
-            force_fc=not args.keep_fc,
         )
 
         if args.exclude_fc:
@@ -454,8 +453,6 @@ def main():
                         help="Use pool-slice mode: build J once at max(row_counts) and slice "
                              "J[:k] for each k. Faster but rank at k depends on the pool composition. "
                              "Default is independent mode (build J separately for each k).")
-    parser.add_argument("--keep_fc", action="store_true",
-                        help="Select from non-FC entries only; FC excluded from Jacobian rows.")
     parser.add_argument("--exclude_fc", action="store_true",
                         help="Exclude the last FC layer from the Jacobian entirely — "
                              "not in the pool, not forced. FC entries are removed from keep_ids "

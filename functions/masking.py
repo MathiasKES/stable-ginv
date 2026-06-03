@@ -17,19 +17,6 @@ def _get_last_fc_param_indices(net):
     return indices
 
 
-def _last_fc_explicitly_disabled(net, prefix_layer_fracs):
-    """Return True when a zero-valued prefix explicitly matches the last FC layer."""
-    last_fc_ids = _get_last_fc_param_indices(net)
-    named_params = list(net.named_parameters())
-    return any(
-        frac == 0 and any(
-            idx in last_fc_ids and (name == prefix or name.startswith(prefix + "."))
-            for idx, (name, _) in enumerate(named_params)
-        )
-        for prefix, frac in prefix_layer_fracs.items()
-    )
-
-
 def _is_vgg(net):
     return net.__class__.__name__.lower() == "vgg"
 
@@ -41,8 +28,8 @@ def _gradsize_entries_layer_param_names(net):
         return tuple(name for name, _ in named_params)
 
     # VGG's intermediate classifier layers dominate parameter count and slow
-    # create_graph=True reconstruction. Exclude classifier.* here; the final
-    # classifier.6 layer is restored below by the last-FC label-inference rule.
+    # create_graph=True reconstruction. Exclude classifier.* here; label
+    # inference uses the original final-layer gradients before masking.
     return tuple(name for name, _ in named_params if not name.startswith("classifier."))
 
 
@@ -335,7 +322,6 @@ def build_gradient_mask(
     gradsize_topk=20,
     gradsize_topfrac=0.5,
     gradsize_metric="l2",
-    force_fc=True,
 ):
     """Dispatch to the appropriate masking strategy; returns (keep_ids, entry_masks), exactly one None."""
     candidate_ids = None
@@ -434,21 +420,5 @@ def build_gradient_mask(
         keep_ids = get_keep_ids(mask_mode="prefix", net=net, prefixes=prefixes)
     else:
         keep_ids = get_keep_ids(mask_mode, net=net)
-
-    if not force_fc or (
-        mask_mode.startswith("prefix_")
-        and _last_fc_explicitly_disabled(net, prefix_layer_fracs)
-    ):
-        return keep_ids, entry_masks
-
-    # Preserve the last FC layer so iDLG label inference is never blocked.
-    last_fc_ids = _get_last_fc_param_indices(net)
-    if keep_ids is not None:
-        keep_ids = set(keep_ids) | last_fc_ids
-    elif entry_masks is not None:
-        for i in last_fc_ids:
-            if i < len(entry_masks) and i < len(original_dy_dx) and original_dy_dx[i] is not None:
-                entry_masks[i] = torch.ones(original_dy_dx[i].shape, dtype=torch.bool,
-                                            device=original_dy_dx[i].device)
 
     return keep_ids, entry_masks
