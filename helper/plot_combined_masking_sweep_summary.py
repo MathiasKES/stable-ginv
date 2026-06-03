@@ -97,7 +97,7 @@ def _plot(rows, out_path, include_baseline):
     ax.set_xlabel("Gradient entries masked (%)")
     ax.set_ylabel("Images reconstructed (MSE <= 0.01)")
     max_pct = max(row["pct_masked"] for row in rows)
-    x_max = max(100, int(np.ceil(max_pct / 10.0) * 10))
+    x_max = int(np.ceil(max_pct / 10.0) * 10)
     y_max = int(np.ceil(n_total_label / 10.0) * 10)
     ax.set_ylim(-0.5, y_max + 0.5)
     ax.set_xlim(left=-2, right=x_max + 2)
