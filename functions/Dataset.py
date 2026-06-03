@@ -27,7 +27,6 @@ class _Dataset_from_Image(Dataset):
         self.imgs = imgs # img paths
         self.labs = labs # labs is ndarray
         self.transform = transform
-        del imgs, labs
 
     def __len__(self):
         return self.labs.shape[0]
