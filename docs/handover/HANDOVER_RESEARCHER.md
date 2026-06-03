@@ -8,7 +8,7 @@
 
 ## 1. What This Project Does
 
-`stable-ginv` implements and extends the **iDLG gradient inversion attack** (Zhao et al., 2020) for studying privacy in federated learning. The central question is: *how much does gradient masking degrade an adversary's ability to reconstruct private training images from shared gradients?*
+`stable-ginv` implements the gradient inversion attack family — **DLG** (Zhu et al., 2019), **iDLG** (Zhao et al., 2020), and **Inverting Gradients** (Geiping et al., 2020) — for studying privacy in federated learning. The reconstruction loop uses Geiping et al.'s cosine-similarity gradient matching with a total-variation prior, combined with the iDLG label-recovery trick. The central question is: *how does gradient masking affect an adversary's ability to reconstruct private training images from shared gradients, and does a failed attack mean the information is absent or merely hard to extract?*
 
 The pipeline is:
 1. Train or load a neural network.
@@ -16,8 +16,6 @@ The pipeline is:
 3. Apply a gradient mask (zero out some tensors/entries).
 4. Run an optimization loop to reconstruct the image from the masked gradients.
 5. Measure reconstruction quality (PSNR, SSIM) and gradient information content (Jacobian rank).
-
-The `invertinggradients/` subfolder is a **git submodule** cloned from Geiping et al.'s original repo. It provides `GradientReconstructor` but the main codebase does not use it directly for experiments — it was kept for reference and the `iDLG_original.py` baseline.
 
 ---
 
@@ -52,8 +50,7 @@ stable-ginv/
 │
 ├── scripts/                 HPC job scripts (DTU cluster)
 │
-└── invertinggradients/      Git submodule — Geiping et al. reference implementation
-    └── inversefed/          GradientReconstructor, metrics, models, data loaders
+└── artifacts/               Generated plots, figures, data, and logs
 ```
 
 ---
@@ -175,14 +172,13 @@ For each experiment, the flow is:
   pixel space and converted back to `[0, 1]` for metrics and saving. If you add
   a dataset with different normalization, wire its stats into
   `functions/consts.py` and the display logic.
-- **Normalization constants:** `functions/consts.py` is the single source of truth for the main codebase. `invertinggradients/inversefed/consts.py` is a separate copy inside the submodule — do not modify it.
-- **`invertinggradients/` is a submodule:** It has its own `.git`. Do not commit files inside it to the main repo. If you need to update it: `cd invertinggradients && git pull`.
+- **Normalization constants:** `functions/consts.py` is the single source of truth for normalization stats in the codebase.
 - **Plotting convention:** Statistical plots use seaborn (`sns.lineplot`, `sns.barplot`) with matplotlib only for figure creation, labels, saving, and image rendering (`imshow`). Reconstruction panels and GIF frames remain matplotlib image displays because seaborn does not replace RGB image rendering.
 - **Matplotlib backend:** `helper/visualization.py` line 2 forces `matplotlib.use("Agg")` for headless operation. Do not call `matplotlib.pyplot` before this runs in any file that uses visualization.
 - **HPC C++ runtime path:** After activating the conda environment on DTU HPC, run `export LD_LIBRARY_PATH="$CONDA_PREFIX/lib:$LD_LIBRARY_PATH"` before Python. Without this, compiled SciPy/Matplotlib extensions may load the old system `/lib64/libstdc++.so.6` and fail with `CXXABI_1.3.15 not found`. Add the export to job scripts before the Python command.
 - **Optional plotting fallback:** `iDLG_mask.py` lazy-loads visualization helpers. If Matplotlib/Seaborn cannot import, experiments continue without PNG panels, GIFs, or restart plots; registry JSON and CSV outputs are still written so plots can be generated later.
 - **Optional SciPy stats fallback:** `functions/io_utils.py` lazy-loads `scipy.stats` only when paired comparisons are needed. If SciPy cannot import, paired p-values and Shapiro-Wilk normality checks are skipped and the CI uses a normal-approximation critical value. Fix the HPC library path before producing final statistical results.
-- **HPC scripts:** `scripts/` targets the DTU HPC cluster (LSF job scheduler). The `init.sh` sets up the conda environment from `environment.yml`.
+- **HPC scripts:** `scripts/` targets the DTU HPC cluster (LSF job scheduler). The `init.sh` sets up the conda environment from `env/environment.yml`.
 - **`run_single_exp.py` is a worker module:** Run experiments through
   `iDLG_mask.py`; it builds the internal config dict and spawns workers.
 - **Last FC layer always unmasked in reconstruction:** `build_gradient_mask` preserves the last `nn.Linear` layer by default (`force_fc=True`), regardless of mask mode. This guarantees the iDLG label-recovery trick always has the gradient it needs. The Jacobian sweep and `rank_reconstruction_plot` do NOT force FC — all gradient entries (including FC) compete in the pool. Pass `--keep_fc` in those tools to explicitly exclude FC from the Jacobian rows.
@@ -224,13 +220,17 @@ For each experiment, the flow is:
 ## 10. Environment Setup
 
 ```bash
-conda env create -f environment.yml
-conda activate stable-ginv   # or whatever name is in environment.yml
+conda env create -f env/environment.yml
+conda activate stable-ginv   # or whatever name is in env/environment.yml
 ```
 
-Requires CUDA 12.8. On DTU HPC, load modules first (see `scripts/init.sh`) and
-prepend `$CONDA_PREFIX/lib` to `LD_LIBRARY_PATH`. The active runner requires at
-least one CUDA GPU.
+On DTU HPC, load modules first (see `scripts/init.sh`) and prepend
+`$CONDA_PREFIX/lib` to `LD_LIBRARY_PATH`. A CUDA GPU is strongly recommended:
+the runner parallelises across all visible GPUs (`run_single_exp.py` selects
+`cuda:{device_id}`). When `torch.cuda.device_count() == 0`, `iDLG_mask.py`
+automatically falls back to a single CPU worker (device `'cpu'`) — correct but
+far slower, and intended only for small test runs. Use `env/environment-cpu.yml`
+for the CPU-only PyTorch build.
 
 ---
 

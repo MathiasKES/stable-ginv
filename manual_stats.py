@@ -23,7 +23,7 @@ Usage
 --------------------------------------------------------------------------
 1a) From a JSON file that references registry uids (recommended):
 
-       python manual_stats.py data.json
+       python manual_stats.py artifacts/data/data.json
 
    where data.json looks like:
 
@@ -47,7 +47,7 @@ Usage
 
 1b) From a JSON file with inline metric lists:
 
-       python manual_stats.py data.json
+       python manual_stats.py artifacts/data/data.json
 
    where data.json looks like:
 

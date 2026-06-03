@@ -10,7 +10,7 @@
 
 **Federated learning** is a machine learning paradigm where multiple clients (e.g., hospitals, phones) collaboratively train a shared model without sharing their raw data. Each client trains locally and only sends model gradient updates to a central server.
 
-**The privacy problem:** In 2020, Zhao et al. showed that an adversary who sees these gradient updates can reconstruct the private training images with high fidelity. This is the **iDLG (improved Deep Leakage from Gradients) attack**.
+**The privacy problem:** A line of work showed that an adversary who sees these gradient updates can reconstruct the private training images with high fidelity — **DLG** (Zhu et al., 2019), **iDLG** (Zhao et al., 2020), and **Inverting Gradients** (Geiping et al., 2020). We implement all three; the reconstruction loop uses Geiping et al.'s cosine-similarity gradient matching with a total-variation prior, plus the iDLG label-recovery trick.
 
 **Our research question:** Can a client *mask* some of its gradients before sending them — hiding information from the adversary — while still making training useful? We study how different masking strategies affect the adversary's ability to reconstruct private images.
 
@@ -71,21 +71,19 @@ The **iDLG trick** recovers the true label `y'` analytically from the gradient o
 | Batch orchestration and CSV output | `iDLG_mask.py`, `functions/idlg_cli.py`, `functions/experiment_results.py` |
 | Network architectures | `helper/Network.py::get_model()` + `LeNet`, `MediumCNN`, `BiggerCNN` |
 
-The `invertinggradients/` folder is the **Geiping et al. 2020** reference implementation. It is kept for reference but is not used directly in our experiments.
-
 ---
 
 ## 5. Environment Setup
 
-**Requirements:** CUDA-capable GPU (experiments were run on DTU HPC cluster), CUDA 12.8, Anaconda/Miniconda.
+**Requirements:** CUDA-capable GPU (experiments were run on DTU HPC cluster), CUDA 12.6, Anaconda/Miniconda.
 
 ```bash
 # Clone the repo (if you haven't already)
-git clone --recurse-submodules https://github.com/MathiasKES/stable-ginv.git
+git clone https://github.com/MathiasKES/stable-ginv.git
 cd stable-ginv
 
 # Create the conda environment
-conda env create -f environment.yml
+conda env create -f env/environment.yml
 
 # Activate it
 conda activate stable-ginv  # name may differ — check environment.yml first line

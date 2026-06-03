@@ -192,7 +192,6 @@ python iDLG_mask.py \
 ## Out Of Scope
 
 - `archive/`
-- `invertinggradients/`
 - Changes to reconstruction formulas or statistical formulas.
 - Changes to experiment defaults.
 - Formatting-only churn across the repository.

@@ -1,0 +1,23 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it using these metadata."
+title: "Stabilizing Gradient Inversion in Federated Learning"
+abstract: >-
+  Research codebase studying how gradient masking degrades the iDLG gradient
+  inversion attack on federated learning. Bachelor's thesis project, Technical
+  University of Denmark (DTU), 2026.
+authors:
+  - family-names: Aqraou
+    given-names: Alfred
+  - family-names: Afif
+    given-names: Ali
+  - family-names: Sørensen
+    given-names: Mathias
+year: 2026
+license: MIT
+repository-code: "https://github.com/MathiasKES/stable-ginv"
+keywords:
+  - gradient inversion
+  - federated learning
+  - privacy
+  - iDLG
+  - gradient masking

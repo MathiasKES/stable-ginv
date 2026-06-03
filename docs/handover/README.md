@@ -6,16 +6,19 @@ Read this file first when starting a new chat or development session.
 
 ## Current State
 
-`stable-ginv` studies how gradient masking affects iDLG image reconstruction.
-The active experiment entry point is:
+`stable-ginv` studies how gradient masking affects gradient-inversion image
+reconstruction (DLG / iDLG / Inverting Gradients). The active experiment entry
+point is:
 
 ```bash
 python iDLG_mask.py --help
 ```
 
-`iDLG_mask.py` owns CLI parsing, GPU scheduling, registry updates, CSV output,
-and high-level orchestration. It spawns workers from `run_single_exp.py`, which
-owns reconstruction behavior. Do not execute `run_single_exp.py` directly.
+`iDLG_mask.py` owns CLI parsing, GPU/CPU scheduling, registry updates, CSV
+output, and high-level orchestration. It spawns workers from `run_single_exp.py`,
+which owns reconstruction behavior. Do not execute `run_single_exp.py` directly.
+A GPU is strongly recommended; with no GPU the runner falls back to a single,
+much slower CPU worker.
 
 ## Read Next
 
@@ -23,7 +26,9 @@ owns reconstruction behavior. Do not execute `run_single_exp.py` directly.
   current behavior.
 - `HANDOVER_REVIEWER.md`: invariants and verification rules before editing.
 - `HANDOVER_COLLABORATOR.md`: research background and first-run walkthrough.
-- `../CODE_CLEANUP.md`: pending conservative cleanup plan.
+- `HANDOVER_CLEANUP.md`: submission-readiness cleanup — what was done, the
+  decisions behind it, how to verify, and what remains.
+- `../CODE_CLEANUP.md`: pending conservative internal code-redundancy plan.
 - `../codebase.md`: detailed function and output reference.
 
 ## Current Safety Constraints
@@ -32,7 +37,6 @@ owns reconstruction behavior. Do not execute `run_single_exp.py` directly.
   defaults, registry key inputs, or CSV columns during cleanup.
 - Do not edit modules imported by spawned workers while HPC experiments are
   running. Newly spawned workers read current files from disk.
-- Treat `invertinggradients/` as read-only reference code.
 - Keep statistical charts in Seaborn. Matplotlib remains appropriate for the
   Agg backend, axes, file saving, and image rendering with `imshow()`.
 
@@ -69,3 +73,8 @@ python -m pytest tests/ -v
 python iDLG_mask.py --help
 git diff --check
 ```
+
+`pyflakes` and `pytest` may not be installed in the env — if so, either
+`pip install pyflakes pytest` or use the `py_compile` + `--help` fallback in
+`HANDOVER_CLEANUP.md` §5. Do not run a real experiment locally to test: outputs
+resolve to the real `/work3/.../results` (see `HANDOVER_CLEANUP.md` §5).

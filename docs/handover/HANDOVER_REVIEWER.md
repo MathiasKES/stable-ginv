@@ -15,7 +15,6 @@ This is a Python 3.13 research codebase for running gradient inversion attack ex
 - Reconstruction optimization loop
 - Metric computations (PSNR, SSIM, Jacobian rank)
 - CSV output format (downstream analysis scripts depend on column names)
-- Any logic inside `invertinggradients/` (it is a git submodule, treat as read-only)
 
 **When updating handover files:**
 - Keep active handovers current-state only.
@@ -96,8 +95,7 @@ No function signatures have type annotations. This makes it hard to understand w
 - **`compute_grad_match_loss`** in `helper/metrics.py` — the cosine similarity implementation must match the original paper exactly.
 - **CSV column names** — downstream analysis and plotting scripts read these by name. Renaming breaks analysis.
 - **Registry key links** — `exp_results_<network>.csv` now has `registry_key` as the last column. iDLG rows point to the baseline registry; masked rows point to the masked registry.
-- **`iDLG_original.py`** — kept as a baseline comparison. Leave it alone.
-- **`invertinggradients/`** — it is a git submodule. Do not commit changes to it from this repo.
+- **`iDLG_original.py`** — kept in `archive/` as a baseline comparison. Leave it alone.
 - **Dataset normalization constants** in `consts.py` — these are manually validated (LFW was computed in `archive/testing/compute_lfw_stats.py`). Do not "correct" them without rerunning the validation script.
 
 ---
@@ -142,8 +140,8 @@ python -c "import scipy; import matplotlib; import seaborn; print('imports ok')"
    ```
    Should load LFW, run a forward pass, and print gradient norms without errors.
 
-2. **Quick smoke test (CPU):**
-   Run with `--network resnet18 --dataset cifar10 --num_exp 1 --iteration 10 --num_restarts 1`. Should complete without error and produce output PNG + CSV.
+2. **Quick smoke test (small run):**
+   Run with `--network resnet18 --dataset cifar10 --num_exp 1 --iteration 10 --num_restarts 1`. Runs on GPU, or on the CPU fallback when no GPU is present (slower). Should complete without error and produce output PNG + CSV.
 
 3. **Metric sanity check:**
    After a run, verify PSNR values are in the range 15–40 dB for CIFAR-10 with `resnet18`. Values outside this range indicate a bug in normalization or loss computation.

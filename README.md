@@ -7,23 +7,35 @@ Bachelor's thesis project — DTU, 2026.
 
 ## What This Does
 
-Implements and extends the **iDLG gradient inversion attack** (Zhao et al., 2020).  
-An adversary who receives gradient updates can reconstruct the private training images that produced them.  
-This project studies how **gradient masking** — selectively withholding parts of the gradient — degrades reconstruction quality.
+Implements the gradient inversion attack family — **DLG** (Zhu et al., 2019),
+**iDLG** (Zhao et al., 2020), and **Inverting Gradients** (Geiping et al., 2020,
+cosine-similarity matching with a total-variation prior).
+
+An adversary who receives gradient updates can reconstruct the private training images that produced them.
+
+This project studies how **gradient masking** — selectively withholding parts of the gradient — affects reconstruction, using masking as a diagnostic tool to test whether a failed attack reflects missing information or merely a poor optimization signal.
 
 ---
 
 ## Quick Start
 
+**A CUDA GPU is strongly recommended.** The reconstruction runner parallelises
+across all visible `cuda:N` devices. If no GPU is detected it automatically
+falls back to a single CPU worker, which is **much slower** and intended only
+for testing on small configurations — not for real experiments.
+
 ```bash
-# Create and activate the environment
-conda env create -f environment.yml
-conda activate stable-ginv   # check environment.yml for exact name
+# GPU machine: create and activate the environment (CUDA 12.6 PyTorch build)
+conda env create -f env/environment.yml
+conda activate stable-ginv   # env name is defined in env/environment.yml
+
+# CPU-only machine: use the CPU PyTorch build instead
+# conda env create -f env/environment-cpu.yml
 
 # On DTU HPC: load modules first
 source scripts/init.sh
 
-# Verify GPU
+# Check whether a GPU is visible (False ⇒ the slow CPU fallback will be used)
 python -c "import torch; print(torch.cuda.is_available())"
 ```
 
@@ -61,7 +73,7 @@ stable-ginv/
 ├── archive/              Retired scripts — not imported anywhere, kept for reference
 ├── scripts/              DTU HPC job scripts (LSF scheduler)
 ├── docs/                 Handover files, improvement plan, codebase map
-└── invertinggradients/   Git submodule — Geiping et al. reference implementation
+└── artifacts/            Generated plots, figures, data, and logs
 ```
 
 ---
@@ -130,3 +142,28 @@ If the sweep contains a masked `topfrac=1.0` row, it is kept alongside the unmas
 - [`docs/handover/HANDOVER_REVIEWER.md`](docs/handover/HANDOVER_REVIEWER.md) — for code reviewers
 - [`docs/handover/HANDOVER_COLLABORATOR.md`](docs/handover/HANDOVER_COLLABORATOR.md) — for new thesis collaborators
 - [`docs/CODE_CLEANUP.md`](docs/CODE_CLEANUP.md) — conservative cleanup plan
+
+---
+
+## License
+
+Released under the MIT License. See [`LICENSE`](LICENSE). You are free to use,
+copy, modify, and distribute this code, including for academic and commercial
+purposes, provided the copyright notice is retained.
+
+---
+
+## Citation
+
+If you use this code in academic work, please cite this project. Citation
+metadata is also provided in [`CITATION.cff`](CITATION.cff).
+
+```bibtex
+@misc{stablegradinv2026,
+  author = {Aqraou, Alfred and Afif, Ali and S{\o}rensen, Mathias},
+  title  = {Stabilizing Gradient Inversion in Federated Learning},
+  year   = {2026},
+  note   = {Bachelor's thesis, Technical University of Denmark (DTU)},
+  howpublished = {\url{https://github.com/MathiasKES/stable-ginv}}
+}
+```

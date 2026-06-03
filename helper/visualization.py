@@ -6,6 +6,7 @@ import csv
 import os
 
 import numpy as np
+import pandas as pd
 import torch
 
 from functions.io_utils import (
@@ -412,7 +413,7 @@ def save_restart_curve(save_dir, timestamp_str, num_restarts, network_name, data
     fig, ax = plt.subplots(figsize=(6, 4))
     if line_rows:
         sns.lineplot(
-            data=line_rows,
+            data=pd.DataFrame(line_rows),
             x="Number of restarts used",
             y="Best PSNR (dB)",
             hue="Method",
