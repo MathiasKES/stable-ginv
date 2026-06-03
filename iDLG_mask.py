@@ -214,10 +214,15 @@ def main():
 
     # -------- Run experiments in parallel --------
     num_gpus = torch.cuda.device_count()
-    print(f"Using {num_gpus} GPUs")
     if num_gpus == 0:
-        raise RuntimeError("No CUDA GPUs available.")
-    
+        print("[WARNING] No CUDA GPU detected — falling back to CPU with a single "
+              "worker. This is very slow and intended only for testing; a GPU is "
+              "strongly recommended for real experiments.")
+        num_workers = 1
+    else:
+        print(f"Using {num_gpus} GPUs")
+        num_workers = num_gpus
+
     # Set parallel worker method
     mp.set_start_method('spawn', force=True)
     mp.set_sharing_strategy('file_system')
@@ -270,7 +275,7 @@ def main():
         next_task = 0
         completed_tasks = 0
 
-        for device_id in range(min(num_gpus, total_tasks)):
+        for device_id in range(min(num_workers, total_tasks)):
             exp_i, r_i = tasks[next_task]
             task_cfg = {**config, 'SINGLE_RESTART_IDX': r_i}
             p = mp.Process(target=run_single_experiment,
@@ -318,8 +323,8 @@ def main():
         next_exp = 0
         completed = 0
 
-        # Start one experiment per GPU initially
-        for device_id in range(min(num_gpus, num_exp)):
+        # Start one experiment per worker initially (one per GPU, or one on CPU)
+        for device_id in range(min(num_workers, num_exp)):
             p = mp.Process(
                 target=run_single_experiment,
                 args=(next_exp, device_id, dst, dataset, config, result_queue)
@@ -509,12 +514,13 @@ def main():
         stats, paired_report, METHODS,
     )
 
-    print("Job resource usage:")
-    print("Max memory allocated:", torch.cuda.memory.max_memory_allocated() / (1024 ** 3), "GB")
-    print("Max memory reserved:", torch.cuda.memory.max_memory_reserved() / (1024 ** 3), "GB")
+    if torch.cuda.is_available():
+        print("Job resource usage:")
+        print("Max memory allocated:", torch.cuda.memory.max_memory_allocated() / (1024 ** 3), "GB")
+        print("Max memory reserved:", torch.cuda.memory.max_memory_reserved() / (1024 ** 3), "GB")
 
-    print("Memory summary:")
-    print(torch.cuda.memory.memory_summary())
+        print("Memory summary:")
+        print(torch.cuda.memory.memory_summary())
 
         
 if __name__ == '__main__':

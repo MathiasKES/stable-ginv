@@ -31,8 +31,13 @@ def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_
         })
 
 def _run_inner(idx_net, device_id, dst, dataset_name, config, result_queue):
-    torch.cuda.set_device(device_id)
-    device = f'cuda:{device_id}'
+    if torch.cuda.is_available():
+        torch.cuda.set_device(device_id)
+        device = f'cuda:{device_id}'
+    else:
+        # CPU fallback: the orchestrator schedules a single worker when no GPU
+        # is present. This is much slower and intended only for testing.
+        device = 'cpu'
 
     # Unpack config
     channel = config['channel']
@@ -71,7 +76,7 @@ def _run_inner(idx_net, device_id, dst, dataset_name, config, result_queue):
 
     net = get_model(NETWORK_NAME, channel=channel, num_classes=num_classes, input_size=shape_img, pretrained=NETWORK_TRAINED)
     if NETWORK_TRAINED:
-        print(f"[GPU {device_id}] Loaded ImageNet-pretrained weights for {NETWORK_NAME}")
+        print(f"[{device}] Loaded ImageNet-pretrained weights for {NETWORK_NAME}")
     elif NETWORK_NAME in ["LeNet", "LeNet_bigger", "MediumCNN", "BiggerCNN"]:
         net.apply(weights_init)
 
