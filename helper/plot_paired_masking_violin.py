@@ -224,6 +224,41 @@ def _plot(rows, path, title):
     plt.close(fig)
 
 
+def _plot_box(rows, path, title):
+    dataframe = _long_dataframe(rows)
+    sns.set_theme(style="whitegrid", context="paper")
+    fig, axes = plt.subplots(1, len(METRICS), figsize=(12, 4))
+    palette = {"Baseline": "#4C72B0", "Masked": "#DD8452"}
+    for ax, (metric, ylabel) in zip(axes, METRICS):
+        metric_data = dataframe[dataframe["metric"] == metric]
+        sns.boxplot(
+            data=metric_data,
+            x="method",
+            y="value",
+            palette=palette,
+            width=0.5,
+            showfliers=False,
+            ax=ax,
+        )
+        sns.stripplot(
+            data=metric_data,
+            x="method",
+            y="value",
+            color="black",
+            alpha=0.45,
+            jitter=0.12,
+            size=2.5,
+            ax=ax,
+        )
+        ax.set_xlabel("")
+        ax.set_ylabel(ylabel)
+    fig.suptitle(title)
+    fig.tight_layout()
+    if safe_savefig(fig, path, dpi=300, bbox_inches="tight"):
+        print(f"Saved: {path}")
+    plt.close(fig)
+
+
 def _plot_deltas(rows, path, title):
     records = []
     for row in rows:
@@ -244,6 +279,49 @@ def _plot_deltas(rows, path, title):
             color="#55A868",
             inner="quart",
             cut=0,
+            ax=ax,
+        )
+        sns.stripplot(
+            data=metric_data,
+            x="metric",
+            y="value",
+            color="black",
+            alpha=0.45,
+            jitter=0.12,
+            size=2.5,
+            ax=ax,
+        )
+        ax.axhline(0, color="black", linestyle="--", linewidth=0.8)
+        ax.set_xlabel("")
+        ax.set_ylabel(metric)
+        ax.set_xticklabels([])
+    fig.suptitle(f"{title}\nPositive values mean improved reconstruction")
+    fig.tight_layout()
+    if safe_savefig(fig, path, dpi=300, bbox_inches="tight"):
+        print(f"Saved: {path}")
+    plt.close(fig)
+
+
+def _plot_delta_box(rows, path, title):
+    records = []
+    for row in rows:
+        records.extend([
+            {"metric": "PSNR gain (dB)", "value": row["delta_psnr"]},
+            {"metric": "MSE reduction", "value": -row["delta_mse"]},
+            {"metric": "SSIM gain", "value": row["delta_ssim"]},
+        ])
+    dataframe = pd.DataFrame(records)
+    sns.set_theme(style="whitegrid", context="paper")
+    fig, axes = plt.subplots(1, 3, figsize=(12, 4))
+    for ax, metric in zip(axes, dataframe["metric"].unique()):
+        metric_data = dataframe[dataframe["metric"] == metric]
+        sns.boxplot(
+            data=metric_data,
+            x="metric",
+            y="value",
+            color="#55A868",
+            width=0.45,
+            showfliers=False,
             ax=ax,
         )
         sns.stripplot(
@@ -346,7 +424,9 @@ def main():
         return
     csv_path = os.path.join(args.out_dir, f"{args.output_prefix}_per_sample.csv")
     plot_path = os.path.join(args.out_dir, f"{args.output_prefix}_violin.png")
+    box_plot_path = os.path.join(args.out_dir, f"{args.output_prefix}_boxplot.png")
     delta_plot_path = os.path.join(args.out_dir, f"{args.output_prefix}_delta_violin.png")
+    delta_box_plot_path = os.path.join(args.out_dir, f"{args.output_prefix}_delta_boxplot.png")
     _write_rows(rows, csv_path)
     baseline_args = baseline_entry.get("args", {}) if baseline_entry else {}
     title = args.title or (
@@ -355,7 +435,9 @@ def main():
         f"{baseline_args.get('dataset', 'unknown')}"
     )
     _plot(rows, plot_path, title)
+    _plot_box(rows, box_plot_path, title)
     _plot_deltas(rows, delta_plot_path, title)
+    _plot_delta_box(rows, delta_box_plot_path, title)
     _print_extremes(rows)
 
 
