@@ -541,7 +541,7 @@ def main():
     dtype_label = "both_dtypes" if args.both_dtypes else dtype_values[0]
     base = (
         f"jac_rank_{args.network}_{args.dataset}_{args.method}_"
-        f"{args.jacobian_select_mode}_{dtype_label}_ns{args.num_samples}_{timestamp}"
+        f"{args.jacobian_select_mode}_{dtype_label}_ns{len(sample_indices)}_{timestamp}"
     )
 
     csv_path = os.path.join(save_dir, base + ".csv")
@@ -559,7 +559,7 @@ def main():
             rank_results_qr = run["rank_results_qr"]
             for i, (x, m, s) in enumerate(zip(run["xs"], run["mean_ranks"], run["std_ranks"])):
                 ranks_str = ";".join(str(r) for r in rank_results[x])
-                row = [x, m, s, unknowns, args.num_samples, args.jacobian_select_mode, dtype_name, not args.no_independent,
+                row = [x, m, s, unknowns, len(sample_indices), args.jacobian_select_mode, dtype_name, not args.no_independent,
                        sample_indices_str, ranks_str]
                 if rank_results_qr is not None:
                     ranks_qr_str = ";".join(str(r) for r in rank_results_qr[x])
@@ -568,7 +568,7 @@ def main():
 
     plot_rows = []
     for dtype_name, run in runs.items():
-        legend_label = f"{dtype_name} (select={args.jacobian_select_mode}, samples={args.num_samples}"
+        legend_label = f"{dtype_name} (select={args.jacobian_select_mode}, samples={len(sample_indices)}"
         if args.method == "masked":
             legend_label += f", mask={args.mask_mode}"
         legend_label += ")"
