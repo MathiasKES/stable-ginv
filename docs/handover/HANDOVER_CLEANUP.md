@@ -169,11 +169,11 @@ Environment caveats discovered this session:
 
 ## 6. Pending / future cleanup
 
-- **Internal code-redundancy refactors** in `../CODE_CLEANUP.md`: **Phase 1
-  (proven redundancy) is done** (2026-06-03) with new regression tests
-  (`tests/test_registry_keys.py`, `tests/test_restart_curve.py`); the full suite
-  is green (72 tests). **Phases 2–4 remain** — do them only after active HPC runs
-  finish, and add the remaining tests listed in that doc first.
+- **Internal code-redundancy refactors** in `../CODE_CLEANUP.md`: **Phases 1 and
+  2 are done** (2026-06-03) with new regression tests (`tests/test_registry_keys.py`,
+  `tests/test_restart_curve.py`, `tests/test_metrics_qr_pivot.py`); the full
+  suite is green (75 tests). **Phases 3–4 remain** — do them only after active
+  HPC runs finish, and add the remaining tests listed in that doc first.
 - A local CPU smoke run during this work wrote test rows into the **real**
   `/work3/.../results` store. **Prune these on the HPC** — the `/work3` mount on
   the author's local machine is a *stale* copy; the live results store is

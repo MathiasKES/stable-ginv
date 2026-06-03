@@ -87,20 +87,21 @@ behaviour-preserving; the full suite stays green.
   serialization are unchanged, so existing registry keys are stable (locked by
   `tests/test_registry_keys.py`).
 
-## Phase 2: Optional Dependency Cleanup
-
-Perform this phase after active HPC runs finish.
+## Phase 2: Optional Dependency Cleanup — COMPLETED 2026-06-03
 
 ### `helper/metrics.py`
 
-- Lazy-load `scipy.linalg` only when QR pivoting is requested.
-- Cache the imported module or import error, matching the lazy `scipy.stats`
-  pattern in `functions/io_utils.py`.
-- Preserve the existing QR pivot calculation and error message behavior.
+- `scipy.linalg` is now lazy-loaded via `_load_scipy_linalg()` (called only from
+  `_qr_pivot_rows()`) instead of being imported at module top. The loader caches
+  the module or the import error, matching the lazy `scipy.stats` pattern in
+  `functions/io_utils.py`. The QR pivot calculation and the
+  `qr_pivot requires scipy` error message are unchanged
+  (`tests/test_metrics_qr_pivot.py`).
 
 Reason: normal reconstruction runs do not require SciPy QR pivoting. Importing
 SciPy during worker startup can fail on HPC nodes when the system C++ runtime is
-older than the Conda package requirement.
+older than the Conda package requirement. (skimage already pulls in scipy core,
+but not `scipy.linalg`, so deferring it keeps that submodule out of startup.)
 
 ## Phase 3: Standalone Jacobian Sweep Cleanup
 
