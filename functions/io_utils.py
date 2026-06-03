@@ -349,6 +349,11 @@ def masked_key_from_args(args):
         "gradsize_topfrac": args.gradsize_topfrac,
         "gradsize_metric": args.gradsize_metric,
         "prefixes": args.prefixes,
+        # Regime marker: the last FC layer is no longer force-included in the
+        # reconstruction mask (it is used only for label inference). This field
+        # gives new runs a distinct key so their results never collide with or
+        # append to pre-change entries that were produced with FC force-included.
+        "fc_forced": False,
     }
     key_json = json.dumps(comparable, sort_keys=True)
     key_hash = hashlib.md5(key_json.encode("utf-8")).hexdigest()

@@ -38,6 +38,20 @@ def _args(run_id, num_exp):
     )
 
 
+def test_masked_key_carries_fc_forced_marker_and_isolates_legacy_entries():
+    """New masked runs are tagged fc_forced=False and must not match/append to
+    pre-change registry entries (whose stored args lack the marker)."""
+    key, comparable = masked_key_from_args(_args(run_id=0, num_exp=3))
+    assert comparable["fc_forced"] is False
+
+    # A legacy entry produced before the FC change: same config, no marker.
+    legacy_args = {k: v for k, v in comparable.items() if k != "fc_forced"}
+    legacy_registry = {"legacy_hash": {"args": legacy_args}}
+
+    stored_key, entry = find_registry_entry(legacy_registry, key, comparable)
+    assert stored_key is None and entry is None
+
+
 def test_baseline_registry_appends_contiguous_sample_ranges():
     registry = {}
     first_key, first_args = baseline_key_from_args(_args(run_id=0, num_exp=3))
