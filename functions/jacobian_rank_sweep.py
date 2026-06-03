@@ -56,6 +56,19 @@ def _save_dir():
     return os.path.join(root, "results") if root else "./results"
 
 
+def _get_last_fc_param_indices(net):
+    """Return the parameter indices (into list(net.parameters())) of the last nn.Linear layer."""
+    last_fc_name = None
+    for name, module in net.named_modules():
+        if isinstance(module, nn.Linear):
+            last_fc_name = name
+    if last_fc_name is None:
+        return set()
+    prefix = last_fc_name + "."
+    return {i for i, (n, _) in enumerate(net.named_parameters())
+            if n == last_fc_name or n.startswith(prefix)}
+
+
 def _split_list(lst, n_chunks):
     """Split lst into n_chunks as evenly as possible."""
     chunks = [[] for _ in range(n_chunks)]
@@ -224,6 +237,15 @@ def _worker_core(args, sample_indices, device, row_counts, prefixes, prefix_laye
             force_fc=not args.keep_fc,
         )
 
+        if args.exclude_fc:
+            fc_ids = _get_last_fc_param_indices(net)
+            keep_ids = set(keep_ids) - fc_ids
+            if debug and local_i == 0:
+                param_names = [n for n, _ in net.named_parameters()]
+                excluded = sorted(fc_ids)
+                tqdm.write(f"[exclude_fc] removed param indices {excluded}: "
+                           f"{[param_names[i] for i in excluded]}", file=sys.stderr)
+
         if debug and local_i == 0:
             _print_mask_debug(args, net, original_dy_dx, keep_ids, entry_masks)
 
@@ -244,6 +266,7 @@ def _worker_core(args, sample_indices, device, row_counts, prefixes, prefix_laye
             independent=not args.no_independent,
             normalize_rows=args.normalise,
             force_fc=False,
+            print_layer_dist=True,
         )
         for rows in row_counts:
             jac_rank, jac_shape, _, _ = sweep[rows]
@@ -433,6 +456,10 @@ def main():
                              "Default is independent mode (build J separately for each k).")
     parser.add_argument("--keep_fc", action="store_true",
                         help="Select from non-FC entries only; FC excluded from Jacobian rows.")
+    parser.add_argument("--exclude_fc", action="store_true",
+                        help="Exclude the last FC layer from the Jacobian entirely — "
+                             "not in the pool, not forced. FC entries are removed from keep_ids "
+                             "before the sweep runs.")
 
     args = parser.parse_args()
 
