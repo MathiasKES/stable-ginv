@@ -60,32 +60,32 @@ separately:
 - `helper/Network.py`
   - Remove the obsolete commented-out `get_model()` implementation.
 
-## Phase 1: Remove Proven Redundancy
+## Phase 1: Remove Proven Redundancy — COMPLETED 2026-06-03
 
-Perform this phase after active HPC runs finish.
+Done with regression tests in place first (see below). All changes are
+behaviour-preserving; the full suite stays green.
 
 ### `functions/Dataset.py`
 
-- Remove `del imgs, labs` from `_Dataset_from_Image.__init__()`. The instance
-  already stores both values, so deleting local variables has no effect.
+- Removed the no-op `del imgs, labs` from `_Dataset_from_Image.__init__()`. The
+  instance already stores both values via `self.imgs`/`self.labs`, so deleting
+  the local names had no effect.
 
 ### `helper/visualization.py`
 
-- In `save_restart_curve()`, calculate `_restart_stats()` once per method before
-  the restart-count loop. The current implementation recalculates identical
-  statistics for every `k`.
-- Preserve restart CSV columns, restart plot output, and printed summaries.
+- In `save_restart_curve()`, `_restart_stats()` is now computed once per method
+  before the restart-count loop instead of being recomputed for every `k`.
+  Restart CSV columns, plot output, and printed summaries are unchanged
+  (covered by `tests/test_restart_curve.py`).
 
 ### `functions/io_utils.py`
 
-- Extract an internal `_load_registry(path)` helper used by masked and baseline
-  registries.
-- Extract an internal `_save_registry(path, registry)` helper used by masked and
-  baseline registries.
-- Extract an internal hashing helper used by `masked_key_from_args()` and
-  `baseline_key_from_args()`.
-- Preserve the exact comparable argument dictionaries and JSON serialization so
-  existing registry keys remain unchanged.
+- `_load_registry(path)` and `_save_registry(path, registry)` were already
+  shared by the masked and baseline registries.
+- Extracted `_registry_key_hash(comparable)` used by `masked_key_from_args()`
+  and `baseline_key_from_args()`. The comparable argument dictionaries and JSON
+  serialization are unchanged, so existing registry keys are stable (locked by
+  `tests/test_registry_keys.py`).
 
 ## Phase 2: Optional Dependency Cleanup
 
@@ -151,13 +151,16 @@ behavior.
 
 ## Tests To Add Before Larger Refactors
 
-- Registry key stability tests for masked and baseline configurations.
-- Registry overwrite behavior tests.
-- Restart-curve CSV regression tests.
-- `merge_restart_results()` and `running_best()` tests.
-- No-plot fallback panel-buffer schema tests.
-- Sweep plot tests covering both `0% baseline` and `0% masked`.
-- Jacobian sweep metadata tests with explicit `--sample_indices`.
+- [x] Registry key stability tests for masked and baseline configurations
+  (`tests/test_registry_keys.py`).
+- [x] Registry overwrite behavior tests (`tests/test_registry_append.py`).
+- [x] Restart-curve CSV regression tests (`tests/test_restart_curve.py`).
+- [ ] `merge_restart_results()` and `running_best()` tests.
+- [ ] No-plot fallback panel-buffer schema tests.
+- [ ] Sweep plot tests covering both `0% baseline` and `0% masked`.
+- [ ] Jacobian sweep metadata tests with explicit `--sample_indices`.
+
+Add the remaining items before starting Phases 2–4.
 
 ## Verification Checklist
 
