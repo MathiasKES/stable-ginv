@@ -103,19 +103,19 @@ SciPy during worker startup can fail on HPC nodes when the system C++ runtime is
 older than the Conda package requirement. (skimage already pulls in scipy core,
 but not `scipy.linalg`, so deferring it keeps that submodule out of startup.)
 
-## Phase 3: Standalone Jacobian Sweep Cleanup
+## Phase 3: Standalone Jacobian Sweep Cleanup — COMPLETED 2026-06-03
 
-`functions/jacobian_rank_sweep.py` is a standalone CLI. Clean it separately from
-the main reconstruction runner.
+`functions/jacobian_rank_sweep.py` (a standalone CLI) now:
 
-- Reuse `resolve_storage_paths()` from `functions/io_utils.py`.
-- Use `safe_makedirs()` and `safe_savefig()` for outputs.
-- Replace repeated local HPC storage-path helpers.
-- Use `len(sample_indices)` when recording the number of samples.
-
-The last item fixes metadata only: when `--sample_indices` is supplied,
-filenames, CSV rows, and legends currently use `args.num_samples` instead of
-the actual number of selected indices.
+- Reuses `resolve_storage_paths()` from `functions/io_utils.py` in both `main()`
+  and the spawned worker, replacing the local `_HPC_ROOT`/`_storage_root`/
+  `_data_path`/`_save_dir` helpers (the resolved paths are identical).
+- Uses `safe_makedirs()` and `safe_savefig()` for the output directory and plot.
+- Records the actual sample count via `len(sample_indices)` in the filename, CSV
+  `num_samples` column, and plot legend. Previously these used
+  `args.num_samples`, which was wrong whenever `--sample_indices` was supplied.
+  The explicit-index parsing was extracted to `_parse_explicit_sample_indices()`
+  and is covered by `tests/test_jacobian_sweep_metadata.py`.
 
 ## Phase 4: Larger Organizational Cleanup
 
@@ -156,12 +156,13 @@ behavior.
   (`tests/test_registry_keys.py`).
 - [x] Registry overwrite behavior tests (`tests/test_registry_append.py`).
 - [x] Restart-curve CSV regression tests (`tests/test_restart_curve.py`).
+- [x] Jacobian sweep metadata tests with explicit `--sample_indices`
+  (`tests/test_jacobian_sweep_metadata.py`).
 - [ ] `merge_restart_results()` and `running_best()` tests.
 - [ ] No-plot fallback panel-buffer schema tests.
 - [ ] Sweep plot tests covering both `0% baseline` and `0% masked`.
-- [ ] Jacobian sweep metadata tests with explicit `--sample_indices`.
 
-Add the remaining items before starting Phases 2–4.
+Add the remaining items before starting Phase 4.
 
 ## Verification Checklist
 
