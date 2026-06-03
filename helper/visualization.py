@@ -370,15 +370,21 @@ def save_restart_curve(save_dir, timestamp_str, num_restarts, network_name, data
     restart_csv_path = os.path.join(save_dir, f"restart_curve_{timestamp_str}.csv")
     restart_x = list(range(1, num_restarts + 1))
 
+    # Restart statistics do not depend on k, so compute them once per method
+    # rather than recomputing the full arrays inside the restart-count loop.
+    means_i = stds_i = means_m = stds_m = None
+    if psnr_per_restart_idlg_all:
+        means_i, stds_i, _ = _restart_stats(psnr_per_restart_idlg_all)
+    if psnr_per_restart_masked_all:
+        means_m, stds_m, _ = _restart_stats(psnr_per_restart_masked_all)
+
     rows_restart = []
     for k in range(num_restarts):
         row = {"num_restarts": k + 1}
         if psnr_per_restart_idlg_all:
-            means_i, stds_i, _ = _restart_stats(psnr_per_restart_idlg_all)
             row["mean_psnr_idlg"] = round(float(means_i[k]), 5)
             row["std_psnr_idlg"] = round(float(stds_i[k]), 5)
         if psnr_per_restart_masked_all:
-            means_m, stds_m, _ = _restart_stats(psnr_per_restart_masked_all)
             row["mean_psnr_masked"] = round(float(means_m[k]), 5)
             row["std_psnr_masked"] = round(float(stds_m[k]), 5)
         rows_restart.append(row)
