@@ -51,21 +51,6 @@ def _network_label(network):
     return labels.get(network, network)
 
 
-def _wilson_count_ci(n_success, n_total, z=1.959963984540054):
-    """Wilson 95% interval for a binomial count."""
-    if n_total <= 0:
-        return 0.0, 0.0
-    p_hat = n_success / n_total
-    denom = 1.0 + z**2 / n_total
-    center = (p_hat + z**2 / (2.0 * n_total)) / denom
-    margin = (
-        z
-        * np.sqrt((p_hat * (1.0 - p_hat) + z**2 / (4.0 * n_total)) / n_total)
-        / denom
-    )
-    return (center - margin) * n_total, (center + margin) * n_total
-
-
 def _plot(rows, out_path, include_baseline):
     masked_rows = [row for row in rows if row["source"] == "masked"]
     baseline_rows = [row for row in rows if row["source"] == "baseline"]
@@ -79,36 +64,24 @@ def _plot(rows, out_path, include_baseline):
 
     fig, ax = plt.subplots(figsize=(12, 5))
 
-    plot_rows = sorted(masked_rows, key=lambda row: (row["network"].lower(), row["pct_masked"]))
-    sns.lineplot(
-        x=[row["pct_masked"] for row in plot_rows],
-        y=[row["n_reconstructed"] for row in plot_rows],
-        hue=[_network_label(row["network"]) for row in plot_rows],
-        marker="o",
-        linewidth=1.8,
-        palette={_network_label(network): palette[network] for network in networks},
-        ax=ax,
-    )
-
     for network in networks:
         network_rows = sorted(
             [row for row in masked_rows if row["network"] == network],
             key=lambda row: row["pct_masked"],
         )
-        ci_low = []
-        ci_high = []
-        for row in network_rows:
-            low, high = _wilson_count_ci(row["n_reconstructed"], row["n_total"])
-            ci_low.append(low)
-            ci_high.append(high)
-        ax.fill_between(
-            [row["pct_masked"] for row in network_rows],
-            ci_low,
-            ci_high,
+        if include_baseline:
+            network_rows = (
+                [row for row in baseline_rows if row["network"] == network]
+                + network_rows
+            )
+        sns.lineplot(
+            x=[row["pct_masked"] for row in network_rows],
+            y=[row["n_reconstructed"] for row in network_rows],
+            marker="o",
+            linewidth=1.8,
             color=palette[network],
-            alpha=0.16,
-            linewidth=0,
-            label="_nolegend_",
+            label=_network_label(network),
+            ax=ax,
         )
 
     if include_baseline:
