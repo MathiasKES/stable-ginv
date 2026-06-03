@@ -27,7 +27,12 @@ from tqdm import tqdm
 
 import functions.consts as consts
 from functions.Dataset import load_dataset
-from functions.io_utils import parse_prefixes_with_fracs
+from functions.io_utils import (
+    parse_prefixes_with_fracs,
+    resolve_storage_paths,
+    safe_makedirs,
+    safe_savefig,
+)
 from helper.Network import get_model, weights_init
 from functions.masking import build_gradient_mask
 from helper.metrics import compute_jacobian_rank_sweep
@@ -35,25 +40,23 @@ from helper.metrics import compute_jacobian_rank_sweep
 sns.set_theme(style="whitegrid")
 
 
-_HPC_ROOT = "/work3/s234843/bachelor"
 _TORCH_DTYPES = {
     "float32": torch.float32,
     "float64": torch.float64,
 }
 
 
-def _storage_root():
-    return _HPC_ROOT if os.access(_HPC_ROOT, os.R_OK | os.W_OK | os.X_OK) else None
+def _parse_explicit_sample_indices(sample_indices_str, dataset_size):
+    """Parse a '--sample_indices' string into a validated list of dataset indices.
 
-
-def _data_path():
-    root = _storage_root()
-    return os.path.join(root, "datasets") if root else "./data"
-
-
-def _save_dir():
-    root = _storage_root()
-    return os.path.join(root, "results") if root else "./results"
+    Raises ValueError if any index falls outside [0, dataset_size).
+    """
+    indices = [int(x.strip()) for x in sample_indices_str.split(",") if x.strip()]
+    if any(i < 0 or i >= dataset_size for i in indices):
+        raise ValueError(
+            f"--sample_indices contains an index out of range for dataset of size {dataset_size}"
+        )
+    return indices
 
 
 def _split_list(lst, n_chunks):
@@ -169,7 +172,7 @@ def _worker_core(args, sample_indices, device, row_counts, prefixes, prefix_laye
     progress_fn(1) is called after each AD pass (J build) and after each rank computation.
     debug: if True, prints mask debug info for the first sample.
     """
-    dst, channel, num_classes, shape_img = load_dataset(args.dataset, _data_path())
+    dst, channel, num_classes, shape_img = load_dataset(args.dataset, resolve_storage_paths()[0])
     dtype = _torch_dtype(args.dtype)
 
     net = get_model(args.network, channel=channel, num_classes=num_classes,
@@ -463,20 +466,22 @@ def main():
     if any(not 0 < frac <= 1 for frac in prefix_layer_fracs.values()):
         parser.error("prefix fractions in --prefixes must be in (0, 1]")
 
-    save_dir = _save_dir()
-    os.makedirs(save_dir, exist_ok=True)
+    data_path, save_dir = resolve_storage_paths()
+    safe_makedirs(save_dir)
 
-    dst, channel, num_classes, shape_img = load_dataset(args.dataset, _data_path())
+    dst, channel, num_classes, shape_img = load_dataset(args.dataset, data_path)
 
     if args.sample_indices is not None:
-        sample_indices = [int(x.strip()) for x in args.sample_indices.split(",") if x.strip()]
-        if any(i < 0 or i >= len(dst) for i in sample_indices):
-            parser.error(f"--sample_indices contains an index out of range for dataset of size {len(dst)}")
+        try:
+            sample_indices = _parse_explicit_sample_indices(args.sample_indices, len(dst))
+        except ValueError as exc:
+            parser.error(str(exc))
     else:
         seed = args.run_id + 1
         _seed_all(seed)
         idx_shuffle = np.random.permutation(len(dst))
         sample_indices = idx_shuffle[:args.num_samples].tolist()
+    sample_count = len(sample_indices)
 
     unknowns = channel * shape_img[0] * shape_img[1]
 
@@ -514,7 +519,7 @@ def main():
     dtype_label = "both_dtypes" if args.both_dtypes else dtype_values[0]
     base = (
         f"jac_rank_{args.network}_{args.dataset}_{args.method}_"
-        f"{args.jacobian_select_mode}_{dtype_label}_ns{args.num_samples}_{timestamp}"
+        f"{args.jacobian_select_mode}_{dtype_label}_ns{sample_count}_{timestamp}"
     )
 
     csv_path = os.path.join(save_dir, base + ".csv")
@@ -532,7 +537,7 @@ def main():
             rank_results_qr = run["rank_results_qr"]
             for i, (x, m, s) in enumerate(zip(run["xs"], run["mean_ranks"], run["std_ranks"])):
                 ranks_str = ";".join(str(r) for r in rank_results[x])
-                row = [x, m, s, unknowns, args.num_samples, args.jacobian_select_mode, dtype_name, not args.no_independent,
+                row = [x, m, s, unknowns, sample_count, args.jacobian_select_mode, dtype_name, not args.no_independent,
                        sample_indices_str, ranks_str]
                 if rank_results_qr is not None:
                     ranks_qr_str = ";".join(str(r) for r in rank_results_qr[x])
@@ -541,7 +546,7 @@ def main():
 
     plot_rows = []
     for dtype_name, run in runs.items():
-        legend_label = f"{dtype_name} (select={args.jacobian_select_mode}, samples={args.num_samples}"
+        legend_label = f"{dtype_name} (select={args.jacobian_select_mode}, samples={sample_count}"
         if args.method == "masked":
             legend_label += f", mask={args.mask_mode}"
         legend_label += ")"
@@ -584,7 +589,7 @@ def main():
     fig.tight_layout()
 
     plot_path = os.path.join(save_dir, base + ".png")
-    fig.savefig(plot_path, dpi=200)
+    safe_savefig(fig, plot_path, dpi=200)
     plt.close(fig)
 
     print(f"\nSaved CSV to: {csv_path}")
