@@ -1,0 +1,35 @@
+"""Sphinx configuration for stable_ginv API docs (built to GitHub Pages)."""
+import os
+import sys
+
+sys.path.insert(0, os.path.abspath("../.."))
+
+project = "stable-ginv"
+author = "MathiasKES"
+release = "0.0.0"
+
+extensions = [
+    "sphinx.ext.autodoc",
+    "sphinx.ext.autosummary",
+    "sphinx.ext.napoleon",      # NumPy/Google-style docstrings
+    "sphinx.ext.viewcode",
+    "sphinx.ext.intersphinx",
+]
+
+autosummary_generate = True
+napoleon_numpy_docstring = True
+napoleon_google_docstring = True
+autodoc_typehints = "description"
+
+# The package is near-empty in Phase 0; autodoc must not fail the build if heavy
+# optional imports are unavailable in the docs runner.
+autodoc_mock_imports = ["torch", "torchvision", "scipy", "skimage", "seaborn",
+                        "matplotlib", "numpy", "imageio", "PIL", "tqdm"]
+
+templates_path = ["_templates"]
+exclude_patterns = ["_build"]
+
+html_theme = "sphinx_rtd_theme"
+html_static_path = []
+
+intersphinx_mapping = {"python": ("https://docs.python.org/3", None)}

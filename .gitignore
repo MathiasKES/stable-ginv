@@ -230,3 +230,5 @@ results 2/
 
 # Off-HPC runtime job-output fallback (functions/io_utils.py writes ./gpuout/i*.out)
 /gpuout/
+docs/sphinx/_build/
+docs/sphinx/api/
