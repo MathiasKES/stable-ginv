@@ -115,6 +115,15 @@ def test_grad_match_unknown_grad_loss_raises():
         compute_grad_match_loss(g, g, grad_loss="mse")
 
 
+def test_grad_match_cos_with_entry_masks():
+    g1 = [torch.tensor([1.0, 99.0])]
+    g2 = [torch.tensor([1.0, -1.0])]
+    m = [torch.tensor([True, False])]  # select only the matching entry
+    loss, n = compute_grad_match_loss(g1, g2, selected_entry_masks=m, grad_loss="cos")
+    assert float(loss) == pytest.approx(0.0, abs=1e-6)
+    assert n == 1
+
+
 def test_grad_match_cos_empty_selection_raises():
     g = [torch.tensor([1.0, 2.0])]
     m = [torch.tensor([False, False])]
