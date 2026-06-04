@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "stable-ginv"
+version = "0.0.0"
+description = "Gradient-inversion masking experiments (stable-ginv)"
+requires-python = ">=3.9"
+
+# Dependencies are managed by the conda env (env/environment.yml); this project
+# table intentionally omits runtime deps so `pip install -e .` does not touch the
+# conda-provided torch/scipy/etc.
+
+[tool.setuptools]
+# Explicit list prevents auto-discovery from grabbing functions/, helper/, tests/.
+# Those stay importable via the repo root on sys.path until migrated.
+packages = ["stable_ginv"]
