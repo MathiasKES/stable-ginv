@@ -36,6 +36,9 @@ from tqdm import tqdm
 
 from functions.io_utils import setstdout
 
+import dataclasses
+from stable_ginv.config import ExperimentConfig
+
 
 class ExperimentRunAborted(RuntimeError):
     """Raised after a worker failure has caused the run to be cancelled and cleaned up."""
@@ -179,38 +182,37 @@ def main():
     mask_desc = MASK_MODE
     params = {"num-exp": num_exp, "lr": lr, "batchsize": num_dummy, "iters": Iteration}
 
-    # Prepare config to pass to workers
-    config = {
-        'channel': channel,
-        'num_classes': num_classes,
-        'shape_img': shape_img,
-        'lr': lr,
-        'num_dummy': num_dummy,
-        'Iteration': Iteration,
-        'run_id': run_id,
-        'MASK_MODE': MASK_MODE,
-        'PREFIXES': PREFIXES,
-        'PREFIX_LAYER_FRACS': PREFIX_LAYER_FRACS,
-        'GRADSIZE_TOPK': GRADSIZE_TOPK,
-        'GRADSIZE_TOPFRAC': GRADSIZE_TOPFRAC,
-        'GRADSIZE_METRIC': GRADSIZE_METRIC,
-        'GRAD_LOSS': GRAD_LOSS,
-        "GAMMA": GAMMA,
-        'NETWORK_NAME': NETWORK_NAME,
-        'METHODS': METHODS,
-        'COMPUTE_JACOBIAN_RANK': COMPUTE_JACOBIAN_RANK,
-        'JACOBIAN_MAX_ENTRIES': JACOBIAN_MAX_ENTRIES,
-        'JACOBIAN_SELECT_MODE': JACOBIAN_SELECT_MODE,
-        'TV_WEIGHT': TV_WEIGHT,
-        'OPTIMIZER': OPTIMIZER,
-        "NUM_RESTARTS": NUM_RESTARTS,
-        'MAX_ITERATION': MAX_ITERATION,
-        'HISTORY_SIZE': HISTORY_SIZE,
-        'NETWORK_TRAINED': NETWORK_TRAINED,
-        'SAVE_GIF': SAVE_GIF,
-        'FRAME_INTERVAL': FRAME_INTERVAL,
-        'out_path': out_path,
-    }
+    config = ExperimentConfig(
+        channel=channel,
+        num_classes=num_classes,
+        shape_img=shape_img,
+        lr=lr,
+        num_dummy=num_dummy,
+        iteration=Iteration,
+        run_id=run_id,
+        mask_mode=MASK_MODE,
+        prefixes=PREFIXES,
+        prefix_layer_fracs=PREFIX_LAYER_FRACS,
+        gradsize_topk=GRADSIZE_TOPK,
+        gradsize_topfrac=GRADSIZE_TOPFRAC,
+        gradsize_metric=GRADSIZE_METRIC,
+        grad_loss=GRAD_LOSS,
+        gamma=GAMMA,
+        network_name=NETWORK_NAME,
+        methods=METHODS,
+        compute_jacobian_rank=COMPUTE_JACOBIAN_RANK,
+        jacobian_max_entries=JACOBIAN_MAX_ENTRIES,
+        jacobian_select_mode=JACOBIAN_SELECT_MODE,
+        tv_weight=TV_WEIGHT,
+        optimizer=OPTIMIZER,
+        num_restarts=NUM_RESTARTS,
+        max_iteration=MAX_ITERATION,
+        history_size=HISTORY_SIZE,
+        network_trained=NETWORK_TRAINED,
+        save_gif=SAVE_GIF,
+        frame_interval=FRAME_INTERVAL,
+        out_path=out_path,
+    )
 
     # -------- Run experiments in parallel --------
     num_gpus = torch.cuda.device_count()
@@ -277,7 +279,7 @@ def main():
 
         for device_id in range(min(num_workers, total_tasks)):
             exp_i, r_i = tasks[next_task]
-            task_cfg = {**config, 'SINGLE_RESTART_IDX': r_i}
+            task_cfg = dataclasses.replace(config, single_restart_idx=r_i)
             p = mp.Process(target=run_single_experiment,
                            args=(exp_i, device_id, dst, dataset, task_cfg, result_queue))
             p.start()
@@ -300,7 +302,7 @@ def main():
 
                 if next_task < total_tasks:
                     exp_i, r_i = tasks[next_task]
-                    task_cfg = {**config, 'SINGLE_RESTART_IDX': r_i}
+                    task_cfg = dataclasses.replace(config, single_restart_idx=r_i)
                     p = mp.Process(target=run_single_experiment,
                                    args=(exp_i, finished_device, dst, dataset, task_cfg, result_queue))
                     p.start()

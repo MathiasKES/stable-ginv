@@ -7,6 +7,7 @@ import json
 import os
 
 import numpy as np
+from stable_ginv.config import ExperimentConfig
 
 FIXTURES_DIR = os.path.join(os.path.dirname(__file__), "fixtures")
 
@@ -37,43 +38,43 @@ class FakeImageDataset:
 
 
 def lenet_worker_config(method="idlg"):
-    """Faithful worker config dict (same keys as iDLG_mask.py builds).
+    """Faithful worker config (ExperimentConfig) for golden characterization tests.
 
     LeNet + no normalization keeps the recon path deterministic and free of
-    dataset-normalization constants. METHODS='idlg' exercises the unmasked
-    reconstruction only (masking is covered by the Tier 2 masking goldens).
+    dataset-normalization constants. method='idlg' exercises the unmasked
+    reconstruction only.
     """
-    return {
-        "channel": 1,
-        "num_classes": 10,
-        "shape_img": (28, 28),
-        "lr": 1.0,
-        "num_dummy": 1,
-        "Iteration": 10,
-        "run_id": 0,
-        "MASK_MODE": "gradsize_topfrac",   # unused when METHODS='idlg'
-        "PREFIXES": (),
-        "PREFIX_LAYER_FRACS": {},
-        "GRADSIZE_TOPK": 20,
-        "GRADSIZE_TOPFRAC": 0.5,
-        "GRADSIZE_METRIC": "l2",
-        "GRAD_LOSS": "cos",
-        "GAMMA": 0.5,
-        "NETWORK_NAME": "LeNet",
-        "METHODS": method,
-        "COMPUTE_JACOBIAN_RANK": False,
-        "JACOBIAN_MAX_ENTRIES": 4000,
-        "JACOBIAN_SELECT_MODE": "topk_abs",
-        "TV_WEIGHT": 0.0,
-        "OPTIMIZER": "lbfgs",
-        "NUM_RESTARTS": 1,
-        "MAX_ITERATION": 20,
-        "HISTORY_SIZE": 100,
-        "NETWORK_TRAINED": False,
-        "SAVE_GIF": False,
-        "FRAME_INTERVAL": 20,   # unused: SAVE_GIF=False, so no GIF frames are produced
-        "out_path": None,
-    }
+    return ExperimentConfig(
+        channel=1,
+        num_classes=10,
+        shape_img=(28, 28),
+        lr=1.0,
+        num_dummy=1,
+        iteration=10,
+        run_id=0,
+        mask_mode="gradsize_topfrac",
+        prefixes=(),
+        prefix_layer_fracs={},
+        gradsize_topk=20,
+        gradsize_topfrac=0.5,
+        gradsize_metric="l2",
+        grad_loss="cos",
+        gamma=0.5,
+        network_name="LeNet",
+        methods=method,
+        compute_jacobian_rank=False,
+        jacobian_max_entries=4000,
+        jacobian_select_mode="topk_abs",
+        tv_weight=0.0,
+        optimizer="lbfgs",
+        num_restarts=1,
+        max_iteration=20,
+        history_size=100,
+        network_trained=False,
+        save_gif=False,
+        frame_interval=20,
+        out_path=None,
+    )
 
 
 def load_or_regen(name, produce):

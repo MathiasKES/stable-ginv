@@ -18,7 +18,7 @@ from helper.training_utils import make_scheduler
 from functions.io_utils import setstdout
 
 def run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_queue):
-    setstdout(path=config.get('out_path'))
+    setstdout(path=config.out_path)
     try:
         _run_inner(idx_net, device_id, dst, dataset_name, config, result_queue)
     except Exception as exc:
@@ -39,36 +39,36 @@ def _run_inner(idx_net, device_id, dst, dataset_name, config, result_queue):
         device = 'cpu'
 
     # Unpack config
-    channel = config['channel']
-    num_classes = config['num_classes']
-    shape_img = config['shape_img']
-    lr = config['lr']
-    GAMMA = config['GAMMA']
-    num_dummy = config['num_dummy']
-    Iteration = config['Iteration']
-    MASK_MODE = config['MASK_MODE']
-    PREFIXES = config.get('PREFIXES', ())
-    PREFIX_LAYER_FRACS = config.get('PREFIX_LAYER_FRACS', {})
-    GRADSIZE_TOPK = config['GRADSIZE_TOPK']
-    GRADSIZE_TOPFRAC = config['GRADSIZE_TOPFRAC']
-    GRADSIZE_METRIC = config['GRADSIZE_METRIC']
-    NETWORK_NAME = config['NETWORK_NAME']
-    NETWORK_TRAINED = config['NETWORK_TRAINED']
-    METHODS = config.get('METHODS', 'both')
-    COMPUTE_JACOBIAN_RANK = config.get('COMPUTE_JACOBIAN_RANK', False)
-    JACOBIAN_MAX_ENTRIES = config.get('JACOBIAN_MAX_ENTRIES', 4000)
-    JACOBIAN_SELECT_MODE = config.get('JACOBIAN_SELECT_MODE', 'topk_abs')
-    TV_WEIGHT = config.get('TV_WEIGHT', 0.0)
-    OPTIMIZER = config.get('OPTIMIZER', 'lbfgs')
-    NUM_RESTARTS = config.get('NUM_RESTARTS', 1)
-    SINGLE_RESTART_IDX = config.get('SINGLE_RESTART_IDX')  # None = run all restarts
-    MAX_ITERATION = config.get('MAX_ITERATION', 20)
-    HISTORY_SIZE = config.get('HISTORY_SIZE', 100)
-    SAVE_GIF = config.get('SAVE_GIF', False)
-    FRAME_INTERVAL = config.get('FRAME_INTERVAL', 20)
-    GRAD_LOSS = config.get('GRAD_LOSS', 'cos').lower()
+    channel = config.channel
+    num_classes = config.num_classes
+    shape_img = config.shape_img
+    lr = config.lr
+    GAMMA = config.gamma
+    num_dummy = config.num_dummy
+    Iteration = config.iteration
+    MASK_MODE = config.mask_mode
+    PREFIXES = config.prefixes
+    PREFIX_LAYER_FRACS = config.prefix_layer_fracs
+    GRADSIZE_TOPK = config.gradsize_topk
+    GRADSIZE_TOPFRAC = config.gradsize_topfrac
+    GRADSIZE_METRIC = config.gradsize_metric
+    NETWORK_NAME = config.network_name
+    NETWORK_TRAINED = config.network_trained
+    METHODS = config.methods
+    COMPUTE_JACOBIAN_RANK = config.compute_jacobian_rank
+    JACOBIAN_MAX_ENTRIES = config.jacobian_max_entries
+    JACOBIAN_SELECT_MODE = config.jacobian_select_mode
+    TV_WEIGHT = config.tv_weight
+    OPTIMIZER = config.optimizer
+    NUM_RESTARTS = config.num_restarts
+    SINGLE_RESTART_IDX = config.single_restart_idx  # None = run all restarts
+    MAX_ITERATION = config.max_iteration
+    HISTORY_SIZE = config.history_size
+    SAVE_GIF = config.save_gif
+    FRAME_INTERVAL = config.frame_interval
+    GRAD_LOSS = config.grad_loss.lower()
 
-    seed = config.get("run_id", 0) + idx_net + 1
+    seed = config.run_id + idx_net + 1
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
     np.random.seed(seed)
