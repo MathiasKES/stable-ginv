@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from functions.io_utils import baseline_key_from_args, masked_key_from_args
+from stable_ginv.registry import baseline_key_from_args, masked_key_from_args
 
 # Golden hashes lock the registry-key serialization. Existing registries on disk
 # are addressed by these keys, so a change here would orphan stored results.

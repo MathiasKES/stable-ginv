@@ -1,11 +1,11 @@
 """Golden test: masked registry keys are stable across all mask modes.
 
-Guards functions/io_utils.masked_key_from_args against accidental changes to the
+Guards stable_ginv.registry.masked_key_from_args against accidental changes to the
 comparable-args dict or its JSON serialization during the Phase 4 registry split.
 """
 from types import SimpleNamespace
 
-from functions.io_utils import masked_key_from_args
+from stable_ginv.registry import masked_key_from_args
 from tests.golden.helpers import load_or_regen
 
 MASK_MODES = [

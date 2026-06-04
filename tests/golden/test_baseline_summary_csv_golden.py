@@ -6,7 +6,7 @@ float formatting, JSON-encoded list cells, or the dense/sparse SSIM handling.
 import os
 import tempfile
 
-from functions.io_utils import write_baseline_summary_csv
+from stable_ginv.registry import write_baseline_summary_csv
 from tests.golden.helpers import load_or_regen
 
 

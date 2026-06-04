@@ -1,4 +1,4 @@
-"""Tests for the safe-write helpers in functions.io_utils.
+"""Tests for the safe-write helpers in stable_ginv.io.
 
 Goals
 -----
@@ -35,11 +35,13 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-from functions.io_utils import (
+from stable_ginv.io import (
     safe_chmod,
     safe_makedirs,
     safe_savefig,
     safe_write,
+)
+from stable_ginv.registry import (
     save_baseline_registry,
     save_masked_registry,
     write_baseline_summary_csv,
