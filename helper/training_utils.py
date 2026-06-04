@@ -1,14 +1,4 @@
-import torch
+"""Shim: the LR scheduler factory lives in stable_ginv.recon.scheduler (Phase 5)."""
+from stable_ginv.recon.scheduler import make_scheduler
 
-
-def make_scheduler(optimizer, iteration, gamma):
-    """MultiStepLR with milestones at 3/8, 5/8, 7/8 of total iterations."""
-    return torch.optim.lr_scheduler.MultiStepLR(
-        optimizer,
-        milestones=[
-            int(iteration * 3 / 8),
-            int(iteration * 5 / 8),
-            int(iteration * 7 / 8),
-        ],
-        gamma=gamma,
-    )
+__all__ = ["make_scheduler"]
