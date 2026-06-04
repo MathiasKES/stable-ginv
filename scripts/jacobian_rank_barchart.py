@@ -18,7 +18,7 @@ sns.set_theme(style="whitegrid", context="paper")
 
 networks     = ["LeNet", "ResNet-18", "ResNet-50", "VGG-11", "VGG-13"]
 layer_spread = [6_000,   9_500,      9_500,       7_500,    6_500]
-topk_abs     = [7_000,   6_500,      10_000,      46_500,   30_000]
+topk_abs     = [6_500,   6_500,      10_000,      46_500,   30_000]
 
 df = pd.DataFrame({
     "Network":        networks * 2,
