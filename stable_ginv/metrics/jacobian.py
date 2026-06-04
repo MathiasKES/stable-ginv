@@ -2,7 +2,7 @@ import numpy as np
 import torch
 import torch.autograd.forward_ad as fwAD
 
-from functions.masking import flatten_observed_gradients
+from stable_ginv.masking import flatten_observed_gradients
 
 _SCIPY_LINALG = None
 _SCIPY_LINALG_IMPORT_ERROR = None
