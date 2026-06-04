@@ -35,12 +35,16 @@ GOLDEN_REGEN=1 conda run -n stable-ginv python -m pytest tests/golden/ -q
 - `tests/golden/test_masking_golden.py` — all mask modes (keep_ids/entry_masks).
 - `tests/golden/test_registry_key_golden.py` — masked keys across modes.
 - `tests/golden/test_recon_worker_golden.py` — in-process recon numerics (CPU).
+- `tests/golden/test_baseline_summary_csv_golden.py` — baseline-summary CSV bytes
+  (added Phase 4, guards the registry-summary writer).
 - Helpers + fixtures: `tests/golden/helpers.py`, `tests/golden/fixtures/`.
 
 Note: the spec's "end-to-end golden" is realized in-process (recon-worker golden)
 because `resolve_storage_paths()` resolves to the shared `/work3` tree locally, so
-a full-CLI run would append to real experiment data. CSV-row goldens are added in
-Phase 6, just before the `experiment_results` refactor.
+a full-CLI run would append to real experiment data. The baseline-summary CSV golden
+(`tests/golden/test_baseline_summary_csv_golden.py`) was added in Phase 4 to guard the
+registry-summary writer; the per-run `experiment_results` CSV-row golden is added in
+Phase 6, just before that refactor.
 
 ## Status
 
@@ -49,7 +53,7 @@ Phase 6, just before the `experiment_results` refactor.
 - [x] Phase 1 — `ExperimentConfig` dataclass replaces the config dict.
 - [x] Phase 2 — `stable_ginv/metrics/`.
 - [x] Phase 3 — `stable_ginv/masking/` strategy classes.
-- [ ] Phase 4 — `io_utils` teardown → `registry/` + `stats/` + `io/`.
+- [x] Phase 4 — `io_utils` teardown → `registry/` + `stats/` + `io/`.
 - [ ] Phase 5 — `stable_ginv/recon/`.
 - [ ] Phase 6 — `stable_ginv/experiment/` (+ CSV-row goldens first).
 - [ ] Phase 7 — `stable_ginv/viz/`.
@@ -62,8 +66,11 @@ Phase 6, just before the `experiment_results` refactor.
 
 ## Next phase
 
-Write the Phase 4 plan from the spec, then implement. Phase 4 tears down
-`functions/io_utils.py` (732 lines) into `stable_ginv/registry/`,
-`stable_ginv/stats/`, and `stable_ginv/io/`. Add CSV-row golden tests just
-before moving registry load/save logic. Keep this file's Status section
-current at every phase boundary.
+Write the Phase 5 plan from the spec, then implement. Phase 5 extracts
+`stable_ginv/recon/` — the `ReconstructionRunner` optimization loop, `EarlyStopPolicy`,
+`LabelInference` (one-time, from the original unmasked FC gradient), and the scheduler
+(`helper/training_utils.py`). `run_single_exp.py` must stay importable at its current
+path as a worker shim that delegates to `stable_ginv.recon`, so multiprocessing spawn
+keeps working. The recon-worker golden (`tests/golden/test_recon_worker_golden.py`)
+guards the numerics — do not let it drift. Keep this file's Status section current at
+every phase boundary.
