@@ -8,7 +8,7 @@ import hashlib
 import numpy as np
 import torch
 
-from functions.masking import build_gradient_mask
+from stable_ginv.masking import build_gradient_mask
 from helper.Network import get_model, weights_init
 from tests.golden.helpers import load_or_regen
 

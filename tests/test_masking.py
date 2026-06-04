@@ -2,11 +2,13 @@ import torch
 import torch.nn as nn
 import pytest
 
-from functions.masking import (
+from stable_ginv.masking import (
     flatten_observed_gradients,
+    build_gradient_mask,
+)
+from stable_ginv.masking._compute import (
     get_keep_ids_by_gradsize,
     get_entry_masks_by_gradsize,
-    build_gradient_mask,
 )
 
 
