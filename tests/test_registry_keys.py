@@ -6,7 +6,13 @@ from functions.io_utils import baseline_key_from_args, masked_key_from_args
 # are addressed by these keys, so a change here would orphan stored results.
 # Do NOT update these constants to make a refactor pass -- a diff here means the
 # comparable-args dict or its JSON serialization changed.
-MASKED_KEY = "bb4a72e0b259e47b18d7dbc16dfe387d"
+#
+# MASKED_KEY was updated once on purpose: the masked comparable dict gained the
+# "fc_forced": False regime marker when the last FC layer stopped being
+# force-included in the reconstruction mask (it is now used only for label
+# inference). That marker deliberately re-keys masked runs so post-change results
+# never append to pre-change entries.
+MASKED_KEY = "dd009e9b82619dabccd075aa50249c51"
 BASELINE_KEY = "a6727abd177d73cbab44e811a5f2bb41"
 
 

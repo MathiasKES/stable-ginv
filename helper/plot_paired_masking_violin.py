@@ -39,6 +39,12 @@ METRICS = [
     ("mse", "MSE"),
     ("ssim", "SSIM"),
 ]
+METRIC_BY_NAME = dict(METRICS)
+DELTA_LABELS = {
+    "psnr": ("PSNR gain (dB)", lambda row: row["delta_psnr"]),
+    "mse": ("MSE reduction", lambda row: -row["delta_mse"]),
+    "ssim": ("SSIM gain", lambda row: row["delta_ssim"]),
+}
 
 
 def _load_entry(registry, key, label):
@@ -146,10 +152,20 @@ def _paired_rows(baseline_entry, masked_entry):
     return rows
 
 
-def _long_dataframe(rows):
+def _selected_metrics(metrics_arg):
+    names = [name.strip().lower() for name in metrics_arg.split(",") if name.strip()]
+    if not names:
+        raise ValueError("--metrics must contain at least one metric name.")
+    unknown = [name for name in names if name not in METRIC_BY_NAME]
+    if unknown:
+        raise ValueError(f"Unknown metric(s): {', '.join(unknown)}. Choose from: psnr,mse,ssim")
+    return [(name, METRIC_BY_NAME[name]) for name in names]
+
+
+def _long_dataframe(rows, metrics):
     records = []
     for row in rows:
-        for metric, _ in METRICS:
+        for metric, _ in metrics:
             for method in ("Baseline", "Masked"):
                 records.append({
                     "sample_number": row["sample_number"],
@@ -187,12 +203,19 @@ def _write_rows(rows, path):
         print(f"Saved: {path}")
 
 
-def _plot(rows, path, title):
-    dataframe = _long_dataframe(rows)
+def _axes_for_metrics(metrics):
+    fig, axes = plt.subplots(1, len(metrics), figsize=(4 * len(metrics), 4))
+    if len(metrics) == 1:
+        axes = [axes]
+    return fig, axes
+
+
+def _plot(rows, path, title, metrics):
+    dataframe = _long_dataframe(rows, metrics)
     sns.set_theme(style="whitegrid", context="paper")
-    fig, axes = plt.subplots(1, len(METRICS), figsize=(12, 4))
+    fig, axes = _axes_for_metrics(metrics)
     palette = {"Baseline": "#4C72B0", "Masked": "#DD8452"}
-    for ax, (metric, ylabel) in zip(axes, METRICS):
+    for ax, (metric, ylabel) in zip(axes, metrics):
         metric_data = dataframe[dataframe["metric"] == metric]
         sns.violinplot(
             data=metric_data,
@@ -224,17 +247,55 @@ def _plot(rows, path, title):
     plt.close(fig)
 
 
-def _plot_deltas(rows, path, title):
+def _plot_box(rows, path, title, metrics):
+    dataframe = _long_dataframe(rows, metrics)
+    sns.set_theme(style="whitegrid", context="paper")
+    fig, axes = _axes_for_metrics(metrics)
+    palette = {"Baseline": "#4C72B0", "Masked": "#DD8452"}
+    for ax, (metric, ylabel) in zip(axes, metrics):
+        metric_data = dataframe[dataframe["metric"] == metric]
+        sns.boxplot(
+            data=metric_data,
+            x="method",
+            y="value",
+            palette=palette,
+            width=0.5,
+            showfliers=False,
+            ax=ax,
+        )
+        sns.stripplot(
+            data=metric_data,
+            x="method",
+            y="value",
+            color="black",
+            alpha=0.45,
+            jitter=0.12,
+            size=2.5,
+            ax=ax,
+        )
+        ax.set_xlabel("")
+        ax.set_ylabel(ylabel)
+    fig.suptitle(title)
+    fig.tight_layout()
+    if safe_savefig(fig, path, dpi=300, bbox_inches="tight"):
+        print(f"Saved: {path}")
+    plt.close(fig)
+
+
+def _delta_records(rows, metrics):
     records = []
     for row in rows:
-        records.extend([
-            {"metric": "PSNR gain (dB)", "value": row["delta_psnr"]},
-            {"metric": "MSE reduction", "value": -row["delta_mse"]},
-            {"metric": "SSIM gain", "value": row["delta_ssim"]},
-        ])
+        for metric, _ in metrics:
+            label, value_fn = DELTA_LABELS[metric]
+            records.append({"metric": label, "value": value_fn(row)})
+    return records
+
+
+def _plot_deltas(rows, path, title, metrics):
+    records = _delta_records(rows, metrics)
     dataframe = pd.DataFrame(records)
     sns.set_theme(style="whitegrid", context="paper")
-    fig, axes = plt.subplots(1, 3, figsize=(12, 4))
+    fig, axes = _axes_for_metrics(metrics)
     for ax, metric in zip(axes, dataframe["metric"].unique()):
         metric_data = dataframe[dataframe["metric"] == metric]
         sns.violinplot(
@@ -244,6 +305,43 @@ def _plot_deltas(rows, path, title):
             color="#55A868",
             inner="quart",
             cut=0,
+            ax=ax,
+        )
+        sns.stripplot(
+            data=metric_data,
+            x="metric",
+            y="value",
+            color="black",
+            alpha=0.45,
+            jitter=0.12,
+            size=2.5,
+            ax=ax,
+        )
+        ax.axhline(0, color="black", linestyle="--", linewidth=0.8)
+        ax.set_xlabel("")
+        ax.set_ylabel(metric)
+        ax.set_xticklabels([])
+    fig.suptitle(f"{title}\nPositive values mean improved reconstruction")
+    fig.tight_layout()
+    if safe_savefig(fig, path, dpi=300, bbox_inches="tight"):
+        print(f"Saved: {path}")
+    plt.close(fig)
+
+
+def _plot_delta_box(rows, path, title, metrics):
+    records = _delta_records(rows, metrics)
+    dataframe = pd.DataFrame(records)
+    sns.set_theme(style="whitegrid", context="paper")
+    fig, axes = _axes_for_metrics(metrics)
+    for ax, metric in zip(axes, dataframe["metric"].unique()):
+        metric_data = dataframe[dataframe["metric"] == metric]
+        sns.boxplot(
+            data=metric_data,
+            x="metric",
+            y="value",
+            color="#55A868",
+            width=0.45,
+            showfliers=False,
             ax=ax,
         )
         sns.stripplot(
@@ -315,7 +413,13 @@ def main():
     parser.add_argument("--out_dir", default="results")
     parser.add_argument("--output_prefix", default="paired_masking")
     parser.add_argument("--title", default=None)
+    parser.add_argument(
+        "--metrics",
+        default="psnr,mse,ssim",
+        help="Comma-separated metrics to plot. Choose from psnr,mse,ssim.",
+    )
     args = parser.parse_args()
+    metrics = _selected_metrics(args.metrics)
 
     baseline_entry = None
     if args.paired_csv_path:
@@ -346,7 +450,9 @@ def main():
         return
     csv_path = os.path.join(args.out_dir, f"{args.output_prefix}_per_sample.csv")
     plot_path = os.path.join(args.out_dir, f"{args.output_prefix}_violin.png")
+    box_plot_path = os.path.join(args.out_dir, f"{args.output_prefix}_boxplot.png")
     delta_plot_path = os.path.join(args.out_dir, f"{args.output_prefix}_delta_violin.png")
+    delta_box_plot_path = os.path.join(args.out_dir, f"{args.output_prefix}_delta_boxplot.png")
     _write_rows(rows, csv_path)
     baseline_args = baseline_entry.get("args", {}) if baseline_entry else {}
     title = args.title or (
@@ -354,8 +460,10 @@ def main():
         f"{baseline_args.get('network', 'unknown')} / "
         f"{baseline_args.get('dataset', 'unknown')}"
     )
-    _plot(rows, plot_path, title)
-    _plot_deltas(rows, delta_plot_path, title)
+    _plot(rows, plot_path, title, metrics)
+    _plot_box(rows, box_plot_path, title, metrics)
+    _plot_deltas(rows, delta_plot_path, title, metrics)
+    _plot_delta_box(rows, delta_box_plot_path, title, metrics)
     _print_extremes(rows)
 
 

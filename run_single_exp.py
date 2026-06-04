@@ -9,7 +9,6 @@ import functions.consts as consts
 from functions.masking import (
     build_gradient_mask,
     _get_last_fc_param_indices,
-    _last_fc_explicitly_disabled,
 )
 from helper.metrics import (compute_psnr_from_mse, compute_jacobian_rank, total_variation,
     compute_grad_match_loss, compute_ssim_batch)
@@ -128,6 +127,15 @@ def _run_inner(idx_net, device_id, dst, dataset_name, config, result_queue):
     original_dy_dx = [g.detach().clone() for g in dy_dx]
     total_entries = sum(g.numel() for g in original_dy_dx)
 
+    named_params_list = list(net.named_parameters())
+    last_fc_ids = _get_last_fc_param_indices(net)
+    final_weight_idx = next(
+        i for i in sorted(last_fc_ids) if named_params_list[i][0].endswith(".weight")
+    )
+    label_pred_from_original = torch.argmin(
+        torch.sum(original_dy_dx[final_weight_idx], dim=-1), dim=-1
+    ).detach().reshape((1,))
+
     final_recon = {}
     early_stop_reason_dict = {}
     early_stop_iter_dict = {}
@@ -180,7 +188,6 @@ def _run_inner(idx_net, device_id, dst, dataset_name, config, result_queue):
             gradsize_topk=GRADSIZE_TOPK,
             gradsize_topfrac=GRADSIZE_TOPFRAC,
             gradsize_metric=GRADSIZE_METRIC,
-            force_fc=True,
         )
 
         if entry_masks is not None:
@@ -191,49 +198,7 @@ def _run_inner(idx_net, device_id, dst, dataset_name, config, result_queue):
                 if g is not None and i in keep_ids
             )
 
-        _named_params_list = list(net.named_parameters())
-        _last_fc_ids = _get_last_fc_param_indices(net)
-        _fc_disabled_for_loss = (
-            MASK_MODE.startswith("prefix_")
-            and _last_fc_explicitly_disabled(net, PREFIX_LAYER_FRACS)
-        )
-        final_weight_idx = next(
-            i for i in sorted(_last_fc_ids) if _named_params_list[i][0].endswith('.weight')
-        )
-
-        label_pred = None
-        label_inference_available = False
-
-        if method == "iDLG":
-            label_pred = torch.argmin(torch.sum(original_dy_dx[final_weight_idx], dim=-1), dim=-1).detach().reshape((1,))
-            label_inference_available = True
-        elif _fc_disabled_for_loss:
-            # Explicit prefix fraction zero omits FC from matching, but the
-            # observed gradient remains available for one-time label inference.
-            label_pred = torch.argmin(torch.sum(original_dy_dx[final_weight_idx], dim=-1), dim=-1).detach().reshape((1,))
-            label_inference_available = True
-        else:
-            if entry_masks is not None:
-                m = entry_masks[final_weight_idx]
-                if m is not None and bool(m.all()):
-                    label_pred = torch.argmin(torch.sum(original_dy_dx[final_weight_idx], dim=-1), dim=-1).detach().reshape((1,))
-                    label_inference_available = True
-            elif keep_ids is not None:
-                if final_weight_idx in keep_ids:
-                    label_pred = torch.argmin(torch.sum(original_dy_dx[final_weight_idx], dim=-1), dim=-1).detach().reshape((1,))
-                    label_inference_available = True
-
-        if not label_inference_available:
-            print(f"[GPU {device_id}] {method}: label inference unavailable under current mask")
-            final_recon[method] = torch.zeros_like(gt_data)
-            _losses[method] = [float("inf")]
-            _labels[method] = None
-            _mses[method] = [float("inf")]
-            _best_loss[method] = float("inf")
-            _best_mse[method] = float("inf")
-            early_stop_reason_dict[method] = "label_inference_unavailable"
-            early_stop_iter_dict[method] = 0
-            continue
+        label_pred = label_pred_from_original
 
         unknowns = int(gt_data[0].numel())
 

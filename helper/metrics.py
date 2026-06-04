@@ -233,9 +233,35 @@ def _layer_spread_non_fc(g_obs_det, budget, grads, keep_ids, entry_masks, fc_par
     return torch.cat(indices) if indices else torch.tensor([], dtype=torch.long, device=g_obs_det.device)
 
 
+def _layer_dist_str(net, grads, keep_ids, entry_masks, selected_idx):
+    """Return a compact string showing how many selected entries came from each parameter."""
+    named = list(net.named_parameters())
+    sel = selected_idx
+    offset = 0
+    counts = []
+    for i, g in enumerate(grads):
+        if g is None:
+            continue
+        if entry_masks is not None:
+            m = entry_masks[i]
+            if m is None:
+                continue
+            sz = int(m.reshape(-1).sum().item())
+        else:
+            if keep_ids is not None and i not in keep_ids:
+                continue
+            sz = g.numel()
+        name = named[i][0]
+        count = int(((sel >= offset) & (sel < offset + sz)).sum().item())
+        counts.append((name, count, sz))
+        offset += sz
+    counts.sort(key=lambda x: -x[1])
+    return "  ".join(f"{n}:{c}" for n, c, _ in counts if c > 0) or "(none)"
+
+
 def _build_jacobian(net, x_norm, y, criterion, keep_ids, entry_masks,
                     max_entries, select_mode, device_for_J, progress_fn=None,
-                    force_fc=False, fc_param_indices=None):
+                    force_fc=False, fc_param_indices=None, print_layer_dist=False):
     """Forward pass + row selection + J construction.
 
     Automatically chooses the cheaper direction:
@@ -382,6 +408,8 @@ def _build_jacobian(net, x_norm, y, criterion, keep_ids, entry_masks,
             raise ValueError(f"Unknown select_mode: {select_mode}")
 
     used_entries = selected_idx.numel()
+    if print_layer_dist:
+        print(f"    [layer_dist entries={used_entries}] {_layer_dist_str(net, grads, keep_ids, entry_masks, selected_idx)}", flush=True)
     selected_idx_for_grad = selected_idx.to(x_norm.device)
     J = torch.empty((used_entries, unknowns), dtype=x_norm.dtype, device=device_for_J)
 
@@ -508,6 +536,7 @@ def compute_jacobian_rank_sweep(
     normalize_rows=False,
     force_fc=False,
     fc_param_indices=None,
+    print_layer_dist=False,
 ):
     """Rank of J for multiple row counts.
 
@@ -541,6 +570,7 @@ def compute_jacobian_rank_sweep(
                 net, x_norm, y, criterion, keep_ids, entry_masks,
                 k, select_mode, device_for_J, progress_fn=j_progress_fn,
                 force_fc=force_fc, fc_param_indices=fc_param_indices,
+                print_layer_dist=print_layer_dist,
             )
             rank = _rank_of_J(J_k, print_svd_info=print_svd_info, normalize_rows=normalize_rows)
             results[k] = (rank, tuple(J_k.shape), J_k.shape[0], unknowns)
@@ -559,6 +589,7 @@ def compute_jacobian_rank_sweep(
     J_max, total_entries, unknowns = _build_jacobian(
         net, x_norm, y, criterion, keep_ids, entry_masks, max(row_counts), select_mode, device_for_J,
         progress_fn=j_progress_fn, force_fc=force_fc, fc_param_indices=fc_param_indices,
+        print_layer_dist=print_layer_dist,
     )
 
     results = {}

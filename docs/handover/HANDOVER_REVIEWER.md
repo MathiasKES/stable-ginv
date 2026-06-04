@@ -124,7 +124,7 @@ No function signatures have type annotations. This makes it hard to understand w
 ```bash
 python -m pytest tests/ -v
 ```
-45 tests covering masking routing paths, last-FC invariant, per-layer entry modes, gradient flattening, and safe I/O helpers. Should pass quickly on CPU.
+Tests cover masking routing paths, the FC/label-inference separation (FC is not force-included; prefix lists act as a pure whitelist), per-layer entry modes, gradient flattening, and safe I/O helpers. Should pass quickly on CPU.
 
 **DTU HPC import check:**
 ```bash

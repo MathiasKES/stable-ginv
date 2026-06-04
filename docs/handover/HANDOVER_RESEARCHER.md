@@ -130,7 +130,7 @@ All masking is implemented in `functions/masking.py::build_gradient_mask()`. The
 | `gradsize_topk_entries` | Keep the K individual gradient scalar entries (across all tensors) with largest magnitude |
 | `gradsize_topfrac_entries` | Keep the top fraction of scalar entries across all tensors |
 | `gradsize_topk_entries_layer` | Per-tensor independent top-K entries — each parameter tensor keeps its own top K |
-| `gradsize_topfrac_entries_layer` | Per-tensor independent top-fraction entries — each tensor keeps its own top fraction. For torchvision VGG models, intermediate classifier layers are excluded by default and only the final classifier layer is fully kept for label inference. |
+| `gradsize_topfrac_entries_layer` | Per-tensor independent top-fraction entries — each tensor keeps its own top fraction. For torchvision VGG models, all `classifier.*` layers are excluded from this global mode (they dominate parameter count and slow `create_graph=True`); label inference still works because it reads the original unmasked FC gradient. Use the `prefix_*_entries_layer` modes to include specific classifier sub-layers. |
 | `prefix` | Keep only tensors whose parameter name starts with one of the given prefixes |
 | `prefix_topk` | Within prefix-matched tensors, keep top-K by magnitude |
 | `prefix_topfrac` | Within prefix-matched tensors, keep the top fraction by magnitude |
@@ -156,7 +156,7 @@ For each experiment, the flow is:
 4. Apply the mask (zero out or exclude gradient tensors/entries).
 5. Initialize a "dummy image" from random noise (or zeros for L-BFGS).
 6. Optimization loop: minimize `gradient_match_loss(dummy_grad, masked_true_grad) + TV_WEIGHT * TV(dummy_image)`.
-7. The **iDLG label recovery trick** recovers the true label from the gradient of the final fully-connected layer's bias: `label = argmin(sum(fc_bias_grad, dim=-1))`. This is exact for single-sample batches.
+7. The **iDLG label recovery trick** recovers the true label from the gradient of the final fully-connected layer's weight: `label = argmin(sum(fc_weight_grad, dim=-1))`, computed once from the original *unmasked* gradient. This is exact for single-sample batches.
 8. Best reconstruction snapshots are selected by gradient-matching loss.
 
 **Loss functions:**
@@ -181,11 +181,11 @@ For each experiment, the flow is:
 - **HPC scripts:** `scripts/` targets the DTU HPC cluster (LSF job scheduler). The `init.sh` sets up the conda environment from `env/environment.yml`.
 - **`run_single_exp.py` is a worker module:** Run experiments through
   `iDLG_mask.py`; it builds the internal config dict and spawns workers.
-- **Last FC layer always unmasked in reconstruction:** `build_gradient_mask` preserves the last `nn.Linear` layer by default (`force_fc=True`), regardless of mask mode. This guarantees the iDLG label-recovery trick always has the gradient it needs. The Jacobian sweep and `rank_reconstruction_plot` do NOT force FC — all gradient entries (including FC) compete in the pool. Pass `--keep_fc` in those tools to explicitly exclude FC from the Jacobian rows.
+- **FC is for label inference only, not forced into reconstruction:** `build_gradient_mask` does NOT preserve the last `nn.Linear` layer. The iDLG label trick is computed once in `run_single_exp.py` from the original *unmasked* final FC weight gradient (before masking), so label recovery always works. The FC/classifier gradient enters the reconstruction loss only if the chosen mask mode/prefixes select it. This makes FC/classifier ablations meaningful: excluding FC from the prefix list really excludes it from the objective. The Jacobian sweep can drop FC entirely with `--exclude_fc`; `rank_reconstruction_plot` has its own `--keep_fc` flag (select from non-FC entries only).
 - **LFW normalization constants:** Computed manually in `archive/testing/compute_lfw_stats.py` and hardcoded in `functions/consts.py`. If you change the LFW preprocessing (resize, crop), recompute these.
 - **Masking sweep workflow:** Run normal `iDLG_mask.py` commands for each `--gradsize_topfrac`; all runs with the same config (same network/dataset/optimizer/lr/etc.) append to the same CSV in `results/masking_sweeps/` regardless of `--run_id` or `--num_exp`. Then call `helper/plot_masking_sweep_csv.py <sweep_csv>`; its default reconstruction threshold is `--threshold_mse 0.01`. The plot script includes the matching iDLG baseline as the 0% masked point when `results/baselines/idlg_baselines_registry.json` contains the corresponding baseline key.
 - **Jacobian dtype comparisons:** `functions/jacobian_rank_sweep.py --both_dtypes` executes the same sweep for `float32` and `float64`, writes one CSV with a `dtype` column, and saves one overlaid plot. If `--qr_pivot` is also enabled, the QR-pivot lines are dashed and use the same color as the corresponding dtype.
-- **VGG fraction sweeps:** For `gradsize_topfrac_entries_layer` on VGG, `classifier.0.*` and `classifier.3.*` are excluded automatically. `classifier.6.*` remains fully unmasked because the last-FC layer is required for iDLG label recovery. This substantially reduces VGG sweep runtime and memory use.
+- **VGG fraction sweeps:** For `gradsize_topfrac_entries_layer` on VGG, all `classifier.*` layers (`classifier.0/3/6.*`) are excluded automatically, which substantially reduces VGG sweep runtime and memory use. Label inference is unaffected (it reads the original unmasked `classifier.6` gradient). To include `classifier.6` (or any specific classifier layer) in the reconstruction, switch to `prefix_topfrac_entries_layer` and list it in `--prefixes`.
 - **Row normalisation in rank sweep:** Default is **no normalisation** — the relative threshold reflects actual gradient magnitudes. Pass `--normalise` to L2-normalise rows before `matrix_rank`. If you enable normalisation, verify rank is non-decreasing across row counts as a sanity check.
 - **SVD diagnostics:** `--print_svd_info` now prints `sigma_max`, the computed `atol`, whether normalisation was applied, and the bottom-10 singular values. Use this to check whether borderline singular values have comfortable margin above the threshold.
 
