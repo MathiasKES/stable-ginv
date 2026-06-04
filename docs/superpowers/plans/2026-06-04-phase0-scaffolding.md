@@ -523,9 +523,9 @@ def _produce():
     r = _run_worker()
     return {
         "label_iDLG": r["label_iDLG"],
-        "loss_iDLG": r["loss_iDLG"],
-        "mse_iDLG": r["mse_iDLG"],
-        "psnr_idlg": r["psnr_idlg"],
+        "loss_iDLG": r["best_loss_iDLG"],
+        "mse_iDLG": r["best_mse_iDLG"],
+        "psnr_idlg": r["best_psnr_idlg"],
         "early_stop_reason": r["early_stop_reason"].get("iDLG"),
     }
 

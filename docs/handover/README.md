@@ -1,6 +1,6 @@
 # Current Project Handover
 
-**Last updated:** 2026-05-31
+**Last updated:** 2026-06-04
 
 Read this file first when starting a new chat or development session.
 
@@ -29,6 +29,8 @@ much slower CPU worker.
 - `HANDOVER_CLEANUP.md`: submission-readiness cleanup — what was done, the
   decisions behind it, how to verify, and what remains.
 - `../CODE_CLEANUP.md`: pending conservative internal code-redundancy plan.
+- `HANDOVER_RESTRUCTURE.md`: OOP restructure status, invariants, and golden
+  harness. Read before any restructure work.
 - `../codebase.md`: detailed function and output reference.
 
 ## Current Safety Constraints

@@ -1,0 +1,66 @@
+# Handover: OOP Restructure
+
+**Spec:** `docs/superpowers/specs/2026-06-04-code-structure-design.md`
+**Plans:** `docs/superpowers/plans/`
+**Branch:** `cleanup/submit-ready`
+
+## Invariants (every phase)
+
+- No functionality change: reconstruction math, masking behavior, optimizer
+  behavior, CLI flags/defaults, registry key inputs/JSON, CSV
+  filenames/columns/order/append, plot filenames/contents stay identical.
+- Repo stays green and runnable after every phase.
+- Categorized commits: `refactor:` / `test:` / `docs:` / `build:` / `style:`
+  (no `feat:`). Separate commit per category.
+- Goldens are added just-in-time: before refactoring an area, lock it with a
+  golden test.
+
+## Verify (run after any change)
+
+```bash
+export LD_LIBRARY_PATH="$CONDA_PREFIX/lib:$LD_LIBRARY_PATH"
+conda run -n stable-ginv python -m pytest tests/ -q
+conda run -n stable-ginv python iDLG_mask.py --help
+git diff --check
+```
+
+Regenerate goldens only when the env (e.g. torch version) changes, never to make
+a refactor pass:
+```bash
+GOLDEN_REGEN=1 conda run -n stable-ginv python -m pytest tests/golden/ -q
+```
+
+## Golden harness (Phase 0)
+
+- `tests/golden/test_masking_golden.py` — all mask modes (keep_ids/entry_masks).
+- `tests/golden/test_registry_key_golden.py` — masked keys across modes.
+- `tests/golden/test_recon_worker_golden.py` — in-process recon numerics (CPU).
+- Helpers + fixtures: `tests/golden/helpers.py`, `tests/golden/fixtures/`.
+
+Note: the spec's "end-to-end golden" is realized in-process (recon-worker golden)
+because `resolve_storage_paths()` resolves to the shared `/work3` tree locally, so
+a full-CLI run would append to real experiment data. CSV-row goldens are added in
+Phase 6, just before the `experiment_results` refactor.
+
+## Status
+
+- [x] Phase 0 — Scaffolding: package skeleton, `pyproject.toml`, golden harness,
+      Sphinx + Pages CI, this handover.
+- [ ] Phase 1 — `ExperimentConfig` dataclass replaces the config dict.
+- [ ] Phase 2 — `stable_ginv/metrics/`.
+- [ ] Phase 3 — `stable_ginv/masking/` strategy classes.
+- [ ] Phase 4 — `io_utils` teardown → `registry/` + `stats/` + `io/`.
+- [ ] Phase 5 — `stable_ginv/recon/`.
+- [ ] Phase 6 — `stable_ginv/experiment/` (+ CSV-row goldens first).
+- [ ] Phase 7 — `stable_ginv/viz/`.
+- [ ] Phase 8 — `stable_ginv/jacobian/`.
+- [ ] Phase 9 — docstrings + fill Sphinx API pages + polish.
+
+## One-time setup
+
+- Enable GitHub Pages: repo Settings → Pages → Source = "GitHub Actions".
+
+## Next phase
+
+Write the Phase 1 plan from the spec, then implement. Keep this file's Status and
+Golden-harness sections current at every phase boundary.
