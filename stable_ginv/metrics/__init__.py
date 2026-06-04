@@ -1,5 +1,8 @@
-"""Backwards-compatibility shim — all code lives in stable_ginv/metrics/."""
-from stable_ginv.metrics.image_metrics import compute_psnr_from_mse, compute_ssim_batch, total_variation
+from stable_ginv.metrics.image_metrics import (
+    compute_psnr_from_mse,
+    compute_ssim_batch,
+    total_variation,
+)
 from stable_ginv.metrics.jacobian import (
     _load_scipy_linalg,
     _get_layer_groups,
