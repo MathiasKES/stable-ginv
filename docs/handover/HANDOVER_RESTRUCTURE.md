@@ -48,7 +48,7 @@ Phase 6, just before the `experiment_results` refactor.
       Sphinx + Pages CI, this handover.
 - [x] Phase 1 — `ExperimentConfig` dataclass replaces the config dict.
 - [x] Phase 2 — `stable_ginv/metrics/`.
-- [ ] Phase 3 — `stable_ginv/masking/` strategy classes.
+- [x] Phase 3 — `stable_ginv/masking/` strategy classes.
 - [ ] Phase 4 — `io_utils` teardown → `registry/` + `stats/` + `io/`.
 - [ ] Phase 5 — `stable_ginv/recon/`.
 - [ ] Phase 6 — `stable_ginv/experiment/` (+ CSV-row goldens first).
@@ -62,8 +62,8 @@ Phase 6, just before the `experiment_results` refactor.
 
 ## Next phase
 
-Write the Phase 3 plan from the spec, then implement. Phase 3 extracts
-`stable_ginv/masking/` — strategy classes, STRATEGY_REGISTRY, and Masker
-facade — from `functions/masking.py`. The masking goldens (Phase 0) already
-guard all ~15 mask modes. Keep this file's Status and Golden-harness sections
+Write the Phase 4 plan from the spec, then implement. Phase 4 tears down
+`functions/io_utils.py` (732 lines) into `stable_ginv/registry/`,
+`stable_ginv/stats/`, and `stable_ginv/io/`. Add CSV-row golden tests just
+before moving registry load/save logic. Keep this file's Status section
 current at every phase boundary.
