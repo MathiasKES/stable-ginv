@@ -1,0 +1,7 @@
+{
+  "early_stop_reason": "converged",
+  "label_iDLG": 3,
+  "loss_iDLG": 5.364418029785156e-07,
+  "mse_iDLG": 0.0014860044466331601,
+  "psnr_idlg": 28.27979891015985
+}
