@@ -46,7 +46,7 @@ Phase 6, just before the `experiment_results` refactor.
 
 - [x] Phase 0 — Scaffolding: package skeleton, `pyproject.toml`, golden harness,
       Sphinx + Pages CI, this handover.
-- [ ] Phase 1 — `ExperimentConfig` dataclass replaces the config dict.
+- [x] Phase 1 — `ExperimentConfig` dataclass replaces the config dict.
 - [ ] Phase 2 — `stable_ginv/metrics/`.
 - [ ] Phase 3 — `stable_ginv/masking/` strategy classes.
 - [ ] Phase 4 — `io_utils` teardown → `registry/` + `stats/` + `io/`.
@@ -62,5 +62,5 @@ Phase 6, just before the `experiment_results` refactor.
 
 ## Next phase
 
-Write the Phase 1 plan from the spec, then implement. Keep this file's Status and
+Write the Phase 2 plan from the spec, then implement. Keep this file's Status and
 Golden-harness sections current at every phase boundary.
