@@ -1,8 +1,8 @@
 """Golden test: in-process reconstruction worker numerics.
 
-Calls run_single_exp._run_inner directly on CPU with a fixed seed/config and a
+Calls stable_ginv.recon._run_inner directly on CPU with a fixed seed/config and a
 synthetic dataset, capturing the result dict via a stub queue. Locks recon
-metrics so later phases (config dataclass, recon OOP) prove no numeric drift.
+metrics so later phases prove no numeric drift.
 
 Tolerance: integer/label/shape fields are exact; floating metrics use rel=1e-4
 to absorb platform float noise while still catching real logic changes (which
@@ -11,7 +11,7 @@ move metrics far more than 1e-4). If the torch/env version changes, regenerate:
 """
 import pytest
 
-from run_single_exp import _run_inner
+from stable_ginv.recon import _run_inner
 from tests.golden.helpers import FakeImageDataset, lenet_worker_config, load_or_regen
 
 
