@@ -54,7 +54,9 @@ Phase 6, just before that refactor.
 - [x] Phase 2 — `stable_ginv/metrics/`.
 - [x] Phase 3 — `stable_ginv/masking/` strategy classes.
 - [x] Phase 4 — `io_utils` teardown → `registry/` + `stats/` + `io/`.
-- [ ] Phase 5 — `stable_ginv/recon/`.
+- [x] Phase 5 — `stable_ginv/recon/` (ReconstructionRunner, EarlyStopPolicy,
+      LabelInference, scheduler). `run_single_exp.py` + `helper/training_utils.py`
+      are shims.
 - [ ] Phase 6 — `stable_ginv/experiment/` (+ CSV-row goldens first).
 - [ ] Phase 7 — `stable_ginv/viz/`.
 - [ ] Phase 8 — `stable_ginv/jacobian/`.
@@ -66,11 +68,12 @@ Phase 6, just before that refactor.
 
 ## Next phase
 
-Write the Phase 5 plan from the spec, then implement. Phase 5 extracts
-`stable_ginv/recon/` — the `ReconstructionRunner` optimization loop, `EarlyStopPolicy`,
-`LabelInference` (one-time, from the original unmasked FC gradient), and the scheduler
-(`helper/training_utils.py`). `run_single_exp.py` must stay importable at its current
-path as a worker shim that delegates to `stable_ginv.recon`, so multiprocessing spawn
-keeps working. The recon-worker golden (`tests/golden/test_recon_worker_golden.py`)
-guards the numerics — do not let it drift. Keep this file's Status section current at
-every phase boundary.
+Write the Phase 6 plan from the spec, then implement. Phase 6 extracts
+`stable_ginv/experiment/` — `BatchExperimentRunner` (GPU scheduling, multiprocessing,
+output ordering, abort-on-worker-failure), `ResultAggregator`, and `RestartSelector`,
+plus `functions/experiment_results.py` → `stable_ginv/experiment/results.py` +
+`stable_ginv/io/csv.py`. **Add the per-run `experiment_results` CSV-row golden first**
+(the spec defers it to just before this refactor), then move `iDLG_mask.py`
+orchestration into `stable_ginv/cli/batch.py` + `stable_ginv/experiment/runner.py`,
+leaving `iDLG_mask.py` as a thin `from stable_ginv.cli.batch import main; main()`
+wrapper. Keep this file's Status section current at every phase boundary.
