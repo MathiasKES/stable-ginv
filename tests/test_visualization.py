@@ -1,8 +1,8 @@
-from helper import visualization
+from stable_ginv.viz import panels
 
 
 def test_flush_recon_panel_sorts_columns_by_experiment_index(monkeypatch, tmp_path):
-    buffers = visualization.create_panel_buffers()
+    buffers = panels.create_panel_buffers()
     for idx in (2, 0, 1):
         buffers["exp_idx"].append(idx)
         buffers["gt"].append(f"gt-{idx}")
@@ -24,9 +24,9 @@ def test_flush_recon_panel_sorts_columns_by_experiment_index(monkeypatch, tmp_pa
         captured["psnr_masked"] = kwargs["psnr_masked"]
         return str(tmp_path / "panel.png")
 
-    monkeypatch.setattr(visualization, "save_recon_panel", fake_save_recon_panel)
+    monkeypatch.setattr(panels, "save_recon_panel", fake_save_recon_panel)
 
-    visualization.flush_recon_panel(
+    panels.flush_recon_panel(
         {}, buffers, [], str(tmp_path), 0, "cifar100", "none", "timestamp", "both"
     )
 
