@@ -1,6 +1,6 @@
 import csv
 
-from helper.plot_paired_masking_violin import _load_paired_rows, _paired_rows
+from stable_ginv.viz.plot_paired_masking_violin import _load_paired_rows, _paired_rows
 
 
 def _entry(run_id, psnr, mse, ssim):

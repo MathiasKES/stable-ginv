@@ -1,4 +1,4 @@
-from helper.plot_masking_sweep_csv import _baseline_row
+from stable_ginv.viz.plot_masking_sweep_csv import _baseline_row
 
 
 def _baseline_entry(run_id, num_exp, mses):
