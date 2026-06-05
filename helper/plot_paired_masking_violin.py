@@ -216,6 +216,33 @@ def _add_top_margin(ax, fraction=0.12):
     ax.set_ylim(lower, upper + span * fraction)
 
 
+def _plot_method_outliers(ax, outliers, x, y, dodge=False):
+    marker_by_method = {"Baseline": "X", "Masked": "D"}
+    color_by_method = {"Baseline": "#1F4E79", "Masked": "#8B2E16"}
+    for method, method_outliers in outliers.groupby("method", dropna=False):
+        kwargs = {
+            "data": method_outliers,
+            "x": x,
+            "y": y,
+            "marker": marker_by_method.get(method, "X"),
+            "edgecolor": "black",
+            "linewidth": 0.8,
+            "jitter": 0.06,
+            "size": 6.0,
+            "ax": ax,
+        }
+        if dodge:
+            kwargs.update({
+                "hue": "method",
+                "hue_order": ["Baseline", "Masked"],
+                "palette": color_by_method,
+                "dodge": True,
+            })
+        else:
+            kwargs["color"] = color_by_method.get(method, "black")
+        sns.stripplot(**kwargs)
+
+
 def _write_rows(rows, path):
     fieldnames = list(rows[0]) if rows else [
         "run_id",
@@ -283,15 +310,7 @@ def _plot(rows, path, title, metrics):
         )
         outliers = _outlier_dataframe(metric_data, ["method"])
         if not outliers.empty:
-            sns.stripplot(
-                data=outliers,
-                x="method",
-                y="value",
-                color="black",
-                jitter=0.06,
-                size=3.0,
-                ax=ax,
-            )
+            _plot_method_outliers(ax, outliers, x="method", y="value")
         ax.set_xlabel("")
         ax.set_ylabel(ylabel)
     fig.suptitle(title)
@@ -336,17 +355,7 @@ def _plot_combined(datasets, path, title, metrics):
         )
         outliers = _outlier_dataframe(metric_data, ["dataset", "method"])
         if not outliers.empty:
-            sns.stripplot(
-                data=outliers,
-                x="dataset",
-                y="value",
-                hue="method",
-                dodge=True,
-                color="black",
-                jitter=0.06,
-                size=3.0,
-                ax=ax,
-            )
+            _plot_method_outliers(ax, outliers, x="dataset", y="value", dodge=True)
         handles, labels = ax.get_legend_handles_labels()
         if ax is axes[-1]:
             _add_top_margin(ax)
@@ -389,15 +398,7 @@ def _plot_box(rows, path, title, metrics):
         )
         outliers = _outlier_dataframe(metric_data, ["method"])
         if not outliers.empty:
-            sns.stripplot(
-                data=outliers,
-                x="method",
-                y="value",
-                color="black",
-                jitter=0.06,
-                size=3.0,
-                ax=ax,
-            )
+            _plot_method_outliers(ax, outliers, x="method", y="value")
         ax.set_xlabel("")
         ax.set_ylabel(ylabel)
     fig.suptitle(title)
