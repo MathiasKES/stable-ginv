@@ -60,7 +60,9 @@ Phase 6, just before that refactor.
 - [x] Phase 6 — `stable_ginv/experiment/` (BatchExperimentRunner, ResultAggregator,
       RestartSelector, results.py) + `stable_ginv/cli/batch.py`. `iDLG_mask.py` is a
       thin wrapper; `functions/experiment_results.py` is a shim. CSV-row golden added.
-- [ ] Phase 7 — `stable_ginv/viz/`.
+- [x] Phase 7 — `stable_ginv/viz/` (panels, gif, restart) + the five `plot_*` CLIs.
+      `helper/visualization.py` is a shim; each `helper/plot_*.py` is a thin runnable
+      wrapper. Restart-curve CSV gain-column golden added.
 - [ ] Phase 8 — `stable_ginv/jacobian/`.
 - [ ] Phase 9 — docstrings + fill Sphinx API pages + polish.
 
@@ -70,15 +72,17 @@ Phase 6, just before that refactor.
 
 ## Next phase
 
-Write the Phase 7 plan from the spec, then implement. Phase 7 extracts
-`stable_ginv/viz/` from `helper/visualization.py` (recon panels/GIFs, restart curves)
-and the standalone `helper/plot_*.py` CLIs, replacing them with thin wrappers. Lock
-the relevant plot outputs with goldens just-in-time before moving them (the existing
-`tests/test_visualization.py` / `tests/test_restart_curve.py` are the starting point).
-`stable_ginv/cli/batch.py` loads visualization lazily via `_load_visualization_helpers`,
-so repoint that import at `stable_ginv.viz` once the package exists. Keep this file's
-Status section current at every phase boundary.
+Write the Phase 8 plan from the spec, then implement. Phase 8 extracts
+`stable_ginv/jacobian/` from `functions/jacobian_rank_sweep.py` (rank sweep + its CLI)
+and moves `functions/rank_reconstruction_plot.py` into `stable_ginv/viz/` (the
+rank-vs-reconstruction plot CLI), replacing both with thin wrappers. Lock the relevant
+outputs with goldens just-in-time before moving them. Note the pre-existing bug to fix
+separately (not as part of the move): `functions/rank_reconstruction_plot.py` has
+f-strings missing placeholders. Keep this file's Status section current at every phase
+boundary.
 
-Deferred (not yet done): `functions/idlg_cli.py` → `stable_ginv/cli/args.py` and
-`functions/Dataset.py`/`functions/consts.py` → `stable_ginv/data/` remain imported from
-their current paths by `stable_ginv/cli/batch.py` and `stable_ginv/recon/runner.py`.
+Deferred (not yet done): `functions/idlg_cli.py` → `stable_ginv/cli/args.py`,
+`functions/Dataset.py`/`functions/consts.py` → `stable_ginv/data/`, and
+`helper/Network.py` → `stable_ginv/models/` remain imported from their current paths
+(by `stable_ginv/cli/batch.py`, `stable_ginv/recon/runner.py`, and
+`stable_ginv/viz/plot_model_parameter_counts.py`).
