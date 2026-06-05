@@ -179,5 +179,4 @@ git diff --check
 - Any change to reconstruction/statistical formulas or experiment defaults.
 - Merge to `main` (handled separately by the user).
 - Fixing pre-existing bugs unrelated to a phase (tracked separately):
-  `helper/plots.py:157` undefined `resnet50_data`;
-  `functions/rank_reconstruction_plot.py` f-strings missing placeholders.
+  `helper/plots.py:157` undefined `resnet50_data`.

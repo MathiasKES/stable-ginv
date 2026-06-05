@@ -37,6 +37,10 @@ GOLDEN_REGEN=1 conda run -n stable-ginv python -m pytest tests/golden/ -q
 - `tests/golden/test_recon_worker_golden.py` — in-process recon numerics (CPU).
 - `tests/golden/test_baseline_summary_csv_golden.py` — baseline-summary CSV bytes
   (added Phase 4, guards the registry-summary writer).
+- `tests/golden/test_jacobian_summary_golden.py` — sweep mean/std summarization
+  (added Phase 8, guards the rank-sweep CSV/plot data shaping).
+- `tests/golden/test_rank_reconstruction_masks_golden.py` — rank-vs-reconstruction
+  mask builders (added Phase 8, guards the global-topk / keep-fc entry selection).
 - Helpers + fixtures: `tests/golden/helpers.py`, `tests/golden/fixtures/`.
 
 Note: the spec's "end-to-end golden" is realized in-process (recon-worker golden)
@@ -63,7 +67,10 @@ Phase 6, just before that refactor.
 - [x] Phase 7 — `stable_ginv/viz/` (panels, gif, restart) + the five `plot_*` CLIs.
       `helper/visualization.py` is a shim; each `helper/plot_*.py` is a thin runnable
       wrapper. Restart-curve CSV gain-column golden added.
-- [ ] Phase 8 — `stable_ginv/jacobian/`.
+- [x] Phase 8 — `stable_ginv/jacobian/` (sweep.py compute core + cli.py) extracted
+      from `functions/jacobian_rank_sweep.py`; `functions/rank_reconstruction_plot.py`
+      moved to `stable_ginv/viz/plot_rank_reconstruction.py`. Both `functions/` files
+      are thin wrappers. Two goldens added; the placeholderless f-string lint fixed.
 - [ ] Phase 9 — docstrings + fill Sphinx API pages + polish.
 
 ## One-time setup
@@ -72,17 +79,13 @@ Phase 6, just before that refactor.
 
 ## Next phase
 
-Write the Phase 8 plan from the spec, then implement. Phase 8 extracts
-`stable_ginv/jacobian/` from `functions/jacobian_rank_sweep.py` (rank sweep + its CLI)
-and moves `functions/rank_reconstruction_plot.py` into `stable_ginv/viz/` (the
-rank-vs-reconstruction plot CLI), replacing both with thin wrappers. Lock the relevant
-outputs with goldens just-in-time before moving them. Note the pre-existing bug to fix
-separately (not as part of the move): `functions/rank_reconstruction_plot.py` has
-f-strings missing placeholders. Keep this file's Status section current at every phase
-boundary.
+Phase 9 — Polish: write/expand NumPy-style docstrings across the `stable_ginv/`
+package, fill the Sphinx API pages (autosummary), and do a final cleanup pass.
+No code moves; no functionality change. Keep this file's Status section current.
 
 Deferred (not yet done): `functions/idlg_cli.py` → `stable_ginv/cli/args.py`,
 `functions/Dataset.py`/`functions/consts.py` → `stable_ginv/data/`, and
-`helper/Network.py` → `stable_ginv/models/` remain imported from their current paths
-(by `stable_ginv/cli/batch.py`, `stable_ginv/recon/runner.py`, and
-`stable_ginv/viz/plot_model_parameter_counts.py`).
+`helper/Network.py` → `stable_ginv/models/` remain imported from their current
+paths (by `stable_ginv/cli/batch.py`, `stable_ginv/recon/runner.py`,
+`stable_ginv/viz/plot_model_parameter_counts.py`, `stable_ginv/jacobian/`, and
+`stable_ginv/viz/plot_rank_reconstruction.py`).
