@@ -448,16 +448,16 @@ def find_registry_entry(registry, key, comparable_args, allow_append_predecessor
         return stored_key, entry
 
     if allow_append_predecessor:
-        predecessors = [
+        adjacent = [
             (stored_key, entry, start, end)
             for stored_key, entry in matches
             if (sample_range := _entry_sample_range(entry)) is not None
             for start, end in [sample_range]
-            if end == requested_start
+            if end == requested_start or start == requested_end
         ]
-        if predecessors:
+        if adjacent:
             stored_key, entry, _, _ = max(
-                predecessors,
+                adjacent,
                 key=lambda item: (
                     item[3] - item[2],
                     -item[2],
@@ -513,7 +513,7 @@ def _replace_ssim_range(entry, stored_start, stored_count, incoming_start,
 
 def _update_registry_entry(registry, key, comparable_args, best_psnr_list,
                            best_mse_list, best_ssim_list, label):
-    """Store metrics for a sample range, appending unseen suffixes or replacing contained ranges."""
+    """Store metrics for one sample range, merging by absolute run_id."""
     incoming = {
         "best_psnr_list": [float(v) for v in best_psnr_list],
         "best_mse_list": [float(v) for v in best_mse_list],
@@ -557,54 +557,89 @@ def _update_registry_entry(registry, key, comparable_args, best_psnr_list,
     stored_ssim_list = entry.get("best_ssim_list", [])
     if len(stored_ssim_list) > stored_count:
         raise ValueError(f"Stored {label} SSIM list is longer than the PSNR list.")
-    expected_start = stored_start + stored_count
+    stored_end = stored_start + stored_count
     incoming_end = incoming_start + incoming_count
-    if stored_start <= incoming_start and incoming_end <= expected_start:
-        offset = incoming_start - stored_start
-        entry["best_psnr_list"][offset:offset + incoming_count] = incoming["best_psnr_list"]
-        entry["best_mse_list"][offset:offset + incoming_count] = incoming["best_mse_list"]
-        _replace_ssim_range(
-            entry, stored_start, stored_count, incoming_start, incoming_count,
-            incoming["best_ssim_list"],
-        )
-        print(
-            f"\nReplaced {incoming_count} existing {label} sample(s) for "
-            f"run_id={incoming_start}..{incoming_end - 1}."
-        )
-        return entry
-    if stored_start <= incoming_start < expected_start < incoming_end:
-        overlap_count = expected_start - incoming_start
-        incoming_start = expected_start
-        incoming_count -= overlap_count
-        incoming = {
-            name: values[overlap_count:]
-            for name, values in incoming.items()
-        }
-        print(
-            f"\nSkipped {overlap_count} existing {label} sample(s) and will append "
-            f"run_id={incoming_start}..{incoming_end - 1}."
-        )
-    if incoming_start != expected_start:
+
+    merged_start = min(stored_start, incoming_start)
+    merged_end = max(stored_end, incoming_end)
+    stored_ids = set(range(stored_start, stored_end))
+    incoming_ids = set(range(incoming_start, incoming_end))
+    replace_existing = stored_start <= incoming_start and incoming_end <= stored_end
+    incoming_update_ids = incoming_ids if replace_existing else incoming_ids - stored_ids
+    merged_ids = stored_ids | incoming_ids
+    expected_ids = set(range(merged_start, merged_end))
+    if merged_ids != expected_ids:
+        missing = sorted(expected_ids - merged_ids)
         raise ValueError(
-            f"Cannot append {label} run_id={incoming_start}: stored samples cover "
-            f"run_id={stored_start}..{expected_start - 1}, so the next run must use "
-            f"--run_id {expected_start}."
+            f"Cannot merge {label} run_id={incoming_start}..{incoming_end - 1}: "
+            f"stored samples cover run_id={stored_start}..{stored_end - 1}, "
+            f"leaving missing run_id={missing[0]}."
         )
 
-    entry["best_psnr_list"].extend(incoming["best_psnr_list"])
-    entry["best_mse_list"].extend(incoming["best_mse_list"])
-    if len(stored_ssim_list) == stored_count:
-        entry.setdefault("best_ssim_list", []).extend(incoming["best_ssim_list"])
-    elif incoming["best_ssim_list"]:
-        sparse_ssim = entry.setdefault("best_ssim_by_run_id", {})
-        sparse_ssim.update({
-            str(incoming_start + offset): value
-            for offset, value in enumerate(incoming["best_ssim_list"])
-        })
-    entry_args["num_exp"] = stored_count + incoming_count
+    psnr_by_run_id = {
+        stored_start + offset: float(value)
+        for offset, value in enumerate(entry["best_psnr_list"])
+    }
+    mse_by_run_id = {
+        stored_start + offset: float(value)
+        for offset, value in enumerate(entry["best_mse_list"])
+    }
+    psnr_by_run_id.update({
+        incoming_start + offset: value
+        for offset, value in enumerate(incoming["best_psnr_list"])
+        if incoming_start + offset in incoming_update_ids
+    })
+    mse_by_run_id.update({
+        incoming_start + offset: value
+        for offset, value in enumerate(incoming["best_mse_list"])
+        if incoming_start + offset in incoming_update_ids
+    })
+
+    ssim_by_run_id = {
+        stored_start + offset: float(value)
+        for offset, value in enumerate(entry.get("best_ssim_list", []))
+    }
+    ssim_by_run_id.update({
+        int(run_id): float(value)
+        for run_id, value in entry.get("best_ssim_by_run_id", {}).items()
+    })
+    for run_id in incoming_update_ids:
+        ssim_by_run_id.pop(run_id, None)
+    ssim_by_run_id.update({
+        incoming_start + offset: value
+        for offset, value in enumerate(incoming["best_ssim_list"])
+        if incoming_start + offset in incoming_update_ids
+    })
+
+    ordered_ids = list(range(merged_start, merged_end))
+    entry["best_psnr_list"] = [psnr_by_run_id[run_id] for run_id in ordered_ids]
+    entry["best_mse_list"] = [mse_by_run_id[run_id] for run_id in ordered_ids]
+    ordered_ssim = [ssim_by_run_id.get(run_id) for run_id in ordered_ids]
+    if all(value is not None for value in ordered_ssim):
+        entry["best_ssim_list"] = ordered_ssim
+        entry.pop("best_ssim_by_run_id", None)
+    elif any(value is not None for value in ordered_ssim):
+        entry.pop("best_ssim_list", None)
+        entry["best_ssim_by_run_id"] = {
+            str(run_id): ssim_by_run_id[run_id]
+            for run_id in ordered_ids
+            if run_id in ssim_by_run_id
+        }
+    else:
+        entry.pop("best_ssim_list", None)
+        entry.pop("best_ssim_by_run_id", None)
+
+    entry_args["run_id"] = merged_start
+    entry_args["num_exp"] = len(ordered_ids)
+    overlap_count = len(stored_ids & incoming_ids)
+    replaced_count = overlap_count if replace_existing else 0
+    skipped_count = overlap_count - replaced_count
+    new_count = len(incoming_update_ids) - replaced_count
     print(
-        f"\nAppended {incoming_count} {label} sample(s); "
-        f"registry entry now contains {entry_args['num_exp']} sample(s)."
+        f"\nMerged {label} run_id={incoming_start}..{incoming_end - 1}; "
+        f"added {new_count} new sample(s), replaced {replaced_count} existing sample(s), "
+        f"skipped {skipped_count} existing sample(s), "
+        f"registry now covers run_id={merged_start}..{merged_end - 1}."
     )
     return entry
 
