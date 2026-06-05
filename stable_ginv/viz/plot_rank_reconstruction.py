@@ -303,11 +303,11 @@ def main():
             print(f"  total entries in mask: {total_kept}")
             budget_label = f"entries = {k:,}"
 
-        print(f"  entries per layer:")
+        print("  entries per layer:")
         _print_mask_breakdown(entry_masks, named_params)
 
         # Jacobian rank — use float64 to avoid rank underestimation from float32 eps
-        print(f"  computing Jacobian rank ...")
+        print("  computing Jacobian rank ...")
         net.double()
         rank, _, n_rows, unknowns = compute_jacobian_rank(
             net=net, x_norm=gt_norm.double(), y=gt_label, criterion=criterion,
