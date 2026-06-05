@@ -1,3 +1,4 @@
+from stable_ginv.experiment.runner import BatchExperimentRunner, ExperimentRunAborted
 from stable_ginv.experiment.results import (
     METRIC_ACCUMULATOR_KEYS,
     EMPTY_PAIRED_STATS,
@@ -23,6 +24,8 @@ from stable_ginv.experiment.results import (
 )
 
 __all__ = [
+    "BatchExperimentRunner",
+    "ExperimentRunAborted",
     "METRIC_ACCUMULATOR_KEYS",
     "EMPTY_PAIRED_STATS",
     "EXP_RESULT_EXTRA_FIELDS",
