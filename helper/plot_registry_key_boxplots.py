@@ -400,6 +400,18 @@ def _group_order(df):
     return ordered
 
 
+def _format_delta_axis(ax, y_label):
+    ax.axvline(0, linestyle="--", linewidth=1, color="0.25")
+    ax.set_xlabel(y_label, fontsize=13)
+    ax.set_ylabel("")
+    ax.tick_params(axis="x", labelsize=11)
+    ax.tick_params(axis="y", labelsize=11)
+    xmin, xmax = ax.get_xlim()
+    span = xmax - xmin
+    if span > 0:
+        ax.set_xlim(xmin - 0.03 * span, xmax + 0.03 * span)
+
+
 def _plot(df, metric, out_path, title=None):
     _, y_label = METRICS[metric]
     value_col = f"delta_{metric}"
@@ -427,9 +439,7 @@ def _plot(df, metric, out_path, title=None):
             fliersize=0,
         )
         for ax in grid.axes.flat:
-            ax.axvline(0, linestyle="--", linewidth=1, color="0.25")
-            ax.set_xlabel(y_label)
-            ax.set_ylabel("")
+            _format_delta_axis(ax, y_label)
         grid.set_titles("{col_name}", size=14, weight="semibold")
         if title:
             grid.figure.suptitle(title, y=1.03, fontsize=16, fontweight="semibold")
@@ -446,9 +456,7 @@ def _plot(df, metric, out_path, title=None):
             fliersize=0,
             ax=ax,
         )
-        ax.axvline(0, linestyle="--", linewidth=1, color="0.25")
-        ax.set_xlabel(y_label)
-        ax.set_ylabel("")
+        _format_delta_axis(ax, y_label)
         if title:
             ax.set_title(title, fontsize=16, fontweight="semibold")
         fig.tight_layout()
