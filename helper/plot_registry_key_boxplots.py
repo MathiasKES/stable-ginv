@@ -65,6 +65,13 @@ ABLATION_LAYERS = {
     ],
 }
 
+GROUP_ORDER = [
+    "L-BFGS / No pretrain",
+    "L-BFGS / Pretrained",
+    "Signed AdamW / No pretrain",
+    "Signed AdamW / Pretrained",
+]
+
 BASELINE_ARG_KEYS = [
     "dataset",
     "network",
@@ -371,10 +378,33 @@ def _summary(df, metric):
     )
 
 
+def _ordered_unique(values):
+    return list(dict.fromkeys(v for v in values if pd.notna(v)))
+
+
+def _label_order(df):
+    networks = _ordered_unique(df["network"])
+    if len(networks) == 1 and networks[0] in ABLATION_LAYERS:
+        preferred = ABLATION_LAYERS[networks[0]]
+        present = set(df["label"])
+        ordered = [label for label in preferred if label in present]
+        ordered.extend(label for label in _ordered_unique(df["label"]) if label not in ordered)
+        return ordered
+    return _ordered_unique(df["label"])
+
+
+def _group_order(df):
+    present = set(df["group"])
+    ordered = [group for group in GROUP_ORDER if group in present]
+    ordered.extend(group for group in _ordered_unique(df["group"]) if group not in ordered)
+    return ordered
+
+
 def _plot(df, metric, out_path, title=None):
     _, y_label = METRICS[metric]
     value_col = f"delta_{metric}"
-    label_order = list(dict.fromkeys(df["label"]))
+    label_order = _label_order(df)
+    group_order = _group_order(df)
     group_count = df["group"].nunique()
 
     sns.set_theme(style="whitegrid", context="paper")
@@ -387,7 +417,8 @@ def _plot(df, metric, out_path, title=None):
             x=value_col,
             col="group",
             col_wrap=2,
-            order=list(reversed(label_order)),
+            col_order=group_order,
+            order=label_order,
             sharex=True,
             sharey=True,
             height=height,
@@ -395,23 +426,13 @@ def _plot(df, metric, out_path, title=None):
             color=sns.color_palette()[0],
             fliersize=0,
         )
-        grid.map_dataframe(
-            sns.stripplot,
-            y="label",
-            x=value_col,
-            order=list(reversed(label_order)),
-            color="0.2",
-            size=2.2,
-            alpha=0.55,
-            jitter=0.18,
-        )
         for ax in grid.axes.flat:
             ax.axvline(0, linestyle="--", linewidth=1, color="0.25")
             ax.set_xlabel(y_label)
             ax.set_ylabel("")
-        grid.set_titles("{col_name}")
+        grid.set_titles("{col_name}", size=14, weight="semibold")
         if title:
-            grid.figure.suptitle(title, y=1.03)
+            grid.figure.suptitle(title, y=1.03, fontsize=16, fontweight="semibold")
         grid.figure.tight_layout()
         fig = grid.figure
     else:
@@ -420,27 +441,16 @@ def _plot(df, metric, out_path, title=None):
             data=df,
             y="label",
             x=value_col,
-            order=list(reversed(label_order)),
+            order=label_order,
             color=sns.color_palette()[0],
             fliersize=0,
-            ax=ax,
-        )
-        sns.stripplot(
-            data=df,
-            y="label",
-            x=value_col,
-            order=list(reversed(label_order)),
-            color="0.2",
-            size=2.2,
-            alpha=0.55,
-            jitter=0.18,
             ax=ax,
         )
         ax.axvline(0, linestyle="--", linewidth=1, color="0.25")
         ax.set_xlabel(y_label)
         ax.set_ylabel("")
         if title:
-            ax.set_title(title)
+            ax.set_title(title, fontsize=16, fontweight="semibold")
         fig.tight_layout()
 
     safe_savefig(fig, out_path, dpi=300, bbox_inches="tight")
