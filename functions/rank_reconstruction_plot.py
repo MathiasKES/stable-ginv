@@ -179,7 +179,7 @@ def _print_mask_breakdown(entry_masks, named_params):
 def _reconstruct(net, gt_data, gt_label, criterion, entry_masks,
                  dm, ds, lower_bound, upper_bound,
                  n_iter, lr, tv_weight, net_name_lower, device, seed):
-    """L-BFGS + L2 loss reconstruction with the given entry mask."""
+    """L-BFGS + cosine loss reconstruction with the given entry mask (matches run_single_exp.py)."""
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
     np.random.seed(seed)
@@ -225,7 +225,7 @@ def _reconstruct(net, gt_data, gt_label, criterion, entry_masks,
             dummy_grads = torch.autograd.grad(dummy_loss, selected_params, create_graph=True)
             grad_diff, _ = compute_grad_match_loss(
                 dummy_grads, selected_original,
-                selected_entry_masks=selected_entry_masks, grad_loss="l2",
+                selected_entry_masks=selected_entry_masks, grad_loss="cos",
             )
             tv = total_variation(dummy_data)
             total = grad_diff + tv_weight * tv
@@ -243,6 +243,9 @@ def _reconstruct(net, gt_data, gt_label, criterion, entry_masks,
             best_loss = loss_val
             current_x = (dummy_data.detach() * ds + dm).clamp(0.0, 1.0)
             best_img = current_x.clone()
+
+        if loss_val < 1e-6:
+            break
 
     return best_img
 
@@ -262,7 +265,7 @@ def main():
                         help="Comma-separated gradient budgets.")
     parser.add_argument("--select_mode", default="topk_abs", choices=["topk_abs", "layer_spread"],
                         help="Entry selection strategy matching jacobian_rank_sweep.py.")
-    parser.add_argument("--n_iter",     type=int, default=300,
+    parser.add_argument("--n_iter",     type=int, default=1000,
                         help="Reconstruction iterations (L-BFGS steps).")
     parser.add_argument("--lr",         type=float, default=1.0)
     parser.add_argument("--tv_weight",  type=float, default=0.0,
