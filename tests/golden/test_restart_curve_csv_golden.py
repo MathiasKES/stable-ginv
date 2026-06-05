@@ -15,7 +15,7 @@ import matplotlib
 
 matplotlib.use("Agg")  # headless: save_restart_curve also writes a PNG
 
-from helper.visualization import save_restart_curve
+from stable_ginv.viz import save_restart_curve
 from tests.golden.helpers import load_or_regen
 
 
