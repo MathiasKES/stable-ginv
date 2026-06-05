@@ -176,6 +176,38 @@ def _long_dataframe(rows, metrics):
     return pd.DataFrame(records)
 
 
+def _combined_long_dataframe(datasets, metrics):
+    records = []
+    for dataset_label, rows in datasets:
+        for row in rows:
+            for metric, _ in metrics:
+                for method in ("Baseline", "Masked"):
+                    records.append({
+                        "dataset": dataset_label,
+                        "sample_number": row["sample_number"],
+                        "metric": metric,
+                        "method": method,
+                        "value": row[f"{method.lower()}_{metric}"],
+                    })
+    return pd.DataFrame(records)
+
+
+def _outlier_dataframe(dataframe, group_cols, value_col="value"):
+    outlier_parts = []
+    for _, group in dataframe.groupby(group_cols, dropna=False):
+        q1 = group[value_col].quantile(0.25)
+        q3 = group[value_col].quantile(0.75)
+        iqr = q3 - q1
+        lower = q1 - 1.5 * iqr
+        upper = q3 + 1.5 * iqr
+        outliers = group[(group[value_col] < lower) | (group[value_col] > upper)]
+        if not outliers.empty:
+            outlier_parts.append(outliers)
+    if not outlier_parts:
+        return dataframe.iloc[0:0].copy()
+    return pd.concat(outlier_parts, ignore_index=True)
+
+
 def _write_rows(rows, path):
     fieldnames = list(rows[0]) if rows else [
         "run_id",
@@ -223,21 +255,97 @@ def _plot(rows, path, title, metrics):
             y="value",
             hue="method",
             palette=palette,
-            inner="quart",
+            inner=None,
             cut=0,
             legend=False,
             ax=ax,
         )
-        sns.stripplot(
+        sns.boxplot(
             data=metric_data,
             x="method",
             y="value",
-            color="black",
-            alpha=0.45,
-            jitter=0.12,
-            size=2.5,
+            width=0.22,
+            showcaps=True,
+            showfliers=False,
+            boxprops={"facecolor": "none", "edgecolor": "black", "linewidth": 1.0},
+            whiskerprops={"color": "black", "linewidth": 1.0},
+            capprops={"color": "black", "linewidth": 1.0},
+            medianprops={"color": "black", "linewidth": 1.2},
             ax=ax,
         )
+        outliers = _outlier_dataframe(metric_data, ["method"])
+        if not outliers.empty:
+            sns.stripplot(
+                data=outliers,
+                x="method",
+                y="value",
+                color="black",
+                jitter=0.06,
+                size=3.0,
+                ax=ax,
+            )
+        ax.set_xlabel("")
+        ax.set_ylabel(ylabel)
+    fig.suptitle(title)
+    fig.tight_layout()
+    if safe_savefig(fig, path, dpi=300, bbox_inches="tight"):
+        print(f"Saved: {path}")
+    plt.close(fig)
+
+
+def _plot_combined(datasets, path, title, metrics):
+    dataframe = _combined_long_dataframe(datasets, metrics)
+    sns.set_theme(style="whitegrid", context="paper")
+    fig, axes = _axes_for_metrics(metrics)
+    palette = {"Baseline": "#4C72B0", "Masked": "#DD8452"}
+    for ax, (metric, ylabel) in zip(axes, metrics):
+        metric_data = dataframe[dataframe["metric"] == metric]
+        sns.violinplot(
+            data=metric_data,
+            x="dataset",
+            y="value",
+            hue="method",
+            palette=palette,
+            split=True,
+            inner=None,
+            cut=0,
+            ax=ax,
+        )
+        sns.boxplot(
+            data=metric_data,
+            x="dataset",
+            y="value",
+            hue="method",
+            palette=palette,
+            dodge=True,
+            width=0.18,
+            showfliers=False,
+            boxprops={"facecolor": "none", "edgecolor": "black", "linewidth": 1.0},
+            whiskerprops={"color": "black", "linewidth": 1.0},
+            capprops={"color": "black", "linewidth": 1.0},
+            medianprops={"color": "black", "linewidth": 1.2},
+            ax=ax,
+        )
+        outliers = _outlier_dataframe(metric_data, ["dataset", "method"])
+        if not outliers.empty:
+            sns.stripplot(
+                data=outliers,
+                x="dataset",
+                y="value",
+                hue="method",
+                dodge=True,
+                color="black",
+                jitter=0.06,
+                size=3.0,
+                ax=ax,
+            )
+        handles, labels = ax.get_legend_handles_labels()
+        if ax is axes[-1]:
+            ax.legend(handles[:2], labels[:2], title="Method")
+        else:
+            legend = ax.get_legend()
+            if legend is not None:
+                legend.remove()
         ax.set_xlabel("")
         ax.set_ylabel(ylabel)
     fig.suptitle(title)
@@ -263,16 +371,17 @@ def _plot_box(rows, path, title, metrics):
             showfliers=False,
             ax=ax,
         )
-        sns.stripplot(
-            data=metric_data,
-            x="method",
-            y="value",
-            color="black",
-            alpha=0.45,
-            jitter=0.12,
-            size=2.5,
-            ax=ax,
-        )
+        outliers = _outlier_dataframe(metric_data, ["method"])
+        if not outliers.empty:
+            sns.stripplot(
+                data=outliers,
+                x="method",
+                y="value",
+                color="black",
+                jitter=0.06,
+                size=3.0,
+                ax=ax,
+            )
         ax.set_xlabel("")
         ax.set_ylabel(ylabel)
     fig.suptitle(title)
@@ -303,20 +412,34 @@ def _plot_deltas(rows, path, title, metrics):
             x="metric",
             y="value",
             color="#55A868",
-            inner="quart",
+            inner=None,
             cut=0,
             ax=ax,
         )
-        sns.stripplot(
+        sns.boxplot(
             data=metric_data,
             x="metric",
             y="value",
-            color="black",
-            alpha=0.45,
-            jitter=0.12,
-            size=2.5,
+            color="#55A868",
+            width=0.22,
+            showfliers=False,
+            boxprops={"facecolor": "none", "edgecolor": "black", "linewidth": 1.0},
+            whiskerprops={"color": "black", "linewidth": 1.0},
+            capprops={"color": "black", "linewidth": 1.0},
+            medianprops={"color": "black", "linewidth": 1.2},
             ax=ax,
         )
+        outliers = _outlier_dataframe(metric_data, ["metric"])
+        if not outliers.empty:
+            sns.stripplot(
+                data=outliers,
+                x="metric",
+                y="value",
+                color="black",
+                jitter=0.06,
+                size=3.0,
+                ax=ax,
+            )
         ax.axhline(0, color="black", linestyle="--", linewidth=0.8)
         ax.set_xlabel("")
         ax.set_ylabel(metric)
@@ -344,16 +467,17 @@ def _plot_delta_box(rows, path, title, metrics):
             showfliers=False,
             ax=ax,
         )
-        sns.stripplot(
-            data=metric_data,
-            x="metric",
-            y="value",
-            color="black",
-            alpha=0.45,
-            jitter=0.12,
-            size=2.5,
-            ax=ax,
-        )
+        outliers = _outlier_dataframe(metric_data, ["metric"])
+        if not outliers.empty:
+            sns.stripplot(
+                data=outliers,
+                x="metric",
+                y="value",
+                color="black",
+                jitter=0.06,
+                size=3.0,
+                ax=ax,
+            )
         ax.axhline(0, color="black", linestyle="--", linewidth=0.8)
         ax.set_xlabel("")
         ax.set_ylabel(metric)
@@ -408,6 +532,31 @@ def main():
         default=None,
         help="Corrected per-sample CSV. When set, bypasses registry loading.",
     )
+    parser.add_argument(
+        "--paired_csv_paths",
+        nargs="+",
+        default=None,
+        help=(
+            "Multiple corrected per-sample CSVs for one combined dataset plot. "
+            "Use with --dataset_labels."
+        ),
+    )
+    parser.add_argument(
+        "--dataset_labels",
+        nargs="+",
+        default=None,
+        help="Dataset labels matching --paired_csv_paths.",
+    )
+    parser.add_argument(
+        "--pair",
+        nargs=3,
+        action="append",
+        metavar=("DATASET", "BASELINE_KEY", "MASKED_KEY"),
+        help=(
+            "Add one dataset from registry keys for the combined plot. "
+            "Can be repeated: --pair LFW BASELINE_KEY MASKED_KEY --pair CIFAR-100 BASELINE_KEY MASKED_KEY"
+        ),
+    )
     parser.add_argument("--baseline_key")
     parser.add_argument("--masked_key")
     parser.add_argument("--out_dir", default="results")
@@ -415,11 +564,59 @@ def main():
     parser.add_argument("--title", default=None)
     parser.add_argument(
         "--metrics",
-        default="psnr,mse,ssim",
+        default="psnr,ssim",
         help="Comma-separated metrics to plot. Choose from psnr,mse,ssim.",
     )
     args = parser.parse_args()
     metrics = _selected_metrics(args.metrics)
+
+    if args.paired_csv_paths and args.pair:
+        parser.error("Use either --paired_csv_paths or --pair, not both")
+
+    if args.paired_csv_paths:
+        if args.dataset_labels and len(args.dataset_labels) != len(args.paired_csv_paths):
+            parser.error("--dataset_labels must have the same length as --paired_csv_paths")
+        labels = args.dataset_labels or [
+            os.path.splitext(os.path.basename(path))[0] for path in args.paired_csv_paths
+        ]
+        datasets = [
+            (label, _load_paired_rows(path))
+            for label, path in zip(labels, args.paired_csv_paths)
+        ]
+        if not safe_makedirs(args.out_dir):
+            return
+        combined_path = os.path.join(args.out_dir, f"{args.output_prefix}_combined_violin.png")
+        title = args.title or "Baseline vs masked reconstruction"
+        _plot_combined(datasets, combined_path, title, metrics)
+        return
+
+    if args.pair:
+        if args.registry_path:
+            baseline_registry = masked_registry = _load_registry(args.registry_path)
+        else:
+            _, save_path = resolve_storage_paths(".")
+            baseline_dir = os.path.join(save_path, "baselines")
+            baseline_registry = (
+                _load_registry(args.baseline_registry_path)
+                if args.baseline_registry_path
+                else _load_default_registry(baseline_dir, "idlg_baselines_registry")
+            )
+            masked_registry = (
+                _load_registry(args.masked_registry_path)
+                if args.masked_registry_path
+                else _load_default_registry(baseline_dir, "masked_registry")
+            )
+        datasets = []
+        for dataset_label, baseline_key, masked_key in args.pair:
+            baseline_entry = _load_entry(baseline_registry, baseline_key, f"Baseline ({dataset_label})")
+            masked_entry = _load_entry(masked_registry, masked_key, f"Masked ({dataset_label})")
+            datasets.append((dataset_label, _paired_rows(baseline_entry, masked_entry)))
+        if not safe_makedirs(args.out_dir):
+            return
+        combined_path = os.path.join(args.out_dir, f"{args.output_prefix}_combined_violin.png")
+        title = args.title or "Baseline vs masked reconstruction"
+        _plot_combined(datasets, combined_path, title, metrics)
+        return
 
     baseline_entry = None
     if args.paired_csv_path:
