@@ -1,8 +1,8 @@
-"""Backwards-compatibility shim — all code lives in stable_ginv/viz/ (Phase 7).
+"""Visualization: reconstruction panels, animated GIFs, and restart curves (Phase 7).
 
-Re-exports the public surface so existing callers (the test suite, the lazy
-loader in stable_ginv/cli/batch.py) keep importing unchanged. New code should
-import from stable_ginv.viz.
+Canonical home for the plotting helpers previously in helper/visualization.py.
+Importing this package sets the Agg backend and the seaborn whitegrid theme as a
+side effect (matching the original module).
 """
 from stable_ginv.viz.panels import (
     append_result_to_panel_buffers,
