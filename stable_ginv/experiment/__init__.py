@@ -1,9 +1,3 @@
-"""Shim: experiment result aggregation / CSV moved to stable_ginv.experiment.results (Phase 6).
-
-Re-exports the public surface so existing callers (manual_stats.py, the test suite,
-iDLG_mask.py until its own move) keep working. New code should import from
-stable_ginv.experiment.
-"""
 from stable_ginv.experiment.results import (
     METRIC_ACCUMULATOR_KEYS,
     EMPTY_PAIRED_STATS,
