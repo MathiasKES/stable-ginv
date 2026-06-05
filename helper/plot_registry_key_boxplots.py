@@ -112,6 +112,13 @@ def _default_registry_paths():
     )
 
 
+def _registry_paths_from_baseline_dir(baseline_dir):
+    return (
+        os.path.join(baseline_dir, "masked_registry_v2.json"),
+        os.path.join(baseline_dir, "idlg_baselines_registry_v2.json"),
+    )
+
+
 def _baseline_key_from_masked_args(masked_args):
     baseline_args = {
         key: masked_args[key]
@@ -246,6 +253,9 @@ def _parse_specs(args):
     if args.spec_csv:
         with open(args.spec_csv, newline="") as f:
             for row in csv.DictReader(f):
+                method = (row.get("method") or "").strip().lower()
+                if method and "masked" not in method:
+                    continue
                 key = _key_from_spec_row(row)
                 if not key:
                     raise ValueError(
@@ -281,6 +291,10 @@ def _paired_rows_for_spec(spec, masked_registry, baseline_registry, metric):
     masked_key = spec["masked_key"]
     masked_entry = masked_registry.get(masked_key)
     if masked_entry is None:
+        if masked_key in baseline_registry:
+            raise ValueError(
+                f"Skipping baseline key from CSV, not a masked key: {masked_key}"
+            )
         raise ValueError(f"Masked key not found: {masked_key}")
 
     masked_args = masked_entry.get("args", {})
@@ -444,6 +458,10 @@ def main():
     parser.add_argument("--groups", nargs="*", help="Optional facet groups matching --keys.")
     parser.add_argument("--spec_csv", help="CSV with masked_key,label,group columns.")
     parser.add_argument("--metric", choices=METRICS, default="psnr")
+    parser.add_argument(
+        "--baseline_dir",
+        help="Directory containing masked_registry*.json and idlg_baselines_registry*.json.",
+    )
     parser.add_argument("--masked_registry_path", default=default_masked)
     parser.add_argument("--baseline_registry_path", default=default_baseline)
     parser.add_argument("--out_dir", default=os.path.join("results", "registry_key_boxplots"))
@@ -455,6 +473,11 @@ def main():
         raise ValueError("--labels must have the same length as --keys")
     if args.groups and args.keys and len(args.groups) != len(args.keys):
         raise ValueError("--groups must have the same length as --keys")
+
+    if args.baseline_dir:
+        args.masked_registry_path, args.baseline_registry_path = _registry_paths_from_baseline_dir(
+            args.baseline_dir
+        )
 
     specs = _parse_specs(args)
     masked_registry = _load_registry_with_legacy(args.masked_registry_path)
