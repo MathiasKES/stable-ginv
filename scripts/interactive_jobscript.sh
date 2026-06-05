@@ -154,7 +154,7 @@ while true; do
     fi
 
     if (( rc == 0 )); then
-        done_comment="# DONE [$rc] (dur=${dur}s): $cmd"
+        done_comment="# DONE [rc=$rc] [uid=$uid] (dur=${dur}s): $cmd"
         if modify_cmds "$cmd" replace "$done_comment"; then
             echo "[interactive_jobscript] [$uid] OK (dur=${dur}s) — marked as # DONE in cmds.txt"
         else
