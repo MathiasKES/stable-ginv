@@ -323,6 +323,10 @@ def main():
     parser.add_argument("--device",     default="cuda:0" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--data_path",  default=None)
     parser.add_argument("--output",     default="rank_recon.png")
+    parser.add_argument("--labels_position", default="above", choices=["above", "below"],
+                        help="Place panel labels above or below each image.")
+    parser.add_argument("--label_fontsize", type=int, default=24,
+                        help="Font size for panel labels.")
     args = parser.parse_args()
 
     use_topfrac = (args.select_mode == "gradsize_topfrac_entries_layer")
@@ -437,10 +441,26 @@ def main():
 
     # ---- figure -------------------------------------------------------------
     n_panels = 1 + len(results)
-    fig, axes = plt.subplots(1, n_panels, figsize=(3 * n_panels, 3.6))
+    fs       = args.label_fontsize
+    above    = (args.labels_position == "above")
+
+    # Taller figure so fontsize=24 labels fit without crowding the images.
+    # Fixed subplots_adjust (not tight_layout) ensures both FC (above) and
+    # noFC (below) figures are exactly the same height, so they align when
+    # stacked in the document with no gap.
+    fig, axes = plt.subplots(1, n_panels, figsize=(3 * n_panels, 4.0))
+
+    def _set_label(ax, text, color, bold):
+        kw = dict(fontsize=fs, color=color,
+                  fontweight="bold" if bold else "normal",
+                  ha="center")
+        if above:
+            ax.set_title(text, **kw)
+        else:
+            ax.text(0.5, -0.01, text, va="top", transform=ax.transAxes, **kw)
 
     axes[0].imshow(gt_display)
-    axes[0].set_title("Ground truth", fontsize=9, fontweight="bold")
+    _set_label(axes[0], "Ground truth", "black", True)
     axes[0].axis("off")
 
     for ax, (label, rank, unknowns, img) in zip(axes[1:], results):
@@ -449,20 +469,19 @@ def main():
         mse   = float(np.mean((img - gt_display) ** 2))
         psnr  = -10 * np.log10(mse) if mse > 0 else float("inf")
         color = "#1a7f1a" if full else "#c0392b"
-        ax.set_title(
-            f"{label}\nrank = {rank}/{unknowns}\nPSNR = {psnr:.1f} dB",
-            fontsize=8, color=color,
-            fontweight="bold" if full else "normal",
-        )
+        text  = f"{label}\nrank = {rank}/{unknowns}\nPSNR = {psnr:.1f} dB"
+        _set_label(ax, text, color, full)
         ax.axis("off")
 
-    fig.suptitle(
-        f"{network_name} / {args.dataset} — reconstruction vs Jacobian rank"
-        f"  ({args.select_mode}, {fc_str})",
-        fontsize=9, y=1.02,
-    )
-    plt.tight_layout()
-    plt.savefig(args.output, dpi=150, bbox_inches="tight")
+    # Reserve the top 48% for above-labels or the bottom 48% for below-labels.
+    # The image axes always occupy the same 50% slice in the middle, so both
+    # orientations produce identical figure dimensions and stack flush.
+    if above:
+        plt.subplots_adjust(top=0.52, bottom=0.02, left=0.005, right=0.995, wspace=0.02)
+    else:
+        plt.subplots_adjust(top=0.98, bottom=0.48, left=0.005, right=0.995, wspace=0.02)
+
+    plt.savefig(args.output, dpi=150)
     print(f"\nSaved → {args.output}")
 
 
