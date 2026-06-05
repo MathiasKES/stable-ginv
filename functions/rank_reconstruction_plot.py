@@ -63,6 +63,38 @@ def _build_global_topk_masks(grads, budget):
     return entry_masks
 
 
+def _build_layer_spread_all_masks(grads, budget):
+    """Per-tensor top-k by |grad|, budget split proportionally across all tensors (FC included).
+    Matches gradsize_topfrac_entries_layer used in the main masking experiments."""
+    all_info = [(i, g.shape, g.detach().abs().reshape(-1))
+                for i, g in enumerate(grads) if g is not None]
+    entry_masks = [None] * len(grads)
+    if not all_info or budget <= 0:
+        return entry_masks
+
+    total = sum(f.numel() for _, _, f in all_info)
+    allocated = [min(int(round(budget * f.numel() / total)), f.numel()) for _, _, f in all_info]
+    diff = int(budget) - sum(allocated)
+    for j in sorted(range(len(all_info)), key=lambda x: all_info[x][2].numel(), reverse=True):
+        if diff == 0:
+            break
+        space = all_info[j][2].numel() - allocated[j]
+        add = max(-allocated[j], min(diff, space))
+        allocated[j] += add
+        diff -= add
+
+    for (i, shape, flat), k in zip(all_info, allocated):
+        if k <= 0:
+            entry_masks[i] = torch.zeros(shape, dtype=torch.bool)
+        elif k >= flat.numel():
+            entry_masks[i] = torch.ones(shape, dtype=torch.bool)
+        else:
+            m = torch.zeros(flat.numel(), dtype=torch.bool, device=flat.device)
+            m[torch.topk(flat, k=k, largest=True).indices] = True
+            entry_masks[i] = m.reshape(shape)
+    return entry_masks
+
+
 def _build_keepfc_masks(grads, fc_ids, non_fc_budget, select_mode="topk_abs", net=None):
     """Non-FC entries selected by select_mode (topk_abs or layer_spread); FC not forced."""
     entry_masks = [None] * len(grads)
@@ -226,7 +258,7 @@ def main():
     parser.add_argument("--lr",         type=float, default=1.0)
     parser.add_argument("--tv_weight",  type=float, default=0.0,
                         help="Total variation regularisation weight (default 0.0 matches main experiments).")
-    parser.add_argument("--seed",       type=int, default=42)
+    parser.add_argument("--seed",       type=int, default=1)
     parser.add_argument("--device",     default="cuda:0" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--data_path",  default=None,
                         help="Override data directory (default: auto-resolved).")
@@ -236,6 +268,11 @@ def main():
     row_counts = [int(x) for x in args.row_counts.split(",")]
     device = torch.device(args.device)
 
+    torch.manual_seed(args.seed)
+    np.random.seed(args.seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(args.seed)
+
     # get_model expects exact casing for custom nets
     _name_map = {"lenet": "LeNet", "lenet_bigger": "LeNet_bigger",
                  "mediumcnn": "MediumCNN", "biggercnn": "BiggerCNN"}
@@ -244,6 +281,9 @@ def main():
     data_path = args.data_path or resolve_storage_paths(".")[0]
     dst, channel, num_classes, shape_img = load_dataset(args.dataset, data_path)
 
+    # Match jacobian_rank_sweep.py seed: run_id + 1 + worker_rank = 1 by default
+    torch.manual_seed(args.seed)
+    np.random.seed(args.seed)
     net = get_model(network_name, channel=channel, num_classes=num_classes,
                     input_size=shape_img)
     net_name_lower = network_name.lower()
@@ -296,8 +336,14 @@ def main():
             total_kept = sum(int(m.sum().item()) for m in entry_masks if m is not None)
             print(f"  total entries in mask (non-FC={k}): {total_kept}")
             budget_label = f"non-FC = {k:,}"
+        elif args.select_mode == "layer_spread":
+            print(f"\n=== total budget = {k} (layer_spread, FC in pool) ===")
+            entry_masks = _build_layer_spread_all_masks(true_grads, k)
+            total_kept = sum(int(m.sum().item()) for m in entry_masks if m is not None)
+            print(f"  total entries in mask: {total_kept}")
+            budget_label = f"entries = {k:,}"
         else:
-            print(f"\n=== total budget = {k} ===")
+            print(f"\n=== total budget = {k} (global topk) ===")
             entry_masks = _build_global_topk_masks(true_grads, k)
             total_kept = sum(int(m.sum().item()) for m in entry_masks if m is not None)
             print(f"  total entries in mask: {total_kept}")
@@ -306,12 +352,14 @@ def main():
         print(f"  entries per layer:")
         _print_mask_breakdown(entry_masks, named_params)
 
-        # Jacobian rank — use float64 to avoid rank underestimation from float32 eps
+        # Jacobian rank — use float64 to avoid rank underestimation from float32 eps.
+        # Compute rank of the exact entries used in reconstruction (not internal reselection).
         print(f"  computing Jacobian rank ...")
         net.double()
+        entry_masks_double = [m.to(gt_norm.device) if m is not None else None for m in entry_masks]
         rank, _, n_rows, unknowns = compute_jacobian_rank(
             net=net, x_norm=gt_norm.double(), y=gt_label, criterion=criterion,
-            keep_ids=None, entry_masks=entry_masks,
+            keep_ids=None, entry_masks=entry_masks_double,
             max_entries=None, select_mode=args.select_mode, device_for_J="cpu",
         )
         net.float()
@@ -357,7 +405,12 @@ def main():
         )
         ax.axis("off")
 
-    mode_str = f"non-FC only, {args.select_mode}" if args.keep_fc else "global topk"
+    if args.keep_fc:
+        mode_str = f"non-FC only, {args.select_mode}"
+    elif args.select_mode == "layer_spread":
+        mode_str = "layer_spread, FC in pool"
+    else:
+        mode_str = "global topk"
     fig.suptitle(
         f"{network_name} / {args.dataset} — reconstruction quality vs Jacobian rank  ({mode_str})",
         fontsize=9, y=1.02,
