@@ -12,7 +12,7 @@ For each budget k the script:
 Produces a figure:  GT | k=k1,rank=r1 | k=k2,rank=r2 | ...
 
 Run example (LeNet / CIFAR-100, layer_spread):
-  python3 -m functions.rank_reconstruction_plot --network lenet --dataset cifar100 --select_mode layer_spread --n_iter 300 --output rank_recon.png
+  python3 -m functions.rank_reconstruction_plot --network lenet --dataset cifar100 --select_mode layer_spread --output rank_recon.png
 """
 
 import argparse
@@ -35,6 +35,7 @@ from helper.metrics import (
     _get_layer_groups, _layer_info,
 )
 from helper.Network import get_model, weights_init
+from helper.training_utils import make_scheduler
 
 
 # ---------------------------------------------------------------------------
@@ -45,7 +46,7 @@ def _recon_worker(task):
     """Run one budget's reconstruction in a subprocess. Inputs/outputs are numpy."""
     (k, rank, unknowns, masks_np, net_state, network_name, channel, num_classes,
      shape_img, gt_raw_np, gt_label_val, dm_np, ds_np, lb_np, ub_np,
-     n_iter, lr, tv_weight, net_name_lower, seed) = task
+     n_iter, lr, tv_weight, net_name_lower, seed, optimizer_name) = task
 
     device = torch.device("cpu")
     entry_masks  = [torch.from_numpy(m).bool() if m is not None else None for m in masks_np]
@@ -68,6 +69,7 @@ def _recon_worker(task):
         lower_bound=lower_bound, upper_bound=upper_bound,
         n_iter=n_iter, lr=lr, tv_weight=tv_weight,
         net_name_lower=net_name_lower, device=device, seed=seed,
+        optimizer_name=optimizer_name,
     )
     recon_np = recon.squeeze(0).permute(1, 2, 0).cpu().numpy().clip(0, 1)
     return k, f"entries = {k:,}", total_kept, rank, unknowns, recon_np
@@ -215,8 +217,9 @@ def _print_mask_breakdown(entry_masks, named_params):
 
 def _reconstruct(net, gt_data, gt_label, criterion, entry_masks,
                  dm, ds, lower_bound, upper_bound,
-                 n_iter, lr, tv_weight, net_name_lower, device, seed):
-    """L-BFGS + cosine loss reconstruction with the given entry mask (matches run_single_exp.py)."""
+                 n_iter, lr, tv_weight, net_name_lower, device, seed,
+                 optimizer_name="signed_adamw", gamma=0.5):
+    """Reconstruct using the specified optimizer, matching run_single_exp.py exactly."""
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
     np.random.seed(seed)
@@ -245,17 +248,49 @@ def _reconstruct(net, gt_data, gt_label, criterion, entry_masks,
     ).detach().reshape((1,))
 
     dummy_data = torch.randn(gt_data.size(), device=device).requires_grad_(True)
-    optimizer = torch.optim.LBFGS([dummy_data], lr=lr, max_iter=20, history_size=100)
 
-    # LeNet uses sigmoid activations on raw [0,1] inputs — clamping between
-    # L-BFGS steps corrupts the Hessian approximation and causes divergence.
-    clamp_after_step = net_name_lower not in {"lenet", "lenet_bigger"}
+    scheduler = None
+    if optimizer_name == "lbfgs":
+        optimizer = torch.optim.LBFGS([dummy_data], lr=lr, max_iter=20, history_size=100)
+        phase = "lbfgs"
+    elif optimizer_name in ("adam", "signed_adam"):
+        optimizer = torch.optim.Adam([dummy_data], lr=lr)
+        scheduler = make_scheduler(optimizer, n_iter, gamma=gamma)
+        phase = optimizer_name
+    elif optimizer_name in ("adamw", "signed_adamw"):
+        optimizer = torch.optim.AdamW([dummy_data], lr=lr, weight_decay=1e-5)
+        scheduler = make_scheduler(optimizer, n_iter, gamma=gamma)
+        phase = optimizer_name
+    else:
+        raise ValueError(f"Unknown optimizer: {optimizer_name!r}")
 
     best_loss = float("inf")
     best_img = (dummy_data.detach() * ds + dm).clamp(0.0, 1.0)
 
     for _ in range(n_iter):
-        def closure():
+        if phase == "lbfgs":
+            def closure():
+                optimizer.zero_grad()
+                pred = net(dummy_data)
+                dummy_loss = criterion(pred, label_pred)
+                dummy_grads = torch.autograd.grad(dummy_loss, selected_params, create_graph=True)
+                grad_diff, _ = compute_grad_match_loss(
+                    dummy_grads, selected_original,
+                    selected_entry_masks=selected_entry_masks, grad_loss="cos",
+                )
+                tv = total_variation(dummy_data)
+                total = grad_diff + tv_weight * tv
+                total.backward()
+                return total
+
+            optimizer.step(closure)
+            # LeNet: no clamp after LBFGS — corrupts quasi-Newton Hessian approx
+            if net_name_lower not in {"lenet", "lenet_bigger"}:
+                with torch.no_grad():
+                    dummy_data.clamp_(lower_bound, upper_bound)
+            current_loss = closure().item()
+
+        else:  # adam / adamw / signed variants
             optimizer.zero_grad()
             pred = net(dummy_data)
             dummy_loss = criterion(pred, label_pred)
@@ -265,23 +300,27 @@ def _reconstruct(net, gt_data, gt_label, criterion, entry_masks,
                 selected_entry_masks=selected_entry_masks, grad_loss="cos",
             )
             tv = total_variation(dummy_data)
-            total = grad_diff + tv_weight * tv
-            total.backward()
-            return total
+            total_loss = grad_diff + tv_weight * tv
+            total_loss.backward()
 
-        optimizer.step(closure)
+            if phase in ("signed_adam", "signed_adamw") and dummy_data.grad is not None:
+                with torch.no_grad():
+                    dummy_data.grad.sign_()
 
-        if clamp_after_step:
+            optimizer.step()
             with torch.no_grad():
                 dummy_data.clamp_(lower_bound, upper_bound)
 
-        loss_val = closure().item()
-        if np.isfinite(loss_val) and loss_val < best_loss:
-            best_loss = loss_val
-            current_x = (dummy_data.detach() * ds + dm).clamp(0.0, 1.0)
-            best_img = current_x.clone()
+            if scheduler is not None:
+                scheduler.step()
 
-        if loss_val < 1e-6:
+            current_loss = total_loss.item()
+
+        if np.isfinite(current_loss) and current_loss < best_loss:
+            best_loss = current_loss
+            best_img = (dummy_data.detach() * ds + dm).clamp(0.0, 1.0).clone()
+
+        if current_loss < 1e-6:
             break
 
     return best_img
@@ -302,8 +341,11 @@ def main():
                         help="Comma-separated gradient budgets.")
     parser.add_argument("--select_mode", default="topk_abs", choices=["topk_abs", "layer_spread"],
                         help="Entry selection strategy matching jacobian_rank_sweep.py.")
-    parser.add_argument("--n_iter",     type=int, default=1000,
-                        help="Reconstruction iterations (L-BFGS steps).")
+    parser.add_argument("--optimizer",   default="signed_adamw",
+                        choices=["signed_adamw", "adamw", "signed_adam", "adam", "lbfgs"],
+                        help="Reconstruction optimizer (default: signed_adamw, matching production).")
+    parser.add_argument("--n_iter",     type=int, default=5000,
+                        help="Reconstruction iterations (default: 5000, matching production).")
     parser.add_argument("--lr",         type=float, default=1.0)
     parser.add_argument("--tv_weight",  type=float, default=0.0,
                         help="Total variation regularisation weight (default 0.0 matches main experiments).")
@@ -415,6 +457,7 @@ def main():
             dm.cpu().numpy(), ds.cpu().numpy(),
             lower_bound.cpu().numpy(), upper_bound.cpu().numpy(),
             args.n_iter, args.lr, args.tv_weight, net_name_lower, args.seed,
+            args.optimizer,
         ))
 
     # ---- reconstruct (parallel across budgets if --num_workers > 1) --------
