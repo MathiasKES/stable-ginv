@@ -325,7 +325,7 @@ def main():
     parser.add_argument("--output",     default="rank_recon.png")
     parser.add_argument("--labels_position", default="above", choices=["above", "below"],
                         help="Place panel labels above or below each image.")
-    parser.add_argument("--label_fontsize", type=int, default=24,
+    parser.add_argument("--label_fontsize", type=int, default=20,
                         help="Font size for panel labels.")
     args = parser.parse_args()
 
