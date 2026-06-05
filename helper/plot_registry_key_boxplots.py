@@ -406,10 +406,7 @@ def _format_delta_axis(ax, y_label):
     ax.set_ylabel("")
     ax.tick_params(axis="x", labelsize=11)
     ax.tick_params(axis="y", labelsize=11)
-    xmin, xmax = ax.get_xlim()
-    span = xmax - xmin
-    if span > 0:
-        ax.set_xlim(xmin - 0.03 * span, xmax + 0.03 * span)
+    ax.margins(x=0)
 
 
 def _plot(df, metric, out_path, title=None):
