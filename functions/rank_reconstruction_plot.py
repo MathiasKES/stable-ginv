@@ -407,7 +407,7 @@ def main():
         print(f"\n=== budget = {k:,} ({args.select_mode}) ===")
         print(f"  rank = {rank} / {unknowns}  entries in mask: {total_kept}")
         _print_mask_breakdown(entry_masks, named_params)
-        masks_np = [m.numpy() if m is not None else None for m in entry_masks]
+        masks_np = [m.cpu().numpy() if m is not None else None for m in entry_masks]
         tasks.append((
             k, rank, unknowns, masks_np, net_state, network_name, channel, num_classes,
             shape_img, gt_raw.cpu().numpy(), gt_label.item(),
