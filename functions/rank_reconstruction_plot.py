@@ -261,7 +261,7 @@ def main():
     parser.add_argument("--dataset",    default="cifar100")
     parser.add_argument("--sample_idx", type=int, default=35067,
                         help="Index into the dataset (deterministic).")
-    parser.add_argument("--row_counts", default="3072,4000,5000,5500,6000,6500,7000",
+    parser.add_argument("--row_counts", default="3072,5000,6000,7000,8000",
                         help="Comma-separated gradient budgets.")
     parser.add_argument("--select_mode", default="topk_abs", choices=["topk_abs", "layer_spread"],
                         help="Entry selection strategy matching jacobian_rank_sweep.py.")
