@@ -8,7 +8,7 @@ repointed to stable_ginv.viz.plot_rank_reconstruction in Task 6.
 """
 import torch
 
-from functions.rank_reconstruction_plot import (
+from stable_ginv.viz.plot_rank_reconstruction import (
     _build_global_topk_masks,
     _build_keepfc_masks,
 )
