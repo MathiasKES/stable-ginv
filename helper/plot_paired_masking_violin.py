@@ -208,6 +208,14 @@ def _outlier_dataframe(dataframe, group_cols, value_col="value"):
     return pd.concat(outlier_parts, ignore_index=True)
 
 
+def _add_top_margin(ax, fraction=0.12):
+    lower, upper = ax.get_ylim()
+    span = upper - lower
+    if span <= 0:
+        return
+    ax.set_ylim(lower, upper + span * fraction)
+
+
 def _write_rows(rows, path):
     fieldnames = list(rows[0]) if rows else [
         "run_id",
@@ -341,7 +349,15 @@ def _plot_combined(datasets, path, title, metrics):
             )
         handles, labels = ax.get_legend_handles_labels()
         if ax is axes[-1]:
-            ax.legend(handles[:2], labels[:2], title="Method")
+            _add_top_margin(ax)
+            ax.legend(
+                handles[:2],
+                labels[:2],
+                title="Method",
+                loc="upper right",
+                ncol=2,
+                frameon=True,
+            )
         else:
             legend = ax.get_legend()
             if legend is not None:
