@@ -8,11 +8,11 @@ The env vars and timestamp/argv are fixed so the bytes are deterministic.
 import os
 import tempfile
 
-from functions.experiment_results import (
+from stable_ginv.experiment.results import (
     build_common_csv_fields,
     build_exp_result_rows,
 )
-from functions.io_utils import append_csv_rows
+from stable_ginv.io import append_csv_rows
 from tests.golden.helpers import load_or_regen
 
 
