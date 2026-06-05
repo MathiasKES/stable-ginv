@@ -323,9 +323,16 @@ def main():
     gt_norm = (gt_raw - dm) / ds
     gt_display = gt_raw.squeeze(0).permute(1, 2, 0).cpu().numpy().clip(0, 1)
 
-    # ---- true gradients (used for entry selection) -------------------------
+    # ---- compute all ranks upfront (sweep code path, float64) --------------
+    # Convert to float64 before any gradient computation so that true_grads,
+    # rank computation, and mask selection all use the same dtype —
+    # matching _build_jacobian's internal dtype exactly.
+    print(f"Computing Jacobian ranks ({args.select_mode}) for budgets {row_counts} ...")
+    net.double()
+    gt_norm_d = gt_norm.double()
+
     net.zero_grad()
-    out = net(gt_norm)
+    out = net(gt_norm_d)
     loss = criterion(out, gt_label)
     true_grads = [g.detach() for g in torch.autograd.grad(loss, net.parameters())]
 
@@ -335,12 +342,9 @@ def main():
         net=net, original_dy_dx=true_grads,
     )
 
-    # ---- compute all ranks upfront (sweep code path) -----------------------
-    print(f"Computing Jacobian ranks ({args.select_mode}) for budgets {row_counts} ...")
-    net.double()
     rank_results, _ = compute_jacobian_rank_sweep(
         net=net,
-        x_norm=gt_norm.double(),
+        x_norm=gt_norm_d,
         y=gt_label,
         criterion=criterion,
         keep_ids=keep_ids,
@@ -352,7 +356,6 @@ def main():
         device_for_J="cpu",
     )
     net.float()
-    gt_norm_f = gt_norm.float()
 
     # ---- per-budget reconstruction loop ------------------------------------
     named_params = list(net.named_parameters())
@@ -363,7 +366,7 @@ def main():
         print(f"\n=== budget = {k:,} ({args.select_mode}) ===")
         print(f"  rank = {rank} / {unknowns}")
 
-        # Build masks matching sweep's entry selection
+        # Build masks using same float64 grads as _build_jacobian used internally
         entry_masks = _build_sweep_entry_masks(true_grads, keep_ids, k, args.select_mode, net)
         total_kept = sum(int(m.sum().item()) for m in entry_masks if m is not None)
         print(f"  total entries in mask: {total_kept}")
