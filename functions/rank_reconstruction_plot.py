@@ -12,7 +12,7 @@ For each budget k the script:
 Produces a figure:  GT | k=k1,rank=r1 | k=k2,rank=r2 | ...
 
 Run example (LeNet / CIFAR-100, layer_spread):
-  python3 -m functions.rank_reconstruction_plot --network lenet --dataset cifar100 --select_mode layer_spread --row_counts 3000,4000,5000,6000 --sample_idx 0 --n_iter 300 --output rank_recon.png
+  python3 -m functions.rank_reconstruction_plot --network lenet --dataset cifar100 --select_mode layer_spread --n_iter 300 --output rank_recon.png
 """
 
 import argparse
@@ -256,9 +256,9 @@ def main():
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--network",    default="lenet")
     parser.add_argument("--dataset",    default="cifar100")
-    parser.add_argument("--sample_idx", type=int, default=0,
+    parser.add_argument("--sample_idx", type=int, default=35067,
                         help="Index into the dataset (deterministic).")
-    parser.add_argument("--row_counts", default="3072,4000,5000,6000",
+    parser.add_argument("--row_counts", default="3072,4000,5000,5500,6000,6500,7000",
                         help="Comma-separated gradient budgets.")
     parser.add_argument("--select_mode", default="topk_abs", choices=["topk_abs", "layer_spread"],
                         help="Entry selection strategy matching jacobian_rank_sweep.py.")
@@ -267,7 +267,7 @@ def main():
     parser.add_argument("--lr",         type=float, default=1.0)
     parser.add_argument("--tv_weight",  type=float, default=0.0,
                         help="Total variation regularisation weight (default 0.0 matches main experiments).")
-    parser.add_argument("--seed",       type=int, default=1)
+    parser.add_argument("--seed",       type=int, default=2)
     parser.add_argument("--device",     default="cuda:0" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--data_path",  default=None,
                         help="Override data directory (default: auto-resolved).")
