@@ -16,6 +16,7 @@ Run example (LeNet / CIFAR-100, layer_spread):
 """
 
 import argparse
+import multiprocessing as mp
 import numpy as np
 import torch
 import torch.nn as nn
@@ -34,6 +35,42 @@ from helper.metrics import (
     _get_layer_groups, _layer_info,
 )
 from helper.Network import get_model, weights_init
+
+
+# ---------------------------------------------------------------------------
+# pool worker — must be module-level to be picklable by multiprocessing.Pool
+# ---------------------------------------------------------------------------
+
+def _recon_worker(task):
+    """Run one budget's reconstruction in a subprocess. Inputs/outputs are numpy."""
+    (k, rank, unknowns, masks_np, net_state, network_name, channel, num_classes,
+     shape_img, gt_raw_np, gt_label_val, dm_np, ds_np, lb_np, ub_np,
+     n_iter, lr, tv_weight, net_name_lower, seed) = task
+
+    device = torch.device("cpu")
+    entry_masks  = [torch.from_numpy(m).bool() if m is not None else None for m in masks_np]
+    gt_raw       = torch.from_numpy(gt_raw_np)
+    gt_label     = torch.tensor([gt_label_val], dtype=torch.long)
+    dm           = torch.from_numpy(dm_np)
+    ds           = torch.from_numpy(ds_np)
+    lower_bound  = torch.from_numpy(lb_np)
+    upper_bound  = torch.from_numpy(ub_np)
+
+    net = get_model(network_name, channel=channel, num_classes=num_classes, input_size=shape_img)
+    net.load_state_dict(net_state)
+    net = net.to(device).eval()
+    criterion = nn.CrossEntropyLoss()
+
+    total_kept = sum(int(m.sum().item()) for m in entry_masks if m is not None)
+    recon = _reconstruct(
+        net=net, gt_data=gt_raw, gt_label=gt_label, criterion=criterion,
+        entry_masks=entry_masks, dm=dm, ds=ds,
+        lower_bound=lower_bound, upper_bound=upper_bound,
+        n_iter=n_iter, lr=lr, tv_weight=tv_weight,
+        net_name_lower=net_name_lower, device=device, seed=seed,
+    )
+    recon_np = recon.squeeze(0).permute(1, 2, 0).cpu().numpy().clip(0, 1)
+    return k, f"entries = {k:,}", total_kept, rank, unknowns, recon_np
 
 
 # ---------------------------------------------------------------------------
@@ -261,7 +298,7 @@ def main():
     parser.add_argument("--dataset",    default="cifar100")
     parser.add_argument("--sample_idx", type=int, default=35067,
                         help="Index into the dataset (deterministic).")
-    parser.add_argument("--row_counts", default="3072,5000,6000,7000,8000",
+    parser.add_argument("--row_counts", default="3072,5000,6000,7000,8000,9000",
                         help="Comma-separated gradient budgets.")
     parser.add_argument("--select_mode", default="topk_abs", choices=["topk_abs", "layer_spread"],
                         help="Entry selection strategy matching jacobian_rank_sweep.py.")
@@ -271,6 +308,8 @@ def main():
     parser.add_argument("--tv_weight",  type=float, default=0.0,
                         help="Total variation regularisation weight (default 0.0 matches main experiments).")
     parser.add_argument("--seed",       type=int, default=2)
+    parser.add_argument("--num_workers", type=int, default=1,
+                        help="Parallel reconstruction workers (one per budget).")
     parser.add_argument("--device",     default="cuda:0" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--data_path",  default=None,
                         help="Override data directory (default: auto-resolved).")
@@ -357,38 +396,42 @@ def main():
     )
     net.float()
 
-    # ---- per-budget reconstruction loop ------------------------------------
+    # ---- build masks + print breakdown (serial, uses float64 grads) --------
     named_params = list(net.named_parameters())
-    results = []
-
+    net_state    = net.state_dict()
+    tasks = []
     for k in row_counts:
         rank, _, _, unknowns = rank_results[k]
-        print(f"\n=== budget = {k:,} ({args.select_mode}) ===")
-        print(f"  rank = {rank} / {unknowns}")
-
-        # Build masks using same float64 grads as _build_jacobian used internally
         entry_masks = _build_sweep_entry_masks(true_grads, keep_ids, k, args.select_mode, net)
-        total_kept = sum(int(m.sum().item()) for m in entry_masks if m is not None)
-        print(f"  total entries in mask: {total_kept}")
-        print("  entries per layer:")
+        total_kept  = sum(int(m.sum().item()) for m in entry_masks if m is not None)
+        print(f"\n=== budget = {k:,} ({args.select_mode}) ===")
+        print(f"  rank = {rank} / {unknowns}  entries in mask: {total_kept}")
         _print_mask_breakdown(entry_masks, named_params)
+        masks_np = [m.numpy() if m is not None else None for m in entry_masks]
+        tasks.append((
+            k, rank, unknowns, masks_np, net_state, network_name, channel, num_classes,
+            shape_img, gt_raw.cpu().numpy(), gt_label.item(),
+            dm.cpu().numpy(), ds.cpu().numpy(),
+            lower_bound.cpu().numpy(), upper_bound.cpu().numpy(),
+            args.n_iter, args.lr, args.tv_weight, net_name_lower, args.seed,
+        ))
 
-        # Reconstruction
-        print(f"  running reconstruction ({args.n_iter} iter) ...")
-        recon = _reconstruct(
-            net=net, gt_data=gt_raw, gt_label=gt_label, criterion=criterion,
-            entry_masks=entry_masks, dm=dm, ds=ds,
-            lower_bound=lower_bound, upper_bound=upper_bound,
-            n_iter=args.n_iter, lr=args.lr,
-            tv_weight=args.tv_weight, net_name_lower=net_name_lower,
-            device=device, seed=args.seed,
-        )
-        recon_np = recon.squeeze(0).permute(1, 2, 0).cpu().numpy().clip(0, 1)
-        mse = float(np.mean((recon_np - gt_display) ** 2))
+    # ---- reconstruct (parallel across budgets if --num_workers > 1) --------
+    n_workers = min(args.num_workers, len(tasks))
+    print(f"\nRunning {len(tasks)} reconstructions ({args.n_iter} iter each, {n_workers} worker(s)) ...")
+    if n_workers > 1:
+        with mp.Pool(n_workers) as pool:
+            worker_results = pool.map(_recon_worker, tasks)
+        worker_results.sort(key=lambda x: x[0])
+    else:
+        worker_results = [_recon_worker(t) for t in tasks]
+
+    results = []
+    for k_r, label, total, rank, unknowns, recon_np in worker_results:
+        mse  = float(np.mean((recon_np - gt_display) ** 2))
         psnr = -10 * np.log10(mse) if mse > 0 else float("inf")
-        print(f"  MSE={mse:.4f}  PSNR={psnr:.2f} dB")
-
-        results.append((f"entries = {k:,}", total_kept, rank, unknowns, recon_np))
+        print(f"  budget={k_r:,}  rank={rank}/{unknowns}  MSE={mse:.4f}  PSNR={psnr:.2f} dB")
+        results.append((label, total, rank, unknowns, recon_np))
 
     # ---- figure ------------------------------------------------------------
     n_panels = 1 + len(results)
