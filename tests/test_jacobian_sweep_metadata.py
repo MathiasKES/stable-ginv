@@ -1,6 +1,6 @@
 import pytest
 
-from functions.jacobian_rank_sweep import _parse_explicit_sample_indices
+from stable_ginv.jacobian.cli import _parse_explicit_sample_indices
 
 
 def test_explicit_indices_drive_the_recorded_sample_count():

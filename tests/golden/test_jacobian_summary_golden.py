@@ -6,7 +6,7 @@ that the sweep CLI writes to its CSV and plots. The synthetic inputs make the
 output reproducible without a dataset or GPU. Imported from the OLD path here;
 repointed to stable_ginv.jacobian.sweep in Task 5.
 """
-from functions.jacobian_rank_sweep import _summarize_rank_results
+from stable_ginv.jacobian.sweep import _summarize_rank_results
 from tests.golden.helpers import load_or_regen
 
 # Three "samples" per row count; a separate qr pool so both branches are exercised.
