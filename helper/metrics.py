@@ -477,16 +477,18 @@ def compute_jacobian_rank(
     select_mode="topk_abs",
     device_for_J="cpu",
     print_svd_info=False,
+    normalize_rows=False,
 ):
     """Rank of J = d vec(g_obs) / d vec(x), built row-by-row to avoid OOM.
 
+    normalize_rows=False matches compute_jacobian_rank_sweep default (--normalise off).
     print_svd_info: if True, print the 10 smallest singular values of the
                     row-normalised Jacobian to help diagnose rank behaviour.
     """
     J, total_entries, unknowns = _build_jacobian(
         net, x_norm, y, criterion, keep_ids, entry_masks, max_entries, select_mode, device_for_J,
     )
-    jac_rank = _rank_of_J(J, print_svd_info=print_svd_info)
+    jac_rank = _rank_of_J(J, print_svd_info=print_svd_info, normalize_rows=normalize_rows)
     return jac_rank, tuple(J.shape), J.shape[0], unknowns
 
 
