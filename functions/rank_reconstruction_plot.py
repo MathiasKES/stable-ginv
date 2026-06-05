@@ -398,7 +398,8 @@ def main():
 
     # ---- build masks + print breakdown (serial, uses float64 grads) --------
     named_params = list(net.named_parameters())
-    net_state    = net.state_dict()
+    # Move state_dict to CPU so it pickles cleanly in spawn workers
+    net_state    = {k: v.cpu() for k, v in net.state_dict().items()}
     tasks = []
     for k in row_counts:
         rank, _, _, unknowns = rank_results[k]
@@ -420,7 +421,8 @@ def main():
     n_workers = min(args.num_workers, len(tasks))
     print(f"\nRunning {len(tasks)} reconstructions ({args.n_iter} iter each, {n_workers} worker(s)) ...")
     if n_workers > 1:
-        with mp.Pool(n_workers) as pool:
+        # spawn avoids "Cannot re-initialize CUDA in forked subprocess"
+        with mp.get_context("spawn").Pool(n_workers) as pool:
             worker_results = pool.map(_recon_worker, tasks)
         worker_results.sort(key=lambda x: x[0])
     else:
