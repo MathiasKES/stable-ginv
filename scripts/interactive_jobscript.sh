@@ -11,8 +11,12 @@
 #     where <uid> = <YYYYMMDD_HHMMSS>_L<line-number>_<rand4>, e.g.
 #     20260528_124945_L0001_a3f9. The first line of the .out
 #     file is the python command itself; the program's own output follows.
+#   - When a run STARTS the script replaces its line with a "# RUNNING: <cmd>"
+#     comment, so readers of cmds.txt can see what is in flight (and the line is
+#     skipped while it runs). When the run finishes that RUNNING line is
+#     replaced with the DONE/FAILED comment below.
 #   - When a run finishes the script re-reads cmds.txt and finds the FIRST line
-#     equal to the just-executed cmd:
+#     equal to the "# RUNNING: <cmd>" marker:
 #       * rc == 0 → that line is replaced with a single-line comment so it is
 #                   kept for inspection but skipped in future iterations.
 #                   Format:
@@ -28,7 +32,8 @@
 #                   "[interactive_jobscript] Line not found, finished: [<uid>]"
 #                   and continues.
 #   - On SIGINT/SIGTERM/SIGHUP the current job is killed and the script exits;
-#     cmds.txt is not modified for the interrupted run.
+#     the interrupted run is left as its "# RUNNING: <cmd>" marker in cmds.txt
+#     (uncomment it to re-queue).
 
 set -u
 
@@ -141,6 +146,13 @@ while true; do
     printf '%s\n' "$cmd" > "$out_file"
     : > "$err_file"
 
+    # Mark the line as RUNNING right away so a reader of cmds.txt can see what
+    # is in flight. find_next_cmd skips comment lines, so this also prevents the
+    # same line from being picked up again while it runs. When the run finishes
+    # the RUNNING line is replaced with the DONE/FAILED comment below.
+    running_comment="# RUNNING: $cmd"
+    modify_cmds "$cmd" replace "$running_comment" || true
+
     start_ts=$(date +%s)
     bash -c "$cmd" >> "$out_file" 2>> "$err_file" &
     CURRENT_PID=$!
@@ -155,7 +167,7 @@ while true; do
 
     if (( rc == 0 )); then
         done_comment="# DONE [rc=$rc] [uid=$uid] (dur=${dur}s): $cmd"
-        if modify_cmds "$cmd" replace "$done_comment"; then
+        if modify_cmds "$running_comment" replace "$done_comment"; then
             echo "[interactive_jobscript] [$uid] OK (dur=${dur}s) — marked as # DONE in cmds.txt"
         else
             echo "[interactive_jobscript] Line not found, finished: [$uid] (dur=${dur}s)"
@@ -167,7 +179,7 @@ while true; do
         else
             fail_comment="# FAILED: [rc=$rc] [uid=$uid] [dur=${dur}s] $cmd"
         fi
-        if modify_cmds "$cmd" replace "$fail_comment"; then
+        if modify_cmds "$running_comment" replace "$fail_comment"; then
             echo "[interactive_jobscript] [$uid] FAILED (rc=$rc, dur=${dur}s) — marked as # FAILED in cmds.txt"
         else
             echo "[interactive_jobscript] Line not found, finished: [$uid] (rc=$rc, dur=${dur}s)"
