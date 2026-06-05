@@ -444,11 +444,11 @@ def main():
     fs       = args.label_fontsize
     above    = (args.labels_position == "above")
 
-    # Taller figure so fontsize=24 labels fit without crowding the images.
-    # Fixed subplots_adjust (not tight_layout) ensures both FC (above) and
-    # noFC (below) figures are exactly the same height, so they align when
-    # stacked in the document with no gap.
-    fig, axes = plt.subplots(1, n_panels, figsize=(3 * n_panels, 4.0))
+    # Figure height chosen so the axes are square (matching the square CIFAR
+    # images) and the label rows still fit.  With left=0.005, right=0.995,
+    # wspace=0.02 and n_panels panels, each panel is ~2.92 inches wide, so we
+    # need axes_height = 2.92 inches = 0.68 × 4.3 inches.
+    fig, axes = plt.subplots(1, n_panels, figsize=(3 * n_panels, 4.3))
 
     def _set_label(ax, text, color, bold):
         kw = dict(fontsize=fs, color=color,
@@ -473,13 +473,14 @@ def main():
         _set_label(ax, text, color, full)
         ax.axis("off")
 
-    # Reserve the top 48% for above-labels or the bottom 48% for below-labels.
-    # The image axes always occupy the same 50% slice in the middle, so both
-    # orientations produce identical figure dimensions and stack flush.
+    # Axes occupy 68% of figure height (bottom=0.02 to top=0.70), making them
+    # square to match the square CIFAR images.  The remaining 30% is reserved
+    # for label text above (FC) or below (noFC).  Both orientations produce
+    # identical figure dimensions so they stack flush in the document.
     if above:
-        plt.subplots_adjust(top=0.52, bottom=0.02, left=0.005, right=0.995, wspace=0.02)
+        plt.subplots_adjust(top=0.70, bottom=0.02, left=0.005, right=0.995, wspace=0.02)
     else:
-        plt.subplots_adjust(top=0.98, bottom=0.48, left=0.005, right=0.995, wspace=0.02)
+        plt.subplots_adjust(top=0.98, bottom=0.30, left=0.005, right=0.995, wspace=0.02)
 
     plt.savefig(args.output, dpi=150)
     print(f"\nSaved → {args.output}")
