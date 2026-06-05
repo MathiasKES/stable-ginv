@@ -57,7 +57,9 @@ Phase 6, just before that refactor.
 - [x] Phase 5 — `stable_ginv/recon/` (ReconstructionRunner, EarlyStopPolicy,
       LabelInference, scheduler). `run_single_exp.py` + `helper/training_utils.py`
       are shims.
-- [ ] Phase 6 — `stable_ginv/experiment/` (+ CSV-row goldens first).
+- [x] Phase 6 — `stable_ginv/experiment/` (BatchExperimentRunner, ResultAggregator,
+      RestartSelector, results.py) + `stable_ginv/cli/batch.py`. `iDLG_mask.py` is a
+      thin wrapper; `functions/experiment_results.py` is a shim. CSV-row golden added.
 - [ ] Phase 7 — `stable_ginv/viz/`.
 - [ ] Phase 8 — `stable_ginv/jacobian/`.
 - [ ] Phase 9 — docstrings + fill Sphinx API pages + polish.
@@ -68,12 +70,15 @@ Phase 6, just before that refactor.
 
 ## Next phase
 
-Write the Phase 6 plan from the spec, then implement. Phase 6 extracts
-`stable_ginv/experiment/` — `BatchExperimentRunner` (GPU scheduling, multiprocessing,
-output ordering, abort-on-worker-failure), `ResultAggregator`, and `RestartSelector`,
-plus `functions/experiment_results.py` → `stable_ginv/experiment/results.py` +
-`stable_ginv/io/csv.py`. **Add the per-run `experiment_results` CSV-row golden first**
-(the spec defers it to just before this refactor), then move `iDLG_mask.py`
-orchestration into `stable_ginv/cli/batch.py` + `stable_ginv/experiment/runner.py`,
-leaving `iDLG_mask.py` as a thin `from stable_ginv.cli.batch import main; main()`
-wrapper. Keep this file's Status section current at every phase boundary.
+Write the Phase 7 plan from the spec, then implement. Phase 7 extracts
+`stable_ginv/viz/` from `helper/visualization.py` (recon panels/GIFs, restart curves)
+and the standalone `helper/plot_*.py` CLIs, replacing them with thin wrappers. Lock
+the relevant plot outputs with goldens just-in-time before moving them (the existing
+`tests/test_visualization.py` / `tests/test_restart_curve.py` are the starting point).
+`stable_ginv/cli/batch.py` loads visualization lazily via `_load_visualization_helpers`,
+so repoint that import at `stable_ginv.viz` once the package exists. Keep this file's
+Status section current at every phase boundary.
+
+Deferred (not yet done): `functions/idlg_cli.py` → `stable_ginv/cli/args.py` and
+`functions/Dataset.py`/`functions/consts.py` → `stable_ginv/data/` remain imported from
+their current paths by `stable_ginv/cli/batch.py` and `stable_ginv/recon/runner.py`.
