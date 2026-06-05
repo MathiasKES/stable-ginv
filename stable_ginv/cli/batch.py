@@ -56,7 +56,7 @@ from stable_ginv.experiment.runner import BatchExperimentRunner
 def _load_visualization_helpers():
     """Load plotting helpers; fall back to no-op plotting when visualization imports fail."""
     try:
-        from helper.visualization import (
+        from stable_ginv.viz import (
             append_result_to_panel_buffers,
             create_panel_buffers,
             flush_recon_panel,
