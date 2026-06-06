@@ -71,7 +71,11 @@ Phase 6, just before that refactor.
       from `functions/jacobian_rank_sweep.py`; `functions/rank_reconstruction_plot.py`
       moved to `stable_ginv/viz/plot_rank_reconstruction.py`. Both `functions/` files
       are thin wrappers. Two goldens added; the placeholderless f-string lint fixed.
-- [ ] Phase 9 — docstrings + fill Sphinx API pages + polish.
+- [x] Phase 9 — docstrings + Sphinx API pages + polish. NumPy-style docstrings
+      across all `stable_ginv` subpackages; `pandas` added to the autodoc mock
+      list and a `|grad|` rst substitution defined in `conf.py` so the recursive
+      autosummary imports and renders every module (incl. `viz`); CI now builds
+      docs with `-W`. The Sphinx build is warning-free. All phases complete.
 
 ## One-time setup
 
@@ -79,9 +83,9 @@ Phase 6, just before that refactor.
 
 ## Next phase
 
-Phase 9 — Polish: write/expand NumPy-style docstrings across the `stable_ginv/`
-package, fill the Sphinx API pages (autosummary), and do a final cleanup pass.
-No code moves; no functionality change. Keep this file's Status section current.
+The OOP restructure (Phases 0–9) is complete. The remaining items below are
+optional follow-ups, not required by the spec; they were intentionally deferred
+because the modules stay importable from their current paths.
 
 Deferred (not yet done): `functions/idlg_cli.py` → `stable_ginv/cli/args.py`,
 `functions/Dataset.py`/`functions/consts.py` → `stable_ginv/data/`, and
