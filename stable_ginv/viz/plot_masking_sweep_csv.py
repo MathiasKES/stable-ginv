@@ -1,19 +1,19 @@
-"""
-Plot masking-sweep results from sweep CSV rows that reference masked registry entries.
+"""Plot masking-sweep results from sweep CSV rows that reference masked entries.
 
-Example:
+The sweep CSV is produced by::
+
+    python iDLG_mask.py --methods masked \
+        --mask_mode gradsize_topfrac_entries_layer --gradsize_topfrac 0.5
+
+Example::
+
     python helper/plot_masking_sweep_csv.py \
         results/masking_sweeps/mse_resnet18_cifar100_gradsize_topfrac_entries_layer_<hash>.csv \
         --out_dir results/masking_sweep_plots
 
-Default threshold: --threshold_mse 0.01.
-The summary CSV includes network/dataset columns, and plot titles show both.
-Output filenames include network, dataset, and threshold, for example:
-    sweep_plot_vgg13_cifar100_threshold_0p01.png
-
-The input CSV is produced by:
-    python iDLG_mask.py --methods masked \
-        --mask_mode gradsize_topfrac_entries_layer --gradsize_topfrac 0.5
+Default threshold is ``--threshold_mse 0.01``. The summary CSV includes
+network/dataset columns, and plot titles show both. Output filenames include
+network, dataset, and threshold, e.g. ``sweep_plot_vgg13_cifar100_threshold_0p01.png``.
 """
 import argparse
 import csv
