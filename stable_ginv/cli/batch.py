@@ -77,6 +77,7 @@ def _load_visualization_helpers():
         print("[WARNING] Experiments will continue; use registry/CSV outputs to plot later.")
 
         def create_panel_buffers():
+            """Return empty panel-buffer dict (no-op fallback when viz is unavailable)."""
             return {
                 "gt": [],
                 "idlg": [],
@@ -90,19 +91,24 @@ def _load_visualization_helpers():
             }
 
         def append_result_to_panel_buffers(result, buffers, to_pil, warn_fn):
+            """No-op fallback: discard result when viz is unavailable."""
             return None
 
         def flush_recon_panel(params, buffers, panel_png_paths, save_dir, block_idx,
                               dataset, mask_desc, timestamp_str, methods):
+            """No-op fallback: return block_idx unchanged when viz is unavailable."""
             return block_idx
 
         def save_recon_gif(*args, **kwargs):
+            """No-op fallback: skip GIF saving when viz is unavailable."""
             return None
 
         def save_restart_curve(*args, **kwargs):
+            """No-op fallback: skip restart-curve output when viz is unavailable."""
             return None
 
         def save_restart_images(*args, **kwargs):
+            """No-op fallback: skip restart image grid when viz is unavailable."""
             return None
 
         return (
@@ -116,6 +122,27 @@ def _load_visualization_helpers():
 
 
 def main():
+    """Run a batch of gradient-inversion experiments and write all outputs.
+
+    Parses CLI arguments via ``parse_idlg_args``, loads the requested dataset,
+    builds an :class:`~stable_ginv.config.ExperimentConfig`, and dispatches
+    ``num_exp`` experiments through :class:`~stable_ginv.experiment.runner.BatchExperimentRunner`
+    (GPU workers when CUDA is available, otherwise CPU).  As each experiment
+    completes its result is accumulated into panel buffers; filled blocks are
+    flushed to PNG reconstruction panels.
+
+    After all experiments finish the function:
+
+    * saves animated GIFs of reconstruction progress (when ``--save_gif`` is set);
+    * writes a restart-curve CSV and PNG plot (when ``--num_restarts`` > 1);
+    * updates the iDLG baseline registry and/or the masked registry (depending
+      on ``--methods``);
+    * computes paired statistics against a stored baseline when running in
+      ``masked``-only mode;
+    * appends a summary row to ``exp_results_<network>.csv``;
+    * writes a masking-sweep MSE CSV for ``gradsize_topfrac_entries_layer`` runs;
+    * prints a final experiment summary and GPU memory usage.
+    """
     timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
     out_path = setstdout(ts=timestamp_str)
     args = parse_idlg_args(sys.argv)
