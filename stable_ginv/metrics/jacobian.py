@@ -1,3 +1,4 @@
+"""Jacobian construction and numerical rank of the per-sample gradient map."""
 import numpy as np
 import torch
 import torch.autograd.forward_ad as fwAD

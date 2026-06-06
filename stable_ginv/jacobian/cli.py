@@ -1,3 +1,4 @@
+"""CLI for the Jacobian rank-vs-gradient-budget sweep (multiprocessing + plotting)."""
 import os
 import csv
 import argparse

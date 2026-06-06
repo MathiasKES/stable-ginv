@@ -1,3 +1,4 @@
+"""Gradient masking: strategy classes, the STRATEGY_REGISTRY, and the Masker facade."""
 from stable_ginv.masking._helpers import _get_last_fc_param_indices
 from stable_ginv.masking._compute import flatten_observed_gradients
 from stable_ginv.masking.strategies import MaskStrategy, STRATEGY_REGISTRY

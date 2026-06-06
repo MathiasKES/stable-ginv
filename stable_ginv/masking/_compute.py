@@ -1,3 +1,4 @@
+"""Low-level mask computation: keep-id and per-entry mask builders by gradient size."""
 import torch
 
 from stable_ginv.masking._helpers import _grad_magnitude

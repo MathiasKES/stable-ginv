@@ -1,3 +1,4 @@
+"""Compute core for the Jacobian rank sweep: per-budget rank over a gradient budget."""
 import sys, os
 import tempfile
 

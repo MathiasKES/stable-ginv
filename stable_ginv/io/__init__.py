@@ -1,3 +1,4 @@
+"""I/O utilities: storage-path resolution, safe filesystem writes, and CSV/text helpers."""
 from stable_ginv.io.fs import (
     safe_chmod,
     safe_makedirs,

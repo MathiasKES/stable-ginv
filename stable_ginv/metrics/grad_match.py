@@ -1,3 +1,4 @@
+"""Gradient-matching loss between observed and dummy gradients (cosine / L2 / sim)."""
 import torch
 import torch.nn.functional as F
 

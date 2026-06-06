@@ -1,3 +1,4 @@
+"""Batch orchestration: the experiment runner, result aggregation, and restart selection."""
 from stable_ginv.experiment.runner import BatchExperimentRunner, ExperimentRunAborted
 from stable_ginv.experiment.results import (
     METRIC_ACCUMULATOR_KEYS,

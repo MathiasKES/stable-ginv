@@ -1,3 +1,4 @@
+"""Reconstruction: the optimization runner, early-stop policy, and label inference."""
 from stable_ginv.recon.scheduler import make_scheduler
 from stable_ginv.recon.early_stop import EarlyStopPolicy
 from stable_ginv.recon.labels import LabelInference

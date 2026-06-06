@@ -1,3 +1,4 @@
+"""Internal masking helpers: parameter-index lookups and gradient-magnitude scoring."""
 import torch.nn as nn
 
 

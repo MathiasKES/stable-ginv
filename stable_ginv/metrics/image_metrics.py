@@ -1,3 +1,4 @@
+"""Image-quality metrics: PSNR from MSE, batched SSIM, and total variation."""
 import math
 
 import numpy as np

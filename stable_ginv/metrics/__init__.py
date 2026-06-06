@@ -1,3 +1,4 @@
+"""Metrics: image quality (PSNR/SSIM/TV), gradient matching, and Jacobian rank."""
 from stable_ginv.metrics.image_metrics import (
     compute_psnr_from_mse,
     compute_ssim_batch,

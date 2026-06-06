@@ -1,3 +1,4 @@
+"""Result registries: key hashing, JSON load/save, entry updates, and CSV summaries."""
 from stable_ginv.registry.keys import (
     masked_key_from_args,
     baseline_key_from_args,

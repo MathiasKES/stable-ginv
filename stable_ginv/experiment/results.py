@@ -1,3 +1,4 @@
+"""Result aggregation, paired-report construction, and experiment-results CSV rows."""
 import hashlib
 import json
 import os

@@ -1,3 +1,4 @@
+"""Statistics: NaN-safe aggregates and paired comparisons with confidence intervals."""
 from stable_ginv.stats.aggregate import mean_or_nan, std_or_nan, median_or_nan
 from stable_ginv.stats.paired import (
     paired_t_ci,
