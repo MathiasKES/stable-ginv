@@ -32,6 +32,22 @@ class ReconstructionRunner:
     """Runs one experiment (all requested methods/restarts) and returns its result dict."""
 
     def __init__(self, idx_net, device_id, dst, dataset_name, config):
+        """Store experiment identity and configuration for a single worker.
+
+        Parameters
+        ----------
+        idx_net : int
+            Experiment index (used to select a deterministic image from `dst`
+            and to seed the RNG).
+        device_id : int
+            CUDA device ordinal to use; ignored when no GPU is available.
+        dst : dataset
+            Dataset supporting index access; each element yields ``(image, label)``.
+        dataset_name : str
+            Dataset name used to look up normalisation constants (mean/std).
+        config : ExperimentConfig
+            Frozen configuration object carrying all hyperparameters and flags.
+        """
         self.idx_net = idx_net
         self.device_id = device_id
         self.dst = dst
@@ -39,6 +55,24 @@ class ReconstructionRunner:
         self.config = config
 
     def run(self):
+        """Run all methods and restarts and return the per-experiment result dict.
+
+        Selects a ground-truth image batch from the dataset, computes real
+        gradients, then for each method in ``config.methods`` runs
+        ``config.num_restarts`` independent optimizations (LBFGS, Adam,
+        AdamW, or their sign-gradient variants).  Each restart optimizes dummy
+        pixels to minimize a gradient-matching loss plus a TV regularizer,
+        using the gradient mask selected by ``config.mask_mode``.  The restart
+        with the lowest best-iteration loss is kept.
+
+        Returns
+        -------
+        dict
+            Flat dictionary containing ground-truth data/labels, reconstructed
+            images, per-method best/last loss, MSE, PSNR, and SSIM values,
+            per-restart trajectories, Jacobian rank (when requested), early-stop
+            metadata, and optional GIF frame buffers.
+        """
         idx_net = self.idx_net
         device_id = self.device_id
         dst = self.dst
@@ -353,6 +387,7 @@ class ReconstructionRunner:
                 for iters in range(Iteration):
                     if phase == "lbfgs":
                         def closure():
+                            """Zero gradients, compute grad-match + TV loss, backprop, return total loss."""
                             optimizer.zero_grad()
                             pred = net(dummy_data)
                             dummy_loss = criterion(pred, label_pred)

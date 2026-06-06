@@ -605,6 +605,7 @@ class ResultAggregator:
     """
 
     def __init__(self):
+        """Initialise empty metric accumulator lists for all tracked metrics."""
         self.accumulators = create_metric_accumulators()
 
     def append(self, result):

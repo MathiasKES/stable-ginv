@@ -25,6 +25,22 @@ class BatchExperimentRunner:
     """Schedules per-experiment reconstruction workers across the available GPUs."""
 
     def __init__(self, config, dst, dataset, num_exp, num_restarts):
+        """Store the shared run configuration and initialise the process table.
+
+        Parameters
+        ----------
+        config : ExperimentConfig
+            Frozen configuration object passed verbatim to each worker.
+        dst : dataset
+            Dataset supporting index access; shared (read-only) across workers.
+        dataset : str
+            Dataset name forwarded to each worker for normalisation lookups.
+        num_exp : int
+            Total number of independent experiments to run.
+        num_restarts : int
+            Number of random restarts per experiment; used to decide whether to
+            enter parallel-restart mode.
+        """
         self.config = config
         self.dst = dst
         self.dataset = dataset
@@ -49,6 +65,33 @@ class BatchExperimentRunner:
         )
 
     def run(self, handle_result):
+        """Schedule reconstruction workers and deliver completed results in order.
+
+        Spawns one ``mp.Process`` per GPU (or a single CPU worker when no GPU
+        is available), using ``'spawn'`` start method and ``'file_system'``
+        sharing strategy.
+
+        When ``num_exp < num_gpus`` and ``num_restarts > 1`` the runner enters
+        *parallel-restart mode*: restarts are round-robin interleaved across
+        GPUs so that no device sits idle while another finishes.  Per-restart
+        results are buffered in ``restart_buf`` and merged via
+        ``RestartSelector.merge`` before being passed to `handle_result`.
+
+        In normal mode one experiment is assigned per GPU; as each finishes,
+        the freed GPU is immediately given the next experiment.  Results are
+        delivered to `handle_result` in completion order (not submission order).
+
+        If any worker returns an ``'error'`` key the run is aborted: all live
+        processes are terminated and joined, then ``ExperimentRunAborted`` is
+        raised.
+
+        Parameters
+        ----------
+        handle_result : callable
+            Called once per completed experiment with the result dict as its
+            sole argument.  Called in experiment-completion order, which may
+            differ from submission order in normal mode.
+        """
         config = self.config
         dst = self.dst
         dataset = self.dataset
