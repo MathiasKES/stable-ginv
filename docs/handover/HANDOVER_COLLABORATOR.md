@@ -2,7 +2,7 @@
 
 **Audience:** A new collaborator joining the bachelor's project who needs to understand the research context, set up the environment, and run their first experiment.
 
-**Last updated:** 2026-05-31
+**Last updated:** 2026-06-06
 
 ---
 
@@ -156,6 +156,10 @@ After running `iDLG_mask.py`, you will find:
 **Baseline registry:** `iDLG_mask.py --methods both` (or `--methods idlg` followed by `--methods masked`) saves unmasked results as a baseline in `results/baselines/`. The masked run loads this automatically for paired comparison. Always use the same `--run_id` for both.
 
 **Masking sweep plots:** For `gradsize_topfrac_entries_layer`, run normal `iDLG_mask.py` commands for each `--gradsize_topfrac`. The runner appends compact rows to `results/masking_sweeps/`; then run `python helper/plot_masking_sweep_csv.py <sweep_csv>` to create the line and bar charts. The default reconstruction threshold is `--threshold_mse 0.01`; generated filenames, plot titles, and summary rows include the network and dataset, and filenames also include the threshold. If the matching iDLG baseline was run and saved in the baseline registry, the plot includes it as a `0% baseline` point; a masked `topfrac=1.0` run remains visible separately as `0% masked`.
+
+**Ablation plots:** Use `python helper/plot_registry_key_boxplots.py --keys ... --metric psnr --out_dir results/ablation_boxplots` to plot paired PSNR differences for layer ablations. The script reads registry keys, finds the matching unmasked baseline automatically, and aligns samples by `run_id`, which matters when a run was completed in multiple batches.
+
+**Paired baseline vs masked plots:** Use `helper/plot_paired_masking_violin.py` with `--metrics psnr,ssim`. Multiple `--pair DATASET BASELINE_KEY MASKED_KEY` arguments combine datasets in one figure.
 
 **Jacobian dtype comparison:** Use `python functions/jacobian_rank_sweep.py --both_dtypes` to compare float32 and float64 rank curves in one run. The generated CSV includes a `dtype` column, and the generated plot shows the two dtypes in different colors.
 

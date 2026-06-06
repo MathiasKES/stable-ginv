@@ -2,7 +2,7 @@
 
 **Audience:** A developer or researcher who is continuing active work on this codebase — adding new masking modes, running new experiments, debugging, or extending the pipeline.
 
-**Last updated:** 2026-06-02
+**Last updated:** 2026-06-06
 
 ---
 
@@ -44,7 +44,11 @@ stable-ginv/
 │   ├── training_utils.py    make_scheduler
 │   ├── visualization.py     Reconstruction panels/GIFs plus restart curve/image outputs
 │   ├── plot_masking_sweep_csv.py  Plot registry-backed masking sweep CSVs
-│   └── plots.py             Plot layer-ablation PSNR confidence intervals
+│   ├── plot_combined_masking_sweep_summary.py  Compare several sweep summaries
+│   ├── plot_registry_key_boxplots.py  Plot paired per-sample ablation differences
+│   ├── plot_paired_masking_violin.py  Plot paired baseline vs masked distributions
+│   ├── plot_model_parameter_counts.py  Plot architecture parameter counts
+│   └── plots.py             Older Seaborn forest plots for layer-ablation PSNR CIs
 │
 ├── archive/                 Retired scripts (not imported anywhere):
 │                            iDLG_original.py, run_single_exp_batch.py,
@@ -188,6 +192,10 @@ For each experiment, the flow is:
 - **FC is for label inference only, not forced into reconstruction:** `build_gradient_mask` does NOT preserve the last `nn.Linear` layer. The iDLG label trick is computed once in `run_single_exp.py` from the original *unmasked* final FC weight gradient (before masking), so label recovery always works. The FC/classifier gradient enters the reconstruction loss only if the chosen mask mode/prefixes select it. This makes FC/classifier ablations meaningful: excluding FC from the prefix list really excludes it from the objective. The Jacobian sweep can drop FC entirely with `--exclude_fc`; `rank_reconstruction_plot` has its own `--keep_fc` flag (select from non-FC entries only).
 - **LFW normalization constants:** Computed manually in `archive/testing/compute_lfw_stats.py` and hardcoded in `functions/consts.py`. If you change the LFW preprocessing (resize, crop), recompute these.
 - **Masking sweep workflow:** Run normal `iDLG_mask.py` commands for each `--gradsize_topfrac`; all runs with the same config (same network/dataset/optimizer/lr/etc.) append to the same CSV in `results/masking_sweeps/` regardless of `--run_id` or `--num_exp`. Then call `helper/plot_masking_sweep_csv.py <sweep_csv>`; its default reconstruction threshold is `--threshold_mse 0.01`. The plot script includes the matching iDLG baseline as the 0% masked point when `results/baselines/idlg_baselines_registry.json` contains the corresponding baseline key.
+- **Combined masking sweeps:** Use `helper/plot_combined_masking_sweep_summary.py` when comparing several network sweep CSVs in one plot. It uses Seaborn styling and treats the baseline as the natural `0%` point; the masked top-fraction points continue at 10, 20, ... without adding a separate `100` tick.
+- **Registry-key ablation boxplots:** Use `helper/plot_registry_key_boxplots.py` for layer ablations. It accepts either `--keys ... --labels ...` or `--spec_csv ...`, looks up masked entries in `masked_registry[_v2].json`, finds the matching iDLG baseline from comparable args, aligns samples by overlapping `run_id`, and plots paired differences. The common thesis setting is `--metric psnr`, with groups ordered as L-BFGS/no-pretrain, L-BFGS/pretrained, Signed AdamW/no-pretrain, Signed AdamW/pretrained.
+- **Paired masking violin plots:** Use `helper/plot_paired_masking_violin.py` to compare baseline vs masked per-sample distributions. `--metrics psnr,ssim` is the preferred paper setting; `--pair DATASET BASELINE_KEY MASKED_KEY` can combine CIFAR-100 and LFW in one figure.
+- **Parameter count plot:** Use `helper/plot_model_parameter_counts.py` to generate the log-scale model parameter-count figure. Labels are offset above bars to avoid overlap on dense plots.
 - **Jacobian dtype comparisons:** `functions/jacobian_rank_sweep.py --both_dtypes` executes the same sweep for `float32` and `float64`, writes one CSV with a `dtype` column, and saves one overlaid plot. If `--qr_pivot` is also enabled, the QR-pivot lines are dashed and use the same color as the corresponding dtype.
 - **VGG fraction sweeps:** For `gradsize_topfrac_entries_layer` on VGG, all `classifier.*` layers (`classifier.0/3/6.*`) are excluded automatically, which substantially reduces VGG sweep runtime and memory use. Label inference is unaffected (it reads the original unmasked `classifier.6` gradient). To include `classifier.6` (or any specific classifier layer) in the reconstruction, switch to `prefix_topfrac_entries_layer` and list it in `--prefixes`.
 - **Row normalisation in rank sweep:** Default is **no normalisation** — the relative threshold reflects actual gradient magnitudes. Pass `--normalise` to L2-normalise rows before `matrix_rank`. If you enable normalisation, verify rank is non-decreasing across row counts as a sanity check.
@@ -203,7 +211,15 @@ For each experiment, the flow is:
 - `functions/experiment_results.py` owns aggregation, paired summaries, CSV row
   construction, and masking-sweep CSV writes.
 - `helper/plot_masking_sweep_csv.py` plots registry-backed masking sweeps.
-- `helper/plots.py` plots layer-ablation PSNR confidence intervals.
+- `helper/plot_combined_masking_sweep_summary.py` combines several sweep summaries
+  into one Seaborn plot.
+- `helper/plot_registry_key_boxplots.py` plots paired per-sample layer-ablation
+  differences from registry keys.
+- `helper/plot_paired_masking_violin.py` plots baseline/masked paired
+  distributions from registry keys or corrected per-sample CSVs.
+- `helper/plot_model_parameter_counts.py` plots log-scale parameter counts.
+- `helper/plots.py` is the older forest-plot path for layer-ablation PSNR
+  confidence intervals.
 - Statistical charts use Seaborn. Matplotlib remains the backend for axes,
   saving, and image rendering.
 - `iDLG_mask.py` can continue without plots when plotting libraries fail to

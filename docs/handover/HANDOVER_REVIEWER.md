@@ -2,7 +2,7 @@
 
 **Audience:** An agent or developer performing a targeted code review or cleanup task. Read this before touching any file.
 
-**Last updated:** 2026-05-31
+**Last updated:** 2026-06-06
 
 ---
 
@@ -56,7 +56,11 @@ This is a Python 3.13 research codebase for running gradient inversion attack ex
 | `helper/training_utils.py` | LOW | `make_scheduler` |
 | `helper/visualization.py` | LOW | Panel PNG, animated GIF, restart curve/image output |
 | `helper/plot_masking_sweep_csv.py` | LOW | Reads sweep CSV rows containing `masked_key`, resolves MSE lists from `masked_registry.json`, and writes threshold plots; default `--threshold_mse 0.01` |
-| `helper/plots.py` | LOW | Standalone Seaborn forest plots for layer-ablation PSNR confidence intervals |
+| `helper/plot_combined_masking_sweep_summary.py` | LOW | Combines several masking sweep summaries into one Seaborn comparison plot |
+| `helper/plot_registry_key_boxplots.py` | LOW | Registry-key layer-ablation boxplots from paired per-sample differences |
+| `helper/plot_paired_masking_violin.py` | LOW | Baseline vs masked paired violin/box plots from registry keys or corrected per-sample CSVs |
+| `helper/plot_model_parameter_counts.py` | LOW | Log-scale architecture parameter-count plot |
+| `helper/plots.py` | LOW | Older standalone Seaborn forest plots for layer-ablation PSNR confidence intervals |
 
 **`archive/`** — retired scripts (`iDLG_original.py`, `run_single_exp_batch.py`, old visualize/testing scripts). Nothing imports from these.
 
@@ -111,6 +115,11 @@ No function signatures have type annotations. This makes it hard to understand w
 **Reproducibility:** Every worker sets `torch.manual_seed(seed)`, `torch.cuda.manual_seed_all(seed)`, and `np.random.seed(seed)` using `seed = config['run_id'] + idx_net + 1`. Preserve this pattern.
 
 **Plotting:** Active statistical charts use seaborn (`sns.lineplot`, `sns.barplot`). Matplotlib remains for the Agg backend, figure/axis creation, `imshow` image panels/GIF frames, layout, labels, and saving. Do not convert reconstruction image grids to seaborn heatmaps.
+
+**Registry-backed plots:** Scripts that consume registry keys should read both
+legacy and `_v2` baseline/masked registries when possible. For paired sample
+plots, align entries by overlapping `run_id` ranges; do not assume two registry
+entries have the same start index.
 
 **Matplotlib Agg backend:** `helper/visualization.py` line 2 sets `matplotlib.use("Agg")` before importing pyplot. This must remain the first import in any file that uses matplotlib, or it will crash on headless servers.
 

@@ -1,6 +1,6 @@
 # Current Project Handover
 
-**Last updated:** 2026-05-31
+**Last updated:** 2026-06-06
 
 Read this file first when starting a new chat or development session.
 
@@ -35,6 +35,10 @@ owns reconstruction behavior. Do not execute `run_single_exp.py` directly.
 - Treat `invertinggradients/` as read-only reference code.
 - Keep statistical charts in Seaborn. Matplotlib remains appropriate for the
   Agg backend, axes, file saving, and image rendering with `imshow()`.
+- Registry-backed analysis scripts should read both legacy and `_v2` registry
+  files when possible. Some experiments were appended in multiple batches, so
+  paired plotting must align samples by overlapping `run_id` ranges rather than
+  assuming both registry entries start at zero.
 
 ## Handover Maintenance Rule
 
