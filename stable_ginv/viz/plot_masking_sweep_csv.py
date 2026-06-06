@@ -318,6 +318,20 @@ def _plot(rows, threshold, out_dir):
 
 
 def main():
+    """Plot masking-sweep reconstruction counts from a gradsize_topfrac sweep CSV.
+
+    Reads a sweep CSV whose rows reference entries in the masked and baseline
+    registries, deduplicates to keep only the latest result per ``topfrac``
+    value, optionally looks up the matching iDLG baseline (the unmasked 0 %
+    point), and writes the following outputs under ``--out_dir``:
+
+    * A per-budget summary CSV (``masking_sweep_summary_<network>_<dataset>_threshold_<t>.csv``)
+      with columns network, dataset, source, topfrac, pct_masked,
+      n_reconstructed, n_total, avg_mse, median_mse, command.
+    * A line-plot PNG (``sweep_plot_<suffix>.png``) showing
+      *n_reconstructed* vs. *pct_masked*.
+    * A bar-chart PNG (``sweep_bar_<suffix>.png``) with the same data.
+    """
     parser = argparse.ArgumentParser()
     parser.add_argument('csv_path', help='CSV produced by normal iDLG_mask.py gradsize_topfrac_entries_layer runs')
     parser.add_argument('--threshold_mse', type=float, default=0.01)

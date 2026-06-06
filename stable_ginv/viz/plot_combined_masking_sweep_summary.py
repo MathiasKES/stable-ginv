@@ -199,6 +199,22 @@ def _plot(rows, out_path, include_baseline):
 
 
 def main():
+    """Overlay multiple masking-sweep summary CSVs in one figure.
+
+    Reads one or more ``masking_sweep_summary_*.csv`` files produced by
+    ``plot_masking_sweep_csv.py``, merges their rows, and writes three
+    outputs next to ``--out_path``:
+
+    * A line-plot PNG comparing *n_reconstructed* vs. *pct_masked* for
+      every network present in the combined data.
+    * A merged summary CSV (``<stem>_table.csv`` by default) containing
+      the sorted rows for all networks and conditions.
+    * A LaTeX table (``<stem>_table.tex`` by default) suitable for
+      inclusion in a paper.
+
+    Baseline markers (``source == "baseline"`` rows) are drawn as
+    open diamonds on the plot unless ``--no_baseline`` is given.
+    """
     parser = argparse.ArgumentParser()
     parser.add_argument("summary_csv", nargs="+", help="masking_sweep_summary_*.csv files")
     parser.add_argument(

@@ -382,6 +382,27 @@ def _print_extremes(rows):
 
 
 def main():
+    """Plot paired per-sample reconstruction metrics for a baseline/masked pair.
+
+    Data source (mutually exclusive):
+
+    * ``--paired_csv_path`` — a pre-built per-sample CSV; registry loading is
+      skipped entirely.
+    * ``--baseline_key`` + ``--masked_key`` — keys looked up in the masked and
+      baseline registries (``masked_registry[_v2].json`` and
+      ``idlg_baselines_registry[_v2].json`` under the resolved storage path
+      unless overridden).  A single combined registry JSON can also be passed
+      as the optional positional ``registry_path`` argument.
+
+    Writes the following files under ``--out_dir``:
+
+    * ``<prefix>_per_sample.csv`` — per-sample PSNR/MSE/SSIM for both methods
+      and their deltas.
+    * ``<prefix>_violin.png`` — side-by-side violin + strip plot.
+    * ``<prefix>_boxplot.png`` — side-by-side box + strip plot.
+    * ``<prefix>_delta_violin.png`` — per-metric improvement violin.
+    * ``<prefix>_delta_boxplot.png`` — per-metric improvement box plot.
+    """
     parser = argparse.ArgumentParser(
         description="Plot paired baseline and masked per-sample reconstruction metrics."
     )

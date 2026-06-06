@@ -176,6 +176,7 @@ def _reconstruct(net, gt_data, gt_label, criterion, entry_masks,
 
     for _ in range(n_iter):
         def closure():
+            """Compute the combined gradient-matching + TV loss for L-BFGS."""
             optimizer.zero_grad()
             pred = net(dummy_data)
             dummy_loss = criterion(pred, label_pred)
@@ -209,6 +210,28 @@ def _reconstruct(net, gt_data, gt_label, criterion, entry_masks,
 # ---------------------------------------------------------------------------
 
 def main():
+    """Run the rank-reconstruction sweep and save a side-by-side figure.
+
+    For each gradient budget in ``--row_counts`` the function:
+
+    1. Builds an entry mask selecting the top-k gradient entries (global
+       topk by ``|grad|`` when ``--keep_fc`` is not set; non-FC entries only
+       when ``--keep_fc`` is set, using ``--select_mode``).
+    2. Runs L-BFGS reconstruction (``--n_iter`` steps, ``--lr`` learning rate,
+       ``--tv_weight`` TV regularisation) from a random initialisation.
+    3. Computes the Jacobian rank with that exact entry mask (in float64 on
+       CPU to avoid float32 rank underestimation).
+
+    Produces a PNG at ``--output`` showing the ground-truth image followed by
+    one reconstructed panel per budget, each annotated with the entry count,
+    Jacobian rank, and PSNR.  Full-rank panels are titled in green; partial-rank
+    panels in red.
+
+    Parameters
+    ----------
+    None
+        All inputs are taken from ``sys.argv`` via :mod:`argparse`.
+    """
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--network",    default="lenet")

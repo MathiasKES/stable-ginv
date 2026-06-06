@@ -23,10 +23,39 @@ DISPLAY_NAMES = {
 
 
 def count_parameters(model):
+    """Count the total number of scalar parameters in a model.
+
+    Parameters
+    ----------
+    model : torch.nn.Module
+        The model whose parameters are to be counted.
+
+    Returns
+    -------
+    int
+        Total number of elements across all parameter tensors.
+    """
     return sum(parameter.numel() for parameter in model.parameters())
 
 
 def count_parameters_without_classifier(model):
+    """Count parameters excluding all ``nn.Linear`` and classifier layers.
+
+    Any parameter that belongs to an ``nn.Linear`` module, the ``classifier``
+    module, or any submodule whose name starts with ``"classifier."`` is
+    excluded from the count.
+
+    Parameters
+    ----------
+    model : torch.nn.Module
+        The model whose backbone (non-classifier) parameters are counted.
+
+    Returns
+    -------
+    int
+        Total number of elements in parameters not belonging to any linear
+        or classifier module.
+    """
     excluded_parameters = set()
     for name, module in model.named_modules():
         if isinstance(module, nn.Linear) or name == "classifier" or name.startswith("classifier."):
@@ -39,6 +68,25 @@ def count_parameters_without_classifier(model):
 
 
 def get_parameter_counts(channel, num_classes, input_size):
+    """Instantiate each model in ``MODEL_NAMES`` and return its parameter counts.
+
+    Parameters
+    ----------
+    channel : int
+        Number of input image channels (e.g. 3 for RGB).
+    num_classes : int
+        Number of output classes used to size the classifier head.
+    input_size : tuple of int
+        Spatial resolution ``(H, W)`` passed to :func:`get_model`.
+
+    Returns
+    -------
+    list of tuple
+        Each element is ``(display_name, total_params, backbone_params)``
+        where *display_name* is the human-readable network name from
+        :data:`DISPLAY_NAMES`, *total_params* is the full parameter count,
+        and *backbone_params* excludes classifier / fully connected layers.
+    """
     counts = []
     for network in MODEL_NAMES:
         model = get_model(
@@ -56,6 +104,21 @@ def get_parameter_counts(channel, num_classes, input_size):
 
 
 def save_parameter_count_plot(counts, output_path):
+    """Render and save a grouped bar chart of model parameter counts.
+
+    Draws two bars per model: total parameter count and backbone-only count
+    (without classifier / fully connected layers).  The y-axis uses a log
+    scale; each bar is labelled with the exact integer count.
+
+    Parameters
+    ----------
+    counts : list of tuple
+        Sequence of ``(display_name, total_params, backbone_params)`` as
+        returned by :func:`get_parameter_counts`.
+    output_path : str
+        Destination path for the PNG figure (e.g.
+        ``"results/model_parameter_counts_log.png"``).
+    """
     labels = [label for label, _, _ in counts]
     total_counts = [total for _, total, _ in counts]
     backbone_counts = [backbone for _, _, backbone in counts]
@@ -111,6 +174,13 @@ def save_parameter_count_plot(counts, output_path):
 
 
 def main():
+    """Compute and plot parameter counts for all experiment model architectures.
+
+    Instantiates each architecture listed in :data:`MODEL_NAMES` using the
+    specified ``--channel``, ``--num_classes``, and ``--input_size``, prints a
+    summary line per model to stdout, and saves a grouped bar-chart PNG to
+    ``--output``.
+    """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--channel", type=int, default=3)
     parser.add_argument("--num_classes", type=int, default=10)

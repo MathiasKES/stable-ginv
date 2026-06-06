@@ -221,6 +221,17 @@ def plot_normality(records, layer_order, alpha, network, out_path):
 
 
 def main():
+    """Plot Shapiro-Wilk normality scatter grid for masked ablation experiments.
+
+    Reads a ``*_normality`` field from each ``method == "masked"`` entry in
+    ``--results_json``, determines which network layer group was withheld for
+    that entry, and accumulates (W, p) pairs for every (metric, grad_loss,
+    pretrained) combination.
+
+    Calls :func:`plot_normality` to render a 2 x 2 facet scatter grid
+    (rows = pretrained state, columns = W statistic / p-value) and saves the
+    figure to ``<out_dir>/<output_prefix>.png``.
+    """
     parser = argparse.ArgumentParser(
         description="Plot Shapiro-Wilk normality (W, p) scatter grid for masked "
                     "ablation experiments."
