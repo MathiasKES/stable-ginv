@@ -24,7 +24,7 @@ autodoc_typehints = "description"
 # The package is near-empty in Phase 0; autodoc must not fail the build if heavy
 # optional imports are unavailable in the docs runner.
 autodoc_mock_imports = ["torch", "torchvision", "scipy", "skimage", "seaborn",
-                        "matplotlib", "numpy", "imageio", "PIL", "tqdm"]
+                        "matplotlib", "numpy", "imageio", "PIL", "tqdm", "pandas"]
 
 templates_path = ["_templates"]
 exclude_patterns = ["_build"]
@@ -33,3 +33,9 @@ html_theme = "sphinx_rtd_theme"
 html_static_path = []
 
 intersphinx_mapping = {"python": ("https://docs.python.org/3", None)}
+
+# stable_ginv/viz/plot_rank_reconstruction.py reuses its module docstring verbatim
+# as argparse --help text (description=__doc__), so the literal "|grad|" in it must
+# stay. Define the substitution here so docutils renders it literally instead of
+# erroring on an undefined substitution.
+rst_prolog = r".. |grad| replace:: \|grad\|"
