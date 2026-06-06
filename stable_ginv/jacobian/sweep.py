@@ -272,6 +272,7 @@ def _mp_worker(rank, world_size, args, sample_chunks, row_counts, prefixes, pref
     _seed_all(args.run_id + 1 + rank)
 
     def progress_fn(n):
+        """Increment the shared progress counter by n steps under the process lock."""
         with progress_lock:
             progress_counter.value += n
 

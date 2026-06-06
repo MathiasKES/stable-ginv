@@ -67,15 +67,24 @@ def setstdout(ts=None, path=None):
         return None
 
     class Tee:
+        """File-like object that mirrors writes to multiple underlying streams.
+
+        Used to duplicate stdout to a log file so that all terminal output is
+        also persisted without requiring callers to change their print statements.
+        """
+
         def __init__(self, *streams):
+            """Store the streams that every write and flush will be forwarded to."""
             self.streams = streams
 
         def write(self, data):
+            """Write data to every stream, flushing each one immediately after."""
             for stream in self.streams:
                 stream.write(data)
                 stream.flush()
 
         def flush(self):
+            """Flush every underlying stream."""
             for stream in self.streams:
                 stream.flush()
 

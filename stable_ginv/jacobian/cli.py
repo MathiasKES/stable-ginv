@@ -39,6 +39,13 @@ def _parse_explicit_sample_indices(sample_indices_str, dataset_size):
 
 
 def main():
+    """Parse CLI arguments and run the Jacobian rank sweep.
+
+    Builds the gradient-budget grid (``--row_counts`` or ``--stepsize``),
+    dispatches per-dtype sweeps via :func:`~stable_ginv.jacobian.sweep._run_dtype`
+    (serial or multiprocessing), then writes the summary CSV and a rank-vs-rows
+    line plot to the configured save directory.
+    """
     parser = argparse.ArgumentParser()
 
     parser.add_argument("--network", type=str, default="resnet18")
