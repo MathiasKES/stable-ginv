@@ -27,7 +27,7 @@ from the repository root.
 **A CUDA GPU is strongly recommended.** The reconstruction runner parallelises
 across all visible `cuda:N` devices. If no GPU is detected it falls back to a
 single CPU worker, which is **much slower** and intended only for small test
-configurations — not for real experiments.
+configurations.
 
 ```bash
 # 1. Clone and enter the repo
@@ -207,7 +207,7 @@ metadata is also provided in [`CITATION.cff`](CITATION.cff).
 
 ```bibtex
 @misc{stablegradinv2026,
-  author = {Aqraou, Alfred and Afif, Ali and S{\o}rensen, Mathias},
+  author = {Aqraou, Alfred and Afif, Ali and Sørensen, Mathias},
   title  = {Stabilizing Gradient Inversion in Federated Learning},
   year   = {2026},
   note   = {Bachelor's thesis, Technical University of Denmark (DTU)},
