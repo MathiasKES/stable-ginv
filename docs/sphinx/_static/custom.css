@@ -3,3 +3,19 @@
 .wy-nav-content {
     max-width: none;
 }
+
+/* Make the content area fill at least the full viewport height so it spans the
+   same height as its wrapper (.wy-nav-content-wrap). */
+.wy-nav-content {
+    min-height: 100vh;
+}
+
+/* Group the "Previous" and "Next" buttons next to each other at the bottom-left
+   of the footer (the theme floats them to opposite edges by default). Floats are
+   ignored on flex items, so this overrides .float-left / .float-right. The
+   buttons stay in their normal footer position, above the copyright line. */
+.rst-footer-buttons {
+    display: flex;
+    justify-content: flex-start;
+    gap: 0.5em;
+}
