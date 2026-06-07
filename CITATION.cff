@@ -2,9 +2,9 @@ cff-version: 1.2.0
 message: "If you use this software, please cite it using these metadata."
 title: "Stabilizing Gradient Inversion in Federated Learning"
 abstract: >-
-  Research codebase studying how gradient masking degrades the iDLG gradient
-  inversion attack on federated learning. Bachelor's thesis project, Technical
-  University of Denmark (DTU), 2026.
+  Research codebase studying how gradient masking can improve image 
+  reconstruction from gradient inversion attacks in federated learning. 
+  Bachelor's thesis project, Technical University of Denmark (DTU), 2026.
 authors:
   - family-names: Aqraou
     given-names: Alfred
