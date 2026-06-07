@@ -4,18 +4,33 @@
     max-width: none;
 }
 
-/* Make the content area fill at least the full viewport height so it spans the
-   same height as its wrapper (.wy-nav-content-wrap). */
+/* Push the footer to the bottom of the viewport. Make the content column span at
+   least the full screen height, then let the main document area grow to fill the
+   gap between the content and the <footer> so the footer sits at the bottom. */
 .wy-nav-content {
     min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+.wy-nav-content > .rst-content {
+    flex: 1 0 auto;
+    display: flex;
+    flex-direction: column;
+}
+.rst-content > .document {
+    flex: 1 0 auto;
 }
 
-/* Group the "Previous" and "Next" buttons next to each other at the bottom-left
-   of the footer (the theme floats them to opposite edges by default). Floats are
-   ignored on flex items, so this overrides .float-left / .float-right. The
-   buttons stay in their normal footer position, above the copyright line. */
+/* Group "Previous" and "Next" next to each other at the bottom-left of the
+   footer (the theme floats them to opposite edges). The theme also adds clearfix
+   ::before/::after pseudo-elements with width:100%; as flex items those would
+   shove the buttons toward the centre, so suppress them. */
 .rst-footer-buttons {
     display: flex;
     justify-content: flex-start;
     gap: 0.5em;
+}
+.rst-footer-buttons::before,
+.rst-footer-buttons::after {
+    display: none;
 }
