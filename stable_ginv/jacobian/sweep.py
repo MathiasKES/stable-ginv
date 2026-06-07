@@ -171,7 +171,14 @@ def _worker_core(args, sample_indices, device, row_counts, prefixes, prefix_laye
     tt = transforms.Compose([transforms.ToTensor()])
     criterion = nn.CrossEntropyLoss().to(device)
 
-    if args.pretrained and channel == 3:
+    # Sigmoid-based networks require raw [0,1] inputs — dataset normalisation
+    # shifts inputs to ≈[-2, +2], saturating the sigmoid and zeroing conv
+    # gradients. Match run_single_exp.py behaviour for these architectures.
+    _sigmoid_nets = {"LeNet", "LeNet_bigger", "MediumCNN", "BiggerCNN"}
+    if args.network in _sigmoid_nets:
+        dm = torch.zeros(1, channel, 1, 1, device=device, dtype=dtype)
+        ds = torch.ones(1, channel, 1, 1, device=device, dtype=dtype)
+    elif args.pretrained and channel == 3:
         dm = torch.tensor(consts.imagenet_mean, device=device, dtype=dtype).view(1, channel, 1, 1)
         ds = torch.tensor(consts.imagenet_std, device=device, dtype=dtype).view(1, channel, 1, 1)
     else:

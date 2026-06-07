@@ -1,17 +1,14 @@
-"""Golden test: the rank-vs-reconstruction mask builders are byte-stable across
-the Phase 8 move.
+"""Golden test: the rank-vs-reconstruction entry-mask builder is byte-stable.
 
-`_build_global_topk_masks` and `_build_keepfc_masks` (topk_abs path) select the
-top-|grad| entries that define each reconstruction budget. Synthetic CPU grads
-make the selected indices deterministic. Imported from the OLD path here;
-repointed to stable_ginv.viz.plot_rank_reconstruction in Task 6.
+`_build_entry_masks` (topk_abs path) selects the top-|grad| entries that define
+each reconstruction budget — globally (``exclude_fc=False``) or over non-FC
+params only (``exclude_fc=True``, the --keep_fc path). Synthetic CPU grads make
+the selected indices deterministic. ``net`` is unused on the topk_abs path, so
+``None`` is passed here.
 """
 import torch
 
-from stable_ginv.viz.plot_rank_reconstruction import (
-    _build_global_topk_masks,
-    _build_keepfc_masks,
-)
+from stable_ginv.viz.plot_rank_reconstruction import _build_entry_masks
 from tests.golden.helpers import load_or_regen
 
 
@@ -40,10 +37,14 @@ def _produce():
     grads = _fixed_grads()
     fc_ids = {3}  # last tensor is the FC layer
     return {
-        "global_topk_b6": _masks_to_indices(_build_global_topk_masks(grads, 6)),
-        "global_topk_b3": _masks_to_indices(_build_global_topk_masks(grads, 3)),
+        "global_topk_b6": _masks_to_indices(
+            _build_entry_masks(grads, set(), 6, "topk_abs", None, False)
+        ),
+        "global_topk_b3": _masks_to_indices(
+            _build_entry_masks(grads, set(), 3, "topk_abs", None, False)
+        ),
         "keepfc_topk_b4": _masks_to_indices(
-            _build_keepfc_masks(grads, fc_ids, 4, select_mode="topk_abs")
+            _build_entry_masks(grads, fc_ids, 4, "topk_abs", None, True)
         ),
     }
 

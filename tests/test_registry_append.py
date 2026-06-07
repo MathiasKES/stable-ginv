@@ -68,6 +68,28 @@ def test_baseline_registry_appends_contiguous_sample_ranges():
     assert entry["best_ssim_list"] == [7.0, 8.0, 9.0, 14.0, 15.0]
 
 
+def test_masked_registry_prepends_earlier_contiguous_sample_range():
+    registry = {}
+    key, later_args = masked_key_from_args(_args(run_id=30, num_exp=2))
+    _, earlier_args = masked_key_from_args(_args(run_id=0, num_exp=30))
+
+    update_masked_registry(registry, key, later_args, [30, 31], [130, 131], [230, 231])
+    entry = update_masked_registry(
+        registry,
+        key,
+        earlier_args,
+        list(range(30)),
+        list(range(100, 130)),
+        list(range(200, 230)),
+    )
+
+    assert entry["args"]["run_id"] == 0
+    assert entry["args"]["num_exp"] == 32
+    assert entry["best_psnr_list"] == [float(v) for v in range(32)]
+    assert entry["best_mse_list"] == [float(v) for v in range(100, 132)]
+    assert entry["best_ssim_list"] == [float(v) for v in range(200, 232)]
+
+
 def test_masked_registry_appends_only_unseen_suffix_from_overlapping_range():
     registry = {}
     key, first_args = masked_key_from_args(_args(run_id=0, num_exp=3))
@@ -82,6 +104,33 @@ def test_masked_registry_appends_only_unseen_suffix_from_overlapping_range():
     assert entry["best_psnr_list"] == [1.0, 2.0, 3.0, 11.0]
     assert entry["best_mse_list"] == [4.0, 5.0, 6.0, 13.0]
     assert entry["best_ssim_list"] == [7.0, 8.0, 9.0, 15.0]
+
+
+def test_registry_copies_legacy_key_before_prepending_without_editing_old_entry():
+    registry = {}
+    key, later_args = baseline_key_from_args(_args(run_id=30, num_exp=2))
+    _, earlier_args = baseline_key_from_args(_args(run_id=0, num_exp=30))
+    legacy_entry = {
+        "args": later_args,
+        "best_psnr_list": [30.0, 31.0],
+        "best_mse_list": [130.0, 131.0],
+        "best_ssim_list": [230.0, 231.0],
+    }
+    registry["legacy-key"] = legacy_entry
+
+    update_idlg_baseline(
+        registry,
+        key,
+        earlier_args,
+        list(range(30)),
+        list(range(100, 130)),
+        list(range(200, 230)),
+    )
+
+    assert registry["legacy-key"] == legacy_entry
+    assert registry[key]["args"]["run_id"] == 0
+    assert registry[key]["args"]["num_exp"] == 32
+    assert registry[key]["best_psnr_list"] == [float(v) for v in range(32)]
 
 
 def test_registry_overwrites_exact_existing_range_with_newest_metrics():
