@@ -1,12 +1,12 @@
-"""Locks make_scheduler's MultiStepLR milestones/gamma before the Phase 5 recon move.
+"""Locks make_scheduler's MultiStepLR milestones/gamma.
 
 make_scheduler is not covered by the recon-worker golden (that golden uses
 optimizer='lbfgs', which never builds a scheduler), so this test guards the
-scheduler factory's relocation into stable_ginv/recon/scheduler.py.
+scheduler factory in stable_ginv/recon/scheduler.py.
 """
 import torch
 
-from helper.training_utils import make_scheduler
+from stable_ginv.recon.scheduler import make_scheduler
 
 
 def _scheduler_for(iteration, gamma=0.5):

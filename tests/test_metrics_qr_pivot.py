@@ -11,12 +11,12 @@ def test_metrics_import_does_not_eagerly_load_scipy_linalg():
     # scipy.linalg must stay out of worker startup: a normal run does no QR
     # pivoting, and importing scipy.linalg can fail on HPC with an old system
     # C++ runtime. (skimage pulls in scipy core but not scipy.linalg.)
-    for target in ("stable_ginv.metrics", "helper.metrics"):
-        code = f"import {target}, sys; print('scipy.linalg' in sys.modules)"
-        out = subprocess.run(
-            [sys.executable, "-c", code], capture_output=True, text=True, check=True
-        )
-        assert out.stdout.strip() == "False", f"{target} eagerly loaded scipy.linalg"
+    target = "stable_ginv.metrics"
+    code = f"import {target}, sys; print('scipy.linalg' in sys.modules)"
+    out = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, check=True
+    )
+    assert out.stdout.strip() == "False", f"{target} eagerly loaded scipy.linalg"
 
 
 def test_load_scipy_linalg_is_cached():

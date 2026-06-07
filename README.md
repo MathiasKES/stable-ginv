@@ -1,7 +1,7 @@
 # stable-ginv
 
-Research codebase for studying gradient inversion attacks on federated learning.  
-Bachelor's thesis project — DTU, 2026.
+Research codebase for studying gradient inversion attacks on federated learning.
+Bachelor's thesis project — Technical University of Denmark (DTU), 2026.
 
 ---
 
@@ -11,76 +11,105 @@ Implements the gradient inversion attack family — **DLG** (Zhu et al., 2019),
 **iDLG** (Zhao et al., 2020), and **Inverting Gradients** (Geiping et al., 2020,
 cosine-similarity matching with a total-variation prior).
 
-An adversary who receives gradient updates can reconstruct the private training images that produced them.
+An adversary who receives gradient updates can reconstruct the private training
+images that produced them. This project studies how **gradient masking** —
+selectively withholding parts of the gradient — affects reconstruction, using
+masking as a diagnostic tool to test whether a failed attack reflects missing
+information or merely a poor optimization signal.
 
-This project studies how **gradient masking** — selectively withholding parts of the gradient — affects reconstruction, using masking as a diagnostic tool to test whether a failed attack reflects missing information or merely a poor optimization signal.
+All experiment logic lives in the `stable_ginv` package. Commands below are run
+from the repository root.
 
 ---
 
-## Quick Start
+## Setup
 
 **A CUDA GPU is strongly recommended.** The reconstruction runner parallelises
-across all visible `cuda:N` devices. If no GPU is detected it automatically
-falls back to a single CPU worker, which is **much slower** and intended only
-for testing on small configurations — not for real experiments.
+across all visible `cuda:N` devices. If no GPU is detected it falls back to a
+single CPU worker, which is **much slower** and intended only for small test
+configurations — not for real experiments.
 
 ```bash
-# GPU machine: create and activate the environment (CUDA 12.6 PyTorch build)
+# 1. Clone and enter the repo
+git clone https://github.com/MathiasKES/stable-ginv.git
+cd stable-ginv
+
+# 2. Create the environment (CUDA 12.6 PyTorch build) and activate it
 conda env create -f env/environment.yml
-conda activate stable-ginv   # env name is defined in env/environment.yml
+conda activate stable-ginv          # env name is "stable-ginv" (see env/environment.yml)
 
-# CPU-only machine: use the CPU PyTorch build instead
-# conda env create -f env/environment-cpu.yml
+# CPU-only machine instead: conda env create -f env/environment-cpu.yml
 
-# On DTU HPC: load modules first
-source scripts/init.sh
+# 3. Make the package importable
+pip install -e .
 
-# Check whether a GPU is visible (False ⇒ the slow CPU fallback will be used)
-python -c "import torch; print(torch.cuda.is_available())"
+# 4. Verify the GPU is visible (prints True and the device name)
+python -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_name(0))"
 ```
 
-Run experiments across available GPUs:
+**On the DTU HPC cluster**, load the CUDA module and prepend the conda library
+path before running Python (otherwise SciPy/Matplotlib may load the system C++
+runtime and fail with `CXXABI_1.3.15 not found`):
 
 ```bash
-python iDLG_mask.py --dataset cifar10 --network resnet18 --methods both \
+source scripts/init.sh
+export LD_LIBRARY_PATH="$CONDA_PREFIX/lib:$LD_LIBRARY_PATH"
+```
+
+---
+
+## Running Experiments
+
+The batch runner parses arguments, schedules workers across the available GPUs,
+and writes the CSV, reconstruction panels, and (optionally) animated GIFs:
+
+```bash
+python -m stable_ginv.cli.batch \
+    --dataset cifar10 --network resnet18 --methods both \
     --mask_mode gradsize_topfrac --gradsize_topfrac 0.5 --num_exp 10
 ```
 
+See all arguments and defaults:
+
+```bash
+python -m stable_ginv.cli.batch --help
+```
+
 ---
 
-## Project Structure
+## Plotting & Analysis
 
+Each plotting tool is a runnable module:
+
+```bash
+# Masking-sweep line + bar charts from a sweep CSV
+python -m stable_ginv.viz.plot_masking_sweep_csv results/masking_sweeps/<sweep>.csv
+
+# Combine several sweep-summary CSVs into one figure
+python -m stable_ginv.viz.plot_combined_masking_sweep_summary <summary1.csv> <summary2.csv> ...
+
+# Paired baseline-vs-masked violin plots from registry keys
+python -m stable_ginv.viz.plot_paired_masking_violin --baseline_key <k> --masked_key <k> --out_dir results
+
+# Normality scatter, model parameter counts, rank-vs-reconstruction
+python -m stable_ginv.viz.plot_normality_scatter --help
+python -m stable_ginv.viz.plot_model_parameter_counts
+python -m stable_ginv.viz.plot_rank_reconstruction --help
+
+# Jacobian rank sweep (serial or parallel via mp.spawn)
+python -m stable_ginv.jacobian.cli --help
+
+# Paired PSNR/MSE boxplots for registry-keyed layer ablations
+python helper/plot_registry_key_boxplots.py --keys <k1> <k2> --metric psnr --out_dir results/ablation_boxplots
 ```
-stable-ginv/
-├── iDLG_mask.py          Batch runner — multi-GPU, argument parsing, CSV + PNG output
-├── run_single_exp.py     Worker — reconstruction, metrics, GIF frames, Jacobian rank
-│
-├── functions/
-│   ├── masking.py        All gradient masking strategies (build_gradient_mask, etc.)
-│   ├── io_utils.py       Baseline registry, paired t-test, CSV helpers
-│   ├── Dataset.py        LFW dataset loader
-│   ├── consts.py         Normalization constants (mean/std per dataset)
-│   └── jacobian_rank_sweep.py  Serial Jacobian rank sweep
-│
-├── helper/
-│   ├── Network.py        Model factory (get_model) + custom CNNs (LeNet, MediumCNN, etc.)
-│   ├── metrics.py        PSNR, SSIM, total variation, Jacobian rank, grad match loss
-│   ├── training_utils.py make_scheduler
-│   ├── visualization.py  save_recon_panel, save_recon_gif, restart outputs
-│   ├── plot_masking_sweep_csv.py  Plot registry-backed masking sweep CSVs
-│   └── plots.py           Plot layer-ablation PSNR confidence intervals
-│
-├── archive/              Retired scripts — not imported anywhere, kept for reference
-├── scripts/              DTU HPC job scripts (LSF scheduler)
-├── docs/                 Handover files, improvement plan, codebase map
-└── artifacts/            Generated plots, figures, data, and logs
-```
+
+Pass `--help` to any of the above for its full option list.
 
 ---
 
 ## Datasets
 
-MNIST and CIFAR-10/100 download automatically via torchvision.
+MNIST and CIFAR-10/100 download automatically via torchvision on first use.
 
 LFW requires manual setup:
 1. Download `lfw-deepfunneled.tgz` from the LFW project page.
@@ -88,7 +117,7 @@ LFW requires manual setup:
 
 ---
 
-## Key CLI Arguments (`iDLG_mask.py`)
+## Key CLI Arguments (`stable_ginv.cli.batch`)
 
 | Argument | Options | Default |
 |----------|---------|---------|
@@ -121,27 +150,45 @@ results/baselines/masked_registry.json          masked-run registry
 results/masking_sweeps/*.csv                    compact sweep rows for gradsize_topfrac_entries_layer
 ```
 
-Plot a masking sweep CSV with:
+The default reconstruction threshold is `--threshold_mse 0.01`. The summary CSV
+includes `network` and `dataset`, and generated plot titles and filenames show
+both (filenames also include the threshold). If a sweep contains a masked
+`topfrac=1.0` row, it is kept alongside the unmasked iDLG baseline as a separate
+`0% masked` point/bar.
 
-```bash
-python helper/plot_masking_sweep_csv.py results/masking_sweeps/<sweep_csv>.csv
+---
+
+## Project Structure
+
 ```
-
-The default reconstruction threshold is `--threshold_mse 0.01`.
-The summary CSV includes `network` and `dataset`, and the generated plot titles show both.
-Saved filenames include the network, dataset, and threshold.
-If the sweep contains a masked `topfrac=1.0` row, it is kept alongside the unmasked iDLG baseline as a separate `0% masked` point/bar.
+stable-ginv/
+├── stable_ginv/          The package — all experiment logic
+│   ├── cli/              Batch entry point (python -m stable_ginv.cli.batch)
+│   ├── experiment/       GPU scheduling, result aggregation, restart selection
+│   ├── recon/            Reconstruction worker, optimizer, label inference, scheduler
+│   ├── masking/          Gradient masking strategies
+│   ├── metrics/          PSNR, SSIM, total variation, Jacobian rank, grad-match loss
+│   ├── registry/         Baseline/masked registries and CSV summaries
+│   ├── stats/            Paired t-tests and confidence intervals
+│   ├── io/               Storage paths, safe writes, CSV/text helpers
+│   ├── jacobian/         Jacobian rank sweep (compute core + CLI)
+│   └── viz/              Panels, GIFs, restart curves, and the plot_* CLIs
+│
+├── functions/            Dataset loader, normalization constants, CLI arg parser
+├── helper/               Model factory (Network.py) + standalone analysis plots
+├── tests/                Unit + golden regression tests
+├── scripts/              DTU HPC job scripts (LSF scheduler)
+├── docs/                 Sphinx API docs + codebase map
+├── archive/              Retired scripts kept for reference (not imported)
+└── artifacts/            Generated plots, figures, and data
+```
 
 ---
 
 ## Documentation
 
-- [`docs/codebase.md`](docs/codebase.md) — full codebase map, function signatures, config keys
-- [`docs/handover/README.md`](docs/handover/README.md) — current-state starting point for a new session
-- [`docs/handover/HANDOVER_RESEARCHER.md`](docs/handover/HANDOVER_RESEARCHER.md) — for developers continuing the work
-- [`docs/handover/HANDOVER_REVIEWER.md`](docs/handover/HANDOVER_REVIEWER.md) — for code reviewers
-- [`docs/handover/HANDOVER_COLLABORATOR.md`](docs/handover/HANDOVER_COLLABORATOR.md) — for new thesis collaborators
-- [`docs/CODE_CLEANUP.md`](docs/CODE_CLEANUP.md) — conservative cleanup plan
+- [`docs/codebase.md`](docs/codebase.md) — codebase map, key functions, config keys, output schema
+- Sphinx API reference — built from the `stable_ginv` package (see `docs/sphinx/`)
 
 ---
 

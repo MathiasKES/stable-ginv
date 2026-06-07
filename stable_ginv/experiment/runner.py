@@ -1,11 +1,10 @@
 """BatchExperimentRunner: GPU scheduling and multiprocessing for the experiment sweep.
 
-Extracted verbatim from iDLG_mask.py (Phase 6). Owns worker scheduling, output
-ordering (per-experiment, and round-robin restart interleaving when experiments are
-fewer than GPUs), restart merging, and abort-on-worker-failure. Reconstruction
-numerics live in stable_ginv.recon; result aggregation/CSV in
-stable_ginv.experiment.results. The caller supplies a `handle_result` callback that
-receives each completed experiment result in order.
+Owns worker scheduling, output ordering (per-experiment, and round-robin restart
+interleaving when experiments are fewer than GPUs), restart merging, and
+abort-on-worker-failure. Reconstruction numerics live in stable_ginv.recon;
+result aggregation/CSV in stable_ginv.experiment.results. The caller supplies a
+`handle_result` callback that receives each completed experiment result in order.
 """
 import dataclasses
 

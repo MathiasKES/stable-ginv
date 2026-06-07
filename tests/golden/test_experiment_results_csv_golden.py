@@ -1,4 +1,4 @@
-"""Golden test: per-run experiment_results CSV rows are byte-stable across the Phase 6 split.
+"""Golden test: per-run experiment_results CSV rows are byte-stable.
 
 Locks build_common_csv_fields + build_exp_result_rows + append_csv_rows end-to-end:
 column names, column order, the iDLG/masked row construction, float rounding, and the

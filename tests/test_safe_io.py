@@ -7,7 +7,7 @@ Goals
 3. Higher-level wrappers (save_masked_registry, save_baseline_registry,
    write_baseline_summary_csv, safe_savefig) honour both rules.
 4. A failed write does NOT prevent subsequent writes from succeeding
-   (the property the iDLG_mask.py crash was about).
+   (the property the batch-runner crash was about).
 
 Run with:
     conda activate stable-ginv
@@ -182,7 +182,7 @@ class SafeWriteTests(unittest.TestCase):
             cleanup()
 
     def test_failure_does_not_block_later_success(self):
-        """The property whose absence caused the iDLG_mask.py crash."""
+        """The property whose absence caused the batch-runner crash."""
         denied_file, cleanup = _make_denied_dir()
         good = os.path.join(self.tmp, "good.txt")
         try:
@@ -302,7 +302,7 @@ class RegistryWrapperTests(unittest.TestCase):
 
 
 class EndToEndResilienceTests(unittest.TestCase):
-    """Simulate the iDLG_mask.py tail: three registry/summary writes fail,
+    """Simulate the batch-runner tail: three registry/summary writes fail,
     but a subsequent per-experiment CSV append still succeeds — no exception
     bubbles up to crash main()."""
 

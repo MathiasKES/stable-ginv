@@ -1,2 +1,2 @@
 # quick test
-# python iDLG_mask.py --methods idlg --num_exp 2 --network LeNet --dataset MNIST --iteration 10 --optimizer signed_adamw --num_restarts 2
+# python -m stable_ginv.cli.batch --methods idlg --num_exp 2 --network LeNet --dataset MNIST --iteration 10 --optimizer signed_adamw --num_restarts 2

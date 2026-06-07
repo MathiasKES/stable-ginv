@@ -1,8 +1,7 @@
-"""Reconstruction-panel buffers and adaptive-row PNG panel rendering (Phase 7).
+"""Reconstruction-panel buffers and adaptive-row PNG panel rendering.
 
-Extracted verbatim from helper/visualization.py: per-experiment panel buffers,
-ordering by experiment index on flush, and the PNG panel writer whose rows adapt
-to which methods (iDLG / masked) were run.
+Holds per-experiment panel buffers, orders them by experiment index on flush, and
+writes the PNG panel whose rows adapt to which methods (iDLG / masked) were run.
 """
 import os
 

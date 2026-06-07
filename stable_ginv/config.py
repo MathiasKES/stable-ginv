@@ -9,9 +9,9 @@ from typing import Optional
 class ExperimentConfig:
     """Frozen, picklable experiment configuration.
 
-    Replaces the dict built in iDLG_mask.py and unpacked in run_single_exp.py.
-    Dataset-derived fields (channel, num_classes, shape_img) have no defaults
-    and must be provided from load_dataset().  All other defaults match
+    Carries every per-experiment setting from the CLI into the reconstruction
+    worker. Dataset-derived fields (channel, num_classes, shape_img) have no
+    defaults and must be provided from load_dataset().  All other defaults match
     idlg_cli.py argument defaults.
 
     single_restart_idx is None in the base config; parallel-restart dispatch

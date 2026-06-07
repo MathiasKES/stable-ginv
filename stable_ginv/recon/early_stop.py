@@ -6,7 +6,7 @@ import dataclasses
 class EarlyStopPolicy:
     """Stop a restart early once the gradient-matching loss converges.
 
-    Defaults reproduce the original run_single_exp behavior exactly: the loop
+    Defaults reproduce the original reconstruction-loop behavior exactly: the loop
     breaks with reason 'converged' the first iteration the loss drops below
     1e-6, and otherwise reports 'fixed_iterations' after running to completion.
     """

@@ -2,13 +2,13 @@
 Plot paired baseline and masked reconstruction metrics from registry entries.
 
 Example:
-    python helper/plot_paired_masking_violin.py \
+    python -m stable_ginv.viz.plot_paired_masking_violin \
         --baseline_key 0c874fed9a0fd7cfd7467b380dead189 \
         --masked_key b9473c4448bd3cec04ed9bfa37c34561 \
         --out_dir results
 
 For a corrected historical CSV:
-    python helper/plot_paired_masking_violin.py \
+    python -m stable_ginv.viz.plot_paired_masking_violin \
         --paired_csv_path results/50_per_sample_corrected.csv \
         --out_dir . \
         --output_prefix corrected_50

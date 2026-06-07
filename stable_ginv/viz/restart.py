@@ -1,8 +1,8 @@
-"""Restart-curve CSV/PNG and representative per-restart image grid (Phase 7).
+"""Restart-curve CSV/PNG and representative per-restart image grid.
 
-Extracted verbatim from helper/visualization.py: per-restart PSNR statistics,
-paired restart-gain confidence intervals (vs k=1), the restart-curve CSV+PNG
-writer, and the representative per-restart reconstruction image grid.
+Computes per-restart PSNR statistics and paired restart-gain confidence intervals
+(vs k=1), writes the restart-curve CSV+PNG, and renders the representative
+per-restart reconstruction image grid.
 """
 import csv
 import os

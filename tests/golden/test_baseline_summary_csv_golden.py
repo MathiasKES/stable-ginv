@@ -1,4 +1,4 @@
-"""Golden test: baseline summary CSV is byte-stable across the Phase 4 registry split.
+"""Golden test: baseline summary CSV is byte-stable.
 
 Guards write_baseline_summary_csv against accidental changes to columns, ordering,
 float formatting, JSON-encoded list cells, or the dense/sparse SSIM handling.

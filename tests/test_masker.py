@@ -1,4 +1,4 @@
-"""Tests for the Masker facade and STRATEGY_REGISTRY (Phase 3)."""
+"""Tests for the Masker facade and STRATEGY_REGISTRY."""
 import torch
 import torch.nn as nn
 

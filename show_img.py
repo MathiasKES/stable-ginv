@@ -17,7 +17,7 @@ import numpy as np
 import seaborn as sns
 
 from functions.Dataset import load_dataset
-from functions.io_utils import resolve_storage_paths, safe_makedirs, safe_savefig
+from stable_ginv.io import resolve_storage_paths, safe_makedirs, safe_savefig
 
 sns.set_theme(style='white')
 

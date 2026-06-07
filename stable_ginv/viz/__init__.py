@@ -1,8 +1,7 @@
-"""Visualization: reconstruction panels, animated GIFs, and restart curves (Phase 7).
+"""Visualization: reconstruction panels, animated GIFs, and restart curves.
 
-Canonical home for the plotting helpers previously in helper/visualization.py.
 Importing this package sets the Agg backend and the seaborn whitegrid theme as a
-side effect (matching the original module).
+side effect.
 """
 from stable_ginv.viz.panels import (
     append_result_to_panel_buffers,

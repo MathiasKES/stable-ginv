@@ -2,7 +2,7 @@
 Overlay multiple masking-sweep summary CSVs in one plot.
 
 Example:
-    python helper/plot_combined_masking_sweep_summary.py \
+    python -m stable_ginv.viz.plot_combined_masking_sweep_summary \
         results/masking_sweep_summary_LeNet_cifar100_threshold_0p01.csv \
         results/masking_sweep_summary_resnet18_cifar100_threshold_0p01.csv \
         results/masking_sweep_summary_vgg13_cifar100_threshold_0p01.csv \

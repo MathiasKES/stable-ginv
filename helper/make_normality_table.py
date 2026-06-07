@@ -26,7 +26,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from functions.io_utils import safe_makedirs
+from stable_ginv.io import safe_makedirs
 
 
 ABLATION_LAYERS = {

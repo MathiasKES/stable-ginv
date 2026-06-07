@@ -19,7 +19,7 @@ class FakeImageDataset:
     """Minimal dataset matching the worker's `dst[i] -> (HxWxC uint8 array, int)`.
 
     torchvision ToTensor() converts an (H, W, C) uint8 array to a [C, H, W]
-    float tensor in [0, 1], which is exactly what run_single_exp expects.
+    float tensor in [0, 1], which is exactly what the reconstruction worker expects.
     """
 
     def __init__(self, n, channel, size, num_classes, seed=0):

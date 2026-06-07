@@ -2,12 +2,12 @@
 
 The sweep CSV is produced by::
 
-    python iDLG_mask.py --methods masked \
+    python -m stable_ginv.cli.batch --methods masked \
         --mask_mode gradsize_topfrac_entries_layer --gradsize_topfrac 0.5
 
 Example::
 
-    python helper/plot_masking_sweep_csv.py \
+    python -m stable_ginv.viz.plot_masking_sweep_csv \
         results/masking_sweeps/mse_resnet18_cifar100_gradsize_topfrac_entries_layer_<hash>.csv \
         --out_dir results/masking_sweep_plots
 
@@ -333,7 +333,7 @@ def main():
     * A bar-chart PNG (``sweep_bar_<suffix>.png``) with the same data.
     """
     parser = argparse.ArgumentParser()
-    parser.add_argument('csv_path', help='CSV produced by normal iDLG_mask.py gradsize_topfrac_entries_layer runs')
+    parser.add_argument('csv_path', help='CSV produced by normal stable_ginv.cli.batch gradsize_topfrac_entries_layer runs')
     parser.add_argument('--threshold_mse', type=float, default=0.01)
     parser.add_argument('--registry_path', default=None,
                         help='Masked registry JSON. Defaults to merged legacy and v2 registries from the sweep CSV.')

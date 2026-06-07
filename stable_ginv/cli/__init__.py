@@ -1,1 +1,1 @@
-"""CLI entry points for stable_ginv (Phase 6+)."""
+"""CLI entry points for stable_ginv."""

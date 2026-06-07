@@ -1,7 +1,7 @@
 """Golden test: masked registry keys are stable across all mask modes.
 
 Guards stable_ginv.registry.masked_key_from_args against accidental changes to the
-comparable-args dict or its JSON serialization during the Phase 4 registry split.
+comparable-args dict or its JSON serialization.
 """
 from types import SimpleNamespace
 

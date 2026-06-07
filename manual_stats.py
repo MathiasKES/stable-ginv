@@ -1,12 +1,12 @@
 # manual_stats.py
 """
 Manually insert per-experiment baseline (iDLG) and masked best MSE / PSNR / SSIM
-values and compute the exact same aggregate + paired statistics that
-iDLG_mask.py writes to the experiment CSV.
+values and compute the exact same aggregate + paired statistics that the batch
+runner writes to the experiment CSV.
 
 The statistics are NOT re-implemented here: this script feeds the inserted
 values through the same functions the real pipeline uses
-(functions.experiment_results + functions.io_utils), so every column matches
+(stable_ginv.experiment + stable_ginv.io), so every column matches
 exactly how it would have been produced by a real run:
 
     med_best_loss, avg_best_loss, med_best_mse, avg_best_mse,
@@ -102,21 +102,21 @@ import math
 import os
 import sys
 
-# Make `functions` / `helper` importable regardless of cwd.
+# Make the project packages importable regardless of cwd.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from functions.experiment_results import (  # noqa: E402
+from stable_ginv.experiment import (  # noqa: E402
     append_result_metrics,
     compute_aggregate_stats,
     create_metric_accumulators,
     paired_report_for_both,
 )
-from functions.io_utils import (  # noqa: E402
+from stable_ginv.io import (  # noqa: E402
     resolve_storage_paths,
     safe_chmod,
     safe_makedirs,
 )
-from helper.metrics import compute_psnr_from_mse  # noqa: E402
+from stable_ginv.metrics import compute_psnr_from_mse  # noqa: E402
 
 
 def _as_list(d, key, n):

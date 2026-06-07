@@ -20,7 +20,7 @@ p-value (0 -> 1). A dashed line marks the significance level ``alpha`` and the
 rejection region ``p < alpha`` (where normality is rejected) is shaded red.
 
 Example:
-    python helper/plot_normality_scatter.py \
+    python -m stable_ginv.viz.plot_normality_scatter \
         --results_json results/exp_results_resnet_manual.json \
         --network resnet50 \
         --out_dir results/normality \

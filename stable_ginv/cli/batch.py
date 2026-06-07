@@ -1,9 +1,12 @@
-"""iDLG masked gradient-inversion experiment entry point (Phase 6).
+"""iDLG masked gradient-inversion experiment entry point.
 
-Orchestration moved here from iDLG_mask.py: argument parsing, data loading,
-ExperimentConfig construction, scheduling via BatchExperimentRunner, result
-aggregation, registry/paired statistics, CSV output, and the final summary.
-iDLG_mask.py is now a thin wrapper around main().
+Owns the full batch run: argument parsing, data loading, ExperimentConfig
+construction, scheduling via BatchExperimentRunner, result aggregation,
+registry/paired statistics, CSV output, and the final summary.
+
+Run from the repository root with::
+
+    python -m stable_ginv.cli.batch [args]
 """
 import os
 import sys
@@ -428,3 +431,7 @@ def main():
 
         print("Memory summary:")
         print(torch.cuda.memory.memory_summary())
+
+
+if __name__ == "__main__":
+    main()

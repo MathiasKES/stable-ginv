@@ -3,7 +3,7 @@ import math
 import pytest
 import torch
 
-from helper.metrics import (
+from stable_ginv.metrics import (
     compute_grad_match_loss,
     compute_psnr_from_mse,
     compute_ssim_batch,

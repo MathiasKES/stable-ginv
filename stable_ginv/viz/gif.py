@@ -1,7 +1,7 @@
-"""Animated reconstruction-progress GIF rendering (Phase 7).
+"""Animated reconstruction-progress GIF rendering.
 
-Extracted verbatim from helper/visualization.py: builds a per-iteration grid
-(rows = experiments, cols = [Init | iDLG? | Masked? | GT]) and writes an animated GIF.
+Builds a per-iteration grid (rows = experiments, cols = [Init | iDLG? | Masked? |
+GT]) and writes an animated GIF.
 """
 import os
 

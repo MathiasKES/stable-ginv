@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from functions.experiment_results import ordered_masked_registry_lists, paired_report_for_masked
+from stable_ginv.experiment import ordered_masked_registry_lists, paired_report_for_masked
 from stable_ginv.registry import (
     baseline_key_from_args,
     find_registry_entry,

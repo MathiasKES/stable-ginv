@@ -21,8 +21,8 @@ napoleon_numpy_docstring = True
 napoleon_google_docstring = True
 autodoc_typehints = "description"
 
-# The package is near-empty in Phase 0; autodoc must not fail the build if heavy
-# optional imports are unavailable in the docs runner.
+# autodoc must not fail the build if heavy optional imports are unavailable in
+# the docs runner.
 autodoc_mock_imports = ["torch", "torchvision", "scipy", "skimage", "seaborn",
                         "matplotlib", "numpy", "imageio", "PIL", "tqdm", "pandas"]
 

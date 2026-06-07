@@ -36,7 +36,7 @@ sys.path.insert(0, os.path.join(ROOT, '..'))
 from functions.Dataset import lfw_dataset
 from helper.Network import LeNet, weights_init
 
-from functions.io_utils import setstdout
+from stable_ginv.io import setstdout
 setstdout()
 
 

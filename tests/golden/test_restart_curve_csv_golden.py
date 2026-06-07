@@ -1,4 +1,4 @@
-"""Golden test: the restart-curve CSV (with gain columns) is byte-stable across the Phase 7 split.
+"""Golden test: the restart-curve CSV (with gain columns) is byte-stable.
 
 save_restart_curve writes a CSV; for num_restarts>=3 it rewrites that CSV with paired
 restart-gain columns (gain/ci_low/ci_high/normality for PSNR and MSE, per k in {3,5,10}

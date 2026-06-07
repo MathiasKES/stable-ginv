@@ -3,39 +3,45 @@
 Research project: gradient inversion attacks on federated learning.
 Compares baseline iDLG against masked variants (selective gradient disclosure) across multiple masking strategies.
 
+The implementation lives in the `stable_ginv` package. A few dataset/model
+modules remain under the top-level `functions/` and `helper/` directories and are
+imported by the package. Run everything from the repository root (so both
+`stable_ginv` and those modules are importable; `pip install -e .` installs the
+package).
+
 ---
 
 ## Quick orientation
 
-**Entry points (project root)**
+**`stable_ginv/` — the package**
+
+| Module | Role |
+|---|---|
+| `stable_ginv/cli/batch.py` | Batch entry point (`python -m stable_ginv.cli.batch`): argument parsing, dataset loading, multiprocess dispatch, CSV+PNG+GIF output |
+| `stable_ginv/experiment/` | `BatchExperimentRunner` (GPU scheduling), `ResultAggregator`, `RestartSelector`, per-run CSV row building |
+| `stable_ginv/recon/` | Reconstruction worker: gradient computation, optimization loop, metrics, label inference, scheduler, early-stop policy. `run_single_experiment` is the multiprocessing worker entry point |
+| `stable_ginv/masking/` | All gradient masking: `build_gradient_mask`, `get_keep_ids*`, `get_entry_masks*`, `flatten_observed_gradients`, the `Masker` facade and strategy registry |
+| `stable_ginv/metrics/` | `compute_psnr_from_mse`, `compute_ssim_batch`, `total_variation`, `compute_jacobian_rank`, `compute_grad_match_loss` |
+| `stable_ginv/registry/` | iDLG-baseline and masked registries: key hashing, JSON load/save, entry updates, CSV summaries |
+| `stable_ginv/stats/` | Paired t-tests, confidence intervals, normality strings, mean/std helpers |
+| `stable_ginv/io/` | Storage-path resolution, safe filesystem writes, CSV/text helpers, `parse_prefixes_with_fracs` |
+| `stable_ginv/jacobian/` | Jacobian rank sweep — compute core + CLI (`python -m stable_ginv.jacobian.cli`), serial (`--num_workers 1`) or parallel (`--num_workers 2–4` via `mp.spawn`) |
+| `stable_ginv/viz/` | Reconstruction panels, animated GIFs, restart curves, and the `plot_*` plotting CLIs |
+| `stable_ginv/config.py` | `ExperimentConfig` frozen dataclass forwarded to the reconstruction worker |
+
+**Top-level modules still imported by the package**
 
 | File | Role |
 |---|---|
-| `iDLG_mask.py` | CLI entry point; argument parsing, dataset loading, multiprocess dispatch, CSV+PNG+GIF output |
-| `run_single_exp.py` | Worker: one experiment on one GPU; gradient computation, optimization loop, metrics |
-
-**`functions/` — core domain logic**
-
-| File | Role |
-|---|---|
-| `functions/masking.py` | All gradient masking: `build_gradient_mask`, `get_keep_ids*`, `get_entry_masks*`, `flatten_observed_gradients` |
-| `functions/io_utils.py` | Baseline registry, paired stats, CSV helpers, `parse_prefixes_with_fracs` |
 | `functions/Dataset.py` | `load_dataset()` (shared loader), `lfw_dataset()`, `_Dataset_from_Image` (private) |
 | `functions/consts.py` | Normalization constants: `{dataset}_mean`, `{dataset}_std` for cifar10, cifar100, mnist, imagenet |
-| `functions/jacobian_rank_sweep.py` | Jacobian rank sweep — serial (`--num_workers 1`) or parallel (`--num_workers 2–4` via `mp.spawn`) |
-
-**`helper/` — shared utilities**
-
-| File | Role |
-|---|---|
+| `functions/idlg_cli.py` | Argument parser for the batch CLI (`parse_idlg_args`) |
 | `helper/Network.py` | Model definitions + factory (`get_model`, `LeNet*`, `MediumCNN`, `BiggerCNN`) |
-| `helper/metrics.py` | `compute_psnr_from_mse`, `compute_ssim_batch`, `total_variation`, `compute_jacobian_rank`, `compute_grad_match_loss` |
-| `helper/training_utils.py` | `make_scheduler` |
-| `helper/visualization.py` | `save_recon_panel`, `save_recon_gif`, restart curve/image outputs |
-| `helper/plot_masking_sweep_csv.py` | Plot registry-backed `results/masking_sweeps/*.csv`; default `--threshold_mse 0.01` |
 | `helper/plots.py` | Plot layer-ablation PSNR confidence intervals for ResNet-18, VGG-11, or VGG-13 |
+| `helper/plot_registry_key_boxplots.py` | Plot paired PSNR/MSE differences for registry-keyed layer ablations |
+| `helper/make_normality_table.py` | Build a normality-summary table from results |
 
-**`archive/`** — retired scripts (not imported anywhere): `iDLG_original.py`, `run_single_exp_batch.py`, and old visualize/testing scripts.
+**`archive/`** — retired scripts (not imported anywhere), kept for reference.
 
 Paths: data → `./data` or `/work3/s234843/bachelor/datasets`; results → `./results` or `/work3/s234843/bachelor/results`. Detection is automatic via `os.access()`.
 
@@ -84,7 +90,7 @@ Two granularities: **tensor-wise** (keep whole parameter tensors) and **entry-wi
 
 ---
 
-## Key functions — functions/masking.py
+## Key functions — stable_ginv/masking/
 
 ```python
 # ── Masking entry points ──────────────────────────────────────────────────────
@@ -96,7 +102,7 @@ build_gradient_mask(method, mask_mode, net, original_dy_dx,
 # Central dispatcher. method='idlg' → keep_ids=all, no entry_masks.
 # The last FC layer is NOT force-included: it appears in the mask only if the
 # selected mode/prefixes select it. Label inference uses the original unmasked
-# FC gradient (in run_single_exp), so it works regardless of the mask.
+# FC gradient (in the reconstruction worker), so it works regardless of the mask.
 
 get_keep_ids_by_gradsize(original_dy_dx, mode, topk, top_frac,
                          metric, candidate_ids=None)
@@ -123,7 +129,11 @@ get_prefix_keep_ids(net, prefixes)                -> set
 # ── Gradient utilities ────────────────────────────────────────────────────────
 flatten_observed_gradients(grad_list, keep_ids=None, entry_masks=None) -> Tensor
 # keep_ids and entry_masks are mutually exclusive; both None → flatten all.
+```
 
+## Key functions — stable_ginv/metrics/
+
+```python
 compute_jacobian_rank(net, x_norm, y, criterion,
                       keep_ids=None, entry_masks=None,
                       max_entries=None, select_mode='topk_abs',
@@ -131,16 +141,13 @@ compute_jacobian_rank(net, x_norm, y, criterion,
   -> (rank: int, shape: tuple, used_entries: int, unknowns: int)
 # Row-by-row Jacobian build to avoid OOM.
 
-# ── Metrics ───────────────────────────────────────────────────────────────────
 compute_psnr_from_mse(mse, max_val=1.0) -> float   # 10·log₁₀(1/mse)
 total_variation(x)                       -> scalar  # L1 TV regulariser
+```
 
-# ── Network factory ───────────────────────────────────────────────────────────
-get_model(network, channel, num_classes, input_size, pretrained=False) -> nn.Module
-# Handles ALL architectures: 'LeNet','LeNet_bigger','MediumCNN','BiggerCNN'
-# and any torchvision backbone (resnet*, vgg*, wide_resnet*, densenet*).
+## Key functions — stable_ginv/viz/
 
-# ── Output ────────────────────────────────────────────────────────────────────
+```python
 save_recon_panel(params, panel_gt_pil, panel_idlg_pil, panel_masked_pil,
                  save_dir, block_idx, dataset, mask_desc, timestamp_str,
                  methods='both') -> path_str
@@ -169,7 +176,7 @@ weights_init(m)   # uniform(-0.5, 0.5) for Conv2d / Linear layers
 
 ## run_single_experiment — config keys
 
-All consumed from the `config` dict passed by `iDLG_mask.py`:
+All consumed from the `ExperimentConfig` built by `stable_ginv.cli.batch`:
 
 ```
 channel, num_classes, shape_img    dataset geometry
@@ -211,7 +218,7 @@ recon_frames                       dict {method: list of {iter,dummy,loss,mse}}
 
 ---
 
-## iDLG_mask.py — argument summary
+## CLI — argument summary (`python -m stable_ginv.cli.batch`)
 
 ```
 --dataset         MNIST|cifar10|cifar100|lfw        default: cifar100
@@ -242,9 +249,9 @@ recon_frames                       dict {method: list of {iter,dummy,loss,mse}}
 
 ## Parallelism model
 
-`iDLG_mask.py` spawns one `mp.Process` per GPU (spawn method, file_system sharing).  
-Each process calls `run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_queue)`.  
-Results arrive out-of-order via `mp.SimpleQueue`; `all_results_by_idx[idx_net]` reorders them for GIF assembly.  
+`BatchExperimentRunner` (`stable_ginv.experiment.runner`) spawns one `mp.Process` per GPU (spawn method, file_system sharing).
+Each process calls `run_single_experiment(idx_net, device_id, dst, dataset_name, config, result_queue)`.
+Results arrive out-of-order via `mp.SimpleQueue`; `all_results_by_idx[idx_net]` reorders them for GIF assembly.
 GPU count drives pool size: `min(num_gpus, num_exp)` processes start, and each freed GPU immediately takes the next experiment.
 
 ---
@@ -264,10 +271,10 @@ Dummy data is in **normalized space** throughout (not logit space). It is initia
 
 ## Early stopping signals
 
-`converged` — loss < 1e-6 at any iteration  
-`label_inference_unavailable` — final FC layer masked out (experiment skipped for that method)  
-`too_few_gradients` — observed entries < image pixel count (experiment skipped for that method)  
-`fixed_iterations` — ran to completion with no early-stop trigger  
+`converged` — loss < 1e-6 at any iteration
+`label_inference_unavailable` — final FC layer masked out (experiment skipped for that method)
+`too_few_gradients` — observed entries < image pixel count (experiment skipped for that method)
+`fixed_iterations` — ran to completion with no early-stop trigger
 
 ---
 
@@ -295,9 +302,9 @@ registry_key`
 
 - **Baseline registry is per-run-id, single-run.** `results/baselines/idlg_baselines_registry.json` stores one entry per `(hyperparams, run_id)` hash. Running `--methods idlg` or `--methods both` with a given `run_id` saves/overwrites the baseline for that slot. `--methods masked` with the same `run_id` loads it automatically.
 - **`prefix_topfrac` uses per-prefix ranking** — consistent with `prefix_topk`.
-- **Masked registry** — `results/baselines/masked_registry.json` stores per-experiment PSNR, MSE, and SSIM lists for masked runs, keyed by MD5 hash of all reconstruction + masking hyperparameters. Saved automatically by `iDLG_mask.py` at end of run. Overwriting an existing key prints a warning. Shapiro-Wilk normality test results are printed to stdout and saved in the normality CSV columns.
+- **Masked registry** — `results/baselines/masked_registry.json` stores per-experiment PSNR, MSE, and SSIM lists for masked runs, keyed by MD5 hash of all reconstruction + masking hyperparameters. Saved automatically by the batch runner at end of run. Overwriting an existing key prints a warning. Shapiro-Wilk normality test results are printed to stdout and saved in the normality CSV columns.
 - **TV normalization** — TV is computed on `dummy_data` (normalized space, same as the network input), not on the de-normalized [0,1] image. This matches Geiping et al. Use `--tv_weight 0.01` for single-image trained-network experiments (paper value); default `0.0` means no TV.
-- **FC / label-inference separation** — `build_gradient_mask()` does NOT force the final fully connected layer into the mask. The last FC gradient is used only for one-time label inference (`run_single_exp.py` reads the original unmasked FC weight gradient before masking). It enters the reconstruction loss only when the chosen mask mode/prefixes actually select it, so FC/classifier ablations are meaningful.
+- **FC / label-inference separation** — `build_gradient_mask()` does NOT force the final fully connected layer into the mask. The last FC gradient is used only for one-time label inference (the reconstruction worker reads the original unmasked FC weight gradient before masking). It enters the reconstruction loss only when the chosen mask mode/prefixes actually select it, so FC/classifier ablations are meaningful.
 - **`iters` scoping** — after early stop `break`, `iters` holds the break iteration. Final GIF frame is captured there if `_last_gif_iter != iters`.
 - **Jacobian OOM** — `jacobian_max_entries` caps the row count; rows are built one at a time.
 - **`gradsize_topk_entries` vs `gradsize_topk`** — former keeps top-K *scalar* entries; latter keeps top-K *tensors* (whole layers).

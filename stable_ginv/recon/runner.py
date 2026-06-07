@@ -1,9 +1,7 @@
 """ReconstructionRunner: the per-experiment gradient-inversion optimization loop.
 
-Moved from run_single_exp.py (Phase 5). The numeric loop body is preserved
-verbatim; only the worker entry points and import paths changed. run_single_exp.py
-remains a thin shim re-exporting run_single_experiment / _run_inner so that
-multiprocessing spawn and the recon-worker golden keep working.
+Exposes ``run_single_experiment`` (the multiprocessing worker entry point) and
+``_run_inner`` (the in-process body used by the recon-worker golden test).
 """
 import traceback
 

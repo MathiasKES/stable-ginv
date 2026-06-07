@@ -40,7 +40,8 @@ import seaborn as sns
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from functions.io_utils import find_registry_entry, resolve_storage_paths, safe_makedirs, safe_savefig
+from stable_ginv.io import resolve_storage_paths, safe_makedirs, safe_savefig
+from stable_ginv.registry import find_registry_entry
 
 
 METRICS = {

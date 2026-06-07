@@ -1,7 +1,7 @@
 """Golden test: every mask mode yields identical keep_ids / entry_masks.
 
 Hashes the masking output for a fixed LeNet + fixed gradients across all modes.
-Refactoring the masking layer (Phase 3) must not change any hash.
+Refactoring the masking layer must not change any hash.
 """
 import hashlib
 

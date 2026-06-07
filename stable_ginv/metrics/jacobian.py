@@ -12,7 +12,7 @@ _SCIPY_LINALG_IMPORT_ERROR = None
 def _load_scipy_linalg():
     """Import scipy.linalg only when QR pivoting is requested; return None if unavailable.
 
-    Mirrors the lazy scipy.stats loader in functions/io_utils.py. Normal
+    Mirrors the lazy scipy.stats loader in stable_ginv.io. Normal
     reconstruction runs never need QR pivoting, so deferring this import keeps
     scipy.linalg out of worker startup, where an older system C++ runtime can
     make the import fail.

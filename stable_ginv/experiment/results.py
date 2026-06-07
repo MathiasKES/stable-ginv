@@ -344,7 +344,7 @@ def paired_report_for_masked(all_results_by_idx, baseline_entry, run_id):
 
 
 def compute_aggregate_stats(accumulators):
-    """Compute all aggregate statistics printed and written by iDLG_mask.py."""
+    """Compute all aggregate statistics printed and written by the batch runner."""
     return {
         "avg_psnr_idlg": mean_or_nan(accumulators["psnr_idlg"]),
         "avg_psnr_masked": mean_or_nan(accumulators["psnr_masked"]),
@@ -600,8 +600,7 @@ class ResultAggregator:
 
     Thin façade over the module-level accumulator helpers: holds the dict produced
     by create_metric_accumulators() and delegates to append_result_metrics() /
-    compute_aggregate_stats(), so behavior matches the original iDLG_mask.py inline
-    calls exactly.
+    compute_aggregate_stats().
     """
 
     def __init__(self):

@@ -1,9 +1,9 @@
 """stable_ginv: gradient-inversion masking experiments.
 
-Target home for the OOP restructure (see
-docs/superpowers/specs/2026-06-04-code-structure-design.md). During the
-incremental migration this package grows phase by phase; existing top-level
-modules (functions/, helper/) keep working until each is migrated.
+The package holds the experiment runner, reconstruction loop, masking
+strategies, metrics, registries, statistics, I/O helpers, the Jacobian rank
+sweep, and the plotting tools. A few dataset/model modules still live under the
+top-level ``functions/`` and ``helper/`` directories and are imported from here.
 """
 
 __version__ = "0.0.0"

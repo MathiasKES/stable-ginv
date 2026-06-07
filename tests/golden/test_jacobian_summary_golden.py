@@ -1,5 +1,4 @@
-"""Golden test: the Jacobian-sweep mean/std summarization is numerically stable
-across the Phase 8 move.
+"""Golden test: the Jacobian-sweep mean/std summarization is numerically stable.
 
 `_summarize_rank_results` converts per-sample rank lists into the mean/std series
 that the sweep CLI writes to its CSV and plots. The synthetic inputs make the

@@ -12,13 +12,13 @@ FC is always kept for iDLG label inference regardless of this flag.
 
 Run examples:
   # topk_abs, FC excluded — clean rank->reconstruction figure
-  python3 -m functions.rank_reconstruction_plot --select_mode topk_abs --exclude_fc --row_counts 3072,4000,5000,5500,6000,7000 --sample_idx 12196 --seed 1 --output rank_recon_topk_nofc.png
+  python3 -m stable_ginv.viz.plot_rank_reconstruction --select_mode topk_abs --exclude_fc --row_counts 3072,4000,5000,5500,6000,7000 --sample_idx 12196 --seed 1 --output rank_recon_topk_nofc.png
 
   # topk_abs, FC in pool — rank not sufficient figure
-  python3 -m functions.rank_reconstruction_plot --select_mode topk_abs --row_counts 3072,5000,6000,7000 --sample_idx 12196 --seed 1 --output rank_recon_topk_fc.png
+  python3 -m stable_ginv.viz.plot_rank_reconstruction --select_mode topk_abs --row_counts 3072,5000,6000,7000 --sample_idx 12196 --seed 1 --output rank_recon_topk_fc.png
 
   # gradsize_topfrac_entries_layer, FC excluded — matches masking experiments
-  python3 -m functions.rank_reconstruction_plot --select_mode gradsize_topfrac_entries_layer --exclude_fc --topfrac_values 1.0,0.7,0.5,0.3,0.1 --sample_idx 12196 --seed 1 --output rank_recon_topfrac_nofc.png
+  python3 -m stable_ginv.viz.plot_rank_reconstruction --select_mode gradsize_topfrac_entries_layer --exclude_fc --topfrac_values 1.0,0.7,0.5,0.3,0.1 --sample_idx 12196 --seed 1 --output rank_recon_topfrac_nofc.png
 """
 
 import argparse
