@@ -1,0 +1,5 @@
+/* Let the content area fill the full width of its wrapper instead of the
+   sphinx_rtd_theme default 800px cap on .wy-nav-content. */
+.wy-nav-content {
+    max-width: none;
+}
