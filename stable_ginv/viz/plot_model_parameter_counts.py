@@ -128,7 +128,7 @@ def save_parameter_count_plot(counts, output_path):
     width = 0.36
 
     sns.set_theme(style="whitegrid", context="paper")
-    fig, ax = plt.subplots(figsize=(8, 5))
+    fig, ax = plt.subplots(figsize=(9, 5.5))
     palette = sns.color_palette()
     total_bars = ax.bar(
         positions - width / 2,
@@ -150,21 +150,24 @@ def save_parameter_count_plot(counts, output_path):
     ax.set_ylabel("Parameters (millions)")
     ax.set_xticks(positions, labels)
     ax.set_yscale("log")
-    ax.set_ylim(bottom=min(backbone_counts_millions) * 0.35)
+    backbone_min = min(backbone_counts_millions)
+    overall_max = max(total_counts_millions + backbone_counts_millions)
+    ax.set_ylim(bottom=backbone_min * 0.35, top=overall_max * 3.0)
     ax.legend(loc="upper left")
     ax.bar_label(
         total_bars,
         labels=[f"{count:,}" for count in total_counts],
-        padding=3,
+        padding=8,
         fontsize=7,
+        rotation=25,
     )
     ax.bar_label(
         backbone_bars,
         labels=[f"{count:,}" for count in backbone_counts],
-        padding=3,
+        padding=8,
         fontsize=7,
+        rotation=25,
     )
-    ax.margins(y=0.18)
     fig.tight_layout()
 
     saved = safe_savefig(fig, output_path, dpi=300, bbox_inches="tight")
