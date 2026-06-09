@@ -33,6 +33,10 @@ html_theme = "sphinx_rtd_theme"
 html_static_path = ["_static"]
 html_css_files = ["custom.css"]
 
+# Files in _extra are copied verbatim to the site root, so thesis.pdf is served
+# at <site>/thesis.pdf rather than under _static/.
+html_extra_path = ["_extra"]
+
 intersphinx_mapping = {"python": ("https://docs.python.org/3", None)}
 
 # stable_ginv/viz/plot_rank_reconstruction.py reuses its module docstring verbatim
