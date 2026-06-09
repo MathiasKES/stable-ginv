@@ -47,7 +47,7 @@ def save_recon_gif(
             if n > max_frames:
                 max_frames = n
 
-    cols = ["init"]
+    cols = []
     if show_idlg:
         cols.append("iDLG")
     if show_masked:
@@ -57,24 +57,37 @@ def save_recon_gif(
 
     both = show_idlg and show_masked
     col_title = {
-        "init": "Random Init",
-        "iDLG": "iDLG" if both else "Recovered",
+        #"init": "Random Init",
+        "iDLG": "Unmasked" if both else "Recovered",
         "masked": "Masked" if both else "Recovered",
         "GT": "Ground Truth",
     }
 
-    total_frames = max_frames + 5
+    # total_frames = max_frames + 5
+
+    # gif_frames = []
+    # for t in range(total_frames):
+    #     frame_t = min(t, max_frames - 1)
+
+    max_gif_frames = None   # cap rendered frames (set None to show all)
+    tail_frames = 40       # hold the final frame this many extra frames
+    if max_gif_frames is not None and max_frames > max_gif_frames:
+        sel = np.linspace(0, max_frames - 1, max_gif_frames)
+        frame_indices = sorted({int(round(i)) for i in sel})
+    else:
+        frame_indices = list(range(max_frames))
+    if frame_indices:
+        frame_indices += [frame_indices[-1]] * max(0, tail_frames)
 
     gif_frames = []
-    for t in range(total_frames):
-        frame_t = min(t, max_frames - 1)
+    for frame_t in frame_indices:
 
         fig_w = max(4.0, 1.8 * n_cols + 0.6)
         fig_h = max(3.0, 1.8 * n_exp + 0.4)
         fig, axes = plt.subplots(
             n_exp, n_cols, figsize=(fig_w, fig_h),
             squeeze=False,
-            gridspec_kw={'hspace': 0.45, 'wspace': 0.05},
+            gridspec_kw={'hspace': 0.2, 'wspace': 0},
         )
 
         frame_iter = 0
@@ -92,9 +105,9 @@ def save_recon_gif(
         cmap = 'gray' if dataset == 'MNIST' else None
 
         for row_idx, result in enumerate(results_list):
-            y_pos = 1.0 - (row_idx + 0.5) / n_exp
-            fig.text(0.005, y_pos, f"Exp {row_idx}", va='center', ha='left',
-                     fontsize=6, fontweight='bold')
+            # y_pos = 1.0 - (row_idx + 0.5) / n_exp
+            # fig.text(0.005, y_pos, f"Exp {row_idx}", va='center', ha='left',
+            #          fontsize=6, fontweight='bold')
 
             for col_idx, col in enumerate(cols):
                 ax = axes[row_idx, col_idx]
@@ -142,10 +155,11 @@ def save_recon_gif(
                     if row_idx == 0:
                         ax.set_title(col_title.get(col, col), fontsize=7, pad=2)
 
-        plt.tight_layout(rect=(0.04, 0.0, 1.0, 0.96))
+        #plt.tight_layout(rect=(0.0, 0.0, 1.0, 0.96))
+        fig.subplots_adjust(left=0.02, right=0.88, top=0.91, bottom=0.08, hspace=0.2, wspace=0)
 
         buf = io.BytesIO()
-        plt.savefig(buf, format='png', dpi=125, bbox_inches='tight')
+        plt.savefig(buf, format='png', dpi=125)
         plt.close(fig)
         buf.seek(0)
         gif_frames.append(PILImage.open(buf).copy())
@@ -162,14 +176,33 @@ def save_recon_gif(
     parent = os.path.dirname(out_path)
     if parent and not safe_makedirs(parent):
         return None
+    # try:
+    #     gif_frames[0].save(
+    #         out_path,
+    #         save_all=True,
+    #         append_images=gif_frames[1:],
+    #         duration=duration_ms,
+    #         loop=0,
+    #         optimize=False,
+    #     )
+    # except OSError as e:
+    # GIF allows only 256 colors/frame. Quantizing each frame independently (with
+    # dithering) makes identical pixels — like the static GT — map to different
+    # palette colors each frame, which looks like flickering. Build ONE shared
+    # palette and map every frame to it with no dithering so static regions are stable.
+    rgb_frames = [f.convert("RGB") for f in gif_frames]
+    palette = rgb_frames[-1].quantize(colors=256, method=PILImage.MEDIANCUT,
+                                      dither=PILImage.NONE)  # final frame has the true colors
+    pal_frames = [f.quantize(palette=palette, dither=PILImage.NONE) for f in rgb_frames]
     try:
-        gif_frames[0].save(
+        pal_frames[0].save(
             out_path,
             save_all=True,
-            append_images=gif_frames[1:],
+            append_images=pal_frames[1:],
             duration=duration_ms,
             loop=0,
             optimize=False,
+            disposal=1,
         )
     except OSError as e:
         print(f"[WARNING] Failed to save GIF {out_path}: {e}")

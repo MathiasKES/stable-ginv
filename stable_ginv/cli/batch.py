@@ -169,7 +169,7 @@ def main():
     SAVE_GIF = args.save_gif
     Iteration = args.iteration
     FRAME_INTERVAL = max(1, (Iteration + 79) // 80)  # target ≤80 frames → ≤10 s at 8 fps
-    GIF_FPS = 8
+    GIF_FPS = 24
     COMPUTE_JACOBIAN_RANK = args.compute_jacobian_rank
     JACOBIAN_MAX_ENTRIES = args.jacobian_max_entries
     JACOBIAN_SELECT_MODE = args.jacobian_select_mode
