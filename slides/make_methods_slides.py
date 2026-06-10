@@ -236,11 +236,11 @@ _bullets(s, Inches(0.6), Inches(1.7), Inches(6.0), Inches(5.0), [
     (1, "MSE ≥ 0 is right-skewed; PSNR’s log10 compresses the tail, so it "
         "is more likely to pass the test.", False),
 ], size=16, gap=9)
-_img_fit(s, ASSETS / "normality_schematic.png",
-         Inches(6.75), Inches(2.2), Inches(6.2), Inches(3.4))
-_text(s, Inches(6.75), Inches(5.55), Inches(6.2), Inches(0.5),
-      [("Schematic — illustrates the distribution-shape argument, "
-        "not measured data.", 10.5, False, SLATE, True)],
+_img_fit(s, ASSETS / "normality_per_metric_slide.png",
+         Inches(6.75), Inches(2.5), Inches(6.2), Inches(2.9))
+_text(s, Inches(6.75), Inches(5.45), Inches(6.2), Inches(0.5),
+      [("Real data: ResNet-18, mask = layer4, n = 30. Per-image differences "
+        "(masked − baseline); reproduces Appendix C.", 10.5, False, SLATE, True)],
       align=PP_ALIGN.CENTER)
 _footer(s, "4")
 
